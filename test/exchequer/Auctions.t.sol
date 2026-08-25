@@ -1,0 +1,284 @@
+// SPDX-License-Identifier: ekubo-license-v1.eth
+pragma solidity =0.8.33;
+
+import {ExchequerBase} from "./ExchequerBase.sol";
+import {Exchequer} from "../../src/exchequer/Exchequer.sol";
+import {ExchequerAuctions} from "../../src/exchequer/ExchequerAuctions.sol";
+import {GENESIS_LIQUIDITY, ISSUANCE_BUDGET} from "../../src/libraries/ExchequerMath.sol";
+
+contract AuctionsTest is ExchequerBase {
+    uint256 internal constant BRANCH = 1e18;
+
+    function setUp() public override {
+        super.setUp();
+
+        // The whole founding distribution, so one branch's yield is a tractable number
+        giveShares(alice, 1_000 * BRANCH);
+
+        // Start every auction test at an exact day boundary
+        vm.warp(((vm.getBlockTimestamp() / 1 days) + 1) * 1 days);
+
+        // Alice retires a tenth of her bank so she has currency to bid with
+        vm.prank(alice);
+        bank.withdraw(100 * BRANCH, alice);
+
+        vm.prank(alice);
+        issue.approve(address(auctions), type(uint256).max);
+    }
+
+    /// THE LICENSE AUCTION
+
+    function test_the_floor_is_two_days_of_one_branchs_yield() public view {
+        assertEq(lens.licenseFloor(auctions), lens.dailyYieldPerShare(bank) * 2, "two days of yield");
+    }
+
+    function test_a_fresh_day_opens_at_twice_the_floor() public view {
+        assertEq(lens.licenseStartPrice(auctions), lens.licenseFloor(auctions) * 2, "nothing sold yesterday");
+        assertEq(lens.licensePrice(auctions), lens.licenseStartPrice(auctions), "at the open, price is the open");
+    }
+
+    function test_the_price_decays_to_the_floor_across_the_day() public {
+        uint256 open = lens.licensePrice(auctions);
+
+        vm.warp(vm.getBlockTimestamp() + 12 hours);
+        uint256 midday = lens.licensePrice(auctions);
+
+        // The floor tracks the issuance rate, which the epoch boundary just cut, so the curve's
+        // endpoints have to be read at the same instant as the price being checked
+        assertApproxEqRel(
+            midday * midday, lens.licenseStartPrice(auctions) * lens.licenseFloor(auctions), 1e12, "exponential decay"
+        );
+
+        vm.warp(vm.getBlockTimestamp() + 11 hours + 59 minutes);
+        uint256 late = lens.licensePrice(auctions);
+
+        assertLt(midday, open, "the price falls");
+        assertLt(late, midday, "and keeps falling");
+        assertApproxEqRel(late, lens.licenseFloor(auctions), 0.01e18, "approaching the floor");
+    }
+
+    function test_buying_a_license_burns_the_payment_and_opens_a_branch() public {
+        uint256 price = lens.licensePrice(auctions);
+        uint256 burnedBefore = issue.totalBurned();
+        uint256 sharesBefore = bankToken.balanceOf(alice);
+
+        vm.prank(alice);
+        uint256 paid = auctions.buyLicenses(1, type(uint256).max);
+
+        assertEq(paid, price, "paid the posted price");
+        assertEq(issue.totalBurned() - burnedBefore, price, "every token spent this way is burned");
+        assertEq(bankToken.balanceOf(alice) - sharesBefore, BRANCH, "one new branch");
+    }
+
+    function test_expansion_shrinks_the_float() public {
+        uint256 supplyBefore = issue.totalSupply();
+        uint256 ceilingBefore = issue.maxSupply();
+
+        vm.prank(alice);
+        auctions.buyLicenses(1, type(uint256).max);
+
+        assertLt(issue.totalSupply(), supplyBefore, "the float shrank");
+        assertLt(issue.maxSupply(), ceilingBefore, "permanently");
+    }
+
+    function test_the_daily_supply_is_capped() public {
+        // Earn and retire enough to clear a hundred licenses, then bid late in the day when the
+        // decaying price has come down to meet the floor
+        vm.warp(((vm.getBlockTimestamp() / 1 days) + 3) * 1 days);
+        vm.prank(alice);
+        bank.withdraw(100 * BRANCH, alice);
+        vm.warp(vm.getBlockTimestamp() + 23 hours);
+
+        assertEq(lens.licensesRemaining(auctions), 100, "a hundred a day");
+
+        vm.prank(alice);
+        auctions.buyLicenses(100, type(uint256).max);
+
+        assertEq(lens.licensesRemaining(auctions), 0, "sold out");
+
+        vm.prank(alice);
+        vm.expectRevert(ExchequerAuctions.SoldOutForToday.selector);
+        auctions.buyLicenses(1, type(uint256).max);
+    }
+
+    function test_unsold_licenses_do_not_roll_over() public {
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        assertEq(lens.licensesRemaining(auctions), 100, "tomorrow starts fresh, not at two hundred");
+    }
+
+    function test_tomorrow_opens_at_twice_todays_close() public {
+        vm.warp(vm.getBlockTimestamp() + 20 hours);
+
+        vm.prank(alice);
+        uint256 close = auctions.buyLicenses(1, type(uint256).max);
+
+        vm.warp(((vm.getBlockTimestamp() / 1 days) + 1) * 1 days);
+
+        assertEq(lens.licenseStartPrice(auctions), close * 2, "twice yesterday's close");
+    }
+
+    function test_a_second_sale_in_the_same_day_decays_from_the_same_open() public {
+        // Earn a few more days of issuance so two licenses are affordable
+        vm.warp(((vm.getBlockTimestamp() / 1 days) + 3) * 1 days);
+        vm.prank(alice);
+        bank.withdraw(100 * BRANCH, alice);
+
+        uint256 open = lens.licenseStartPrice(auctions);
+
+        vm.warp(vm.getBlockTimestamp() + 2 hours);
+        vm.prank(alice);
+        uint256 first = auctions.buyLicenses(1, type(uint256).max);
+
+        // The day's open is pinned by its first sale, so it does not collapse to twice the floor
+        assertEq(lens.licenseStartPrice(auctions), open, "the open holds for the day");
+
+        vm.warp(vm.getBlockTimestamp() + 2 hours);
+        vm.prank(alice);
+        uint256 second = auctions.buyLicenses(1, type(uint256).max);
+
+        assertLt(second, first, "later in the day is cheaper");
+        assertGt(second, lens.licenseFloor(auctions), "but still above the floor");
+        (uint256 lastClose,) = lens.licenseLastClose(auctions);
+        assertEq(lastClose, second, "the last sale sets tomorrow's anchor");
+    }
+
+    function test_a_day_with_no_sales_reopens_from_the_floor() public {
+        vm.warp(vm.getBlockTimestamp() + 20 hours);
+        vm.prank(alice);
+        auctions.buyLicenses(1, type(uint256).max);
+
+        // Skip a whole day without a sale
+        vm.warp(((vm.getBlockTimestamp() / 1 days) + 2) * 1 days);
+
+        assertEq(lens.licenseStartPrice(auctions), lens.licenseFloor(auctions) * 2, "back to twice the floor");
+    }
+
+    function test_a_buyer_can_bound_the_price_they_accept() public {
+        uint256 price = lens.licensePrice(auctions);
+
+        vm.prank(alice);
+        vm.expectRevert(ExchequerAuctions.PriceExceededLimit.selector);
+        auctions.buyLicenses(1, price - 1);
+    }
+
+    function test_the_floor_scales_with_the_issuance_rate() public {
+        uint256 floorAtLaunch = lens.licenseFloor(auctions);
+
+        // Drive the multiplier to its floor with sustained silence
+        vm.warp(vm.getBlockTimestamp() + 40 days);
+        bank.accrue();
+
+        assertLt(lens.licenseFloor(auctions), floorAtLaunch, "a cheaper rate means cheaper licenses");
+    }
+
+    /// THE CHARTER AUCTION
+
+    function test_the_charter_auction_starts_disabled() public {
+        assertEq(lens.chartersPerDay(auctions), 0, "the count per day starts at zero");
+
+        vm.expectRevert(ExchequerAuctions.CharterAuctionDisabled.selector);
+        auctions.buyCharters{value: 1 ether}(1, type(uint256).max);
+    }
+
+    function test_only_the_owner_sets_charter_policy() public {
+        vm.expectRevert(ExchequerAuctions.Unauthorized.selector);
+        auctions.setCharterPolicy(5, 0.01 ether);
+    }
+
+    function test_charter_policy_belongs_to_the_banks_owner_and_dies_with_it() public {
+        // The auctions have no owner of their own: whoever owns the bank sets policy
+        vm.prank(owner);
+        auctions.setCharterPolicy(5, 0.01 ether);
+
+        vm.prank(owner);
+        bank.renounceOwnership();
+
+        // Renouncing the bank froze the auctions too; there is one authority in this economy
+        vm.prank(owner);
+        vm.expectRevert(ExchequerAuctions.Unauthorized.selector);
+        auctions.setCharterPolicy(50, 0.01 ether);
+    }
+
+    function test_an_open_charter_auction_needs_a_real_reserve() public {
+        // A zero reserve would mint shares for nothing
+        vm.prank(owner);
+        vm.expectRevert(ExchequerAuctions.InvalidCharterPolicy.selector);
+        auctions.setCharterPolicy(5, 0);
+
+        // Closing the auction needs no reserve
+        vm.prank(owner);
+        auctions.setCharterPolicy(0, 0);
+    }
+
+    function test_charter_supply_per_day_is_capped() public {
+        uint256 tooMany = lens.maxChartersPerDay(auctions) + 1;
+
+        vm.prank(owner);
+        vm.expectRevert(ExchequerAuctions.InvalidCharterPolicy.selector);
+        auctions.setCharterPolicy(tooMany, 0.01 ether);
+    }
+
+    function test_a_charter_mints_a_bank_and_pays_the_fee_engine() public {
+        vm.prank(owner);
+        auctions.setCharterPolicy(5, 0.01 ether);
+
+        uint256 price = lens.charterPrice(auctions);
+        assertEq(price, 0.03 ether, "opens at three times the reserve");
+
+        uint128 revenueBefore = lens.epochRevenueEth(bank);
+        uint256 sharesBefore = bankToken.balanceOf(bob);
+
+        vm.prank(bob);
+        uint256 paid = auctions.buyCharters{value: price}(1, type(uint256).max);
+
+        assertEq(bankToken.balanceOf(bob) - sharesBefore, BRANCH, "the first branch is included");
+        assertEq(lens.epochRevenueEth(bank) - revenueBefore, paid, "the ETH joined the fee engine");
+    }
+
+    function test_a_charter_buyer_is_refunded_the_difference() public {
+        vm.prank(owner);
+        auctions.setCharterPolicy(5, 0.01 ether);
+
+        uint256 price = lens.charterPrice(auctions);
+        uint256 balanceBefore = bob.balance;
+
+        vm.prank(bob);
+        auctions.buyCharters{value: 1 ether}(1, type(uint256).max);
+
+        assertEq(balanceBefore - bob.balance, price, "only the price was taken");
+    }
+
+    function test_charters_reprice_faster_than_licenses() public {
+        vm.prank(owner);
+        auctions.setCharterPolicy(5, 0.01 ether);
+
+        vm.warp(vm.getBlockTimestamp() + 20 hours);
+        vm.prank(bob);
+        uint256 close = auctions.buyCharters{value: 1 ether}(1, type(uint256).max);
+
+        vm.warp(((vm.getBlockTimestamp() / 1 days) + 1) * 1 days);
+
+        // Scarce seats reprice into demand faster than a daily commodity: three times, not twice
+        assertEq(lens.charterStartPrice(auctions), close * 3, "three times yesterday's close");
+    }
+
+    function test_the_charter_daily_supply_is_capped() public {
+        vm.prank(owner);
+        auctions.setCharterPolicy(2, 0.01 ether);
+
+        vm.deal(bob, 100 ether);
+        vm.prank(bob);
+        auctions.buyCharters{value: 10 ether}(2, type(uint256).max);
+
+        assertEq(lens.chartersRemaining(auctions), 0, "sold out for today");
+
+        vm.prank(bob);
+        vm.expectRevert(ExchequerAuctions.SoldOutForToday.selector);
+        auctions.buyCharters{value: 10 ether}(1, type(uint256).max);
+    }
+
+    function test_only_the_auctions_contract_can_open_branches() public {
+        vm.expectRevert();
+        bank.openBranches(alice, BRANCH);
+    }
+}

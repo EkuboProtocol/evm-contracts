@@ -1,7 +1,10 @@
 # Exchequer — a sovereign onchain central bank on Ekubo
 
 An implementation of the [Standard whitepaper](https://www.standardreserve.xyz/whitepaper/) (v0.1)
-built as an Ekubo Core extension rather than a Uniswap v4 hook.
+built as an Ekubo Core extension rather than a Uniswap v4 hook. The self-contained description of
+this implementation — its mechanisms, arithmetic, threat model and parameters — is the
+[Exchequer whitepaper](../exchequer-whitepaper.md); this document is the engineering companion,
+organised around what differs from the source design and why.
 
 Exchequer is a closed monetary economy with one currency (`$ISSUE`), one market (an ETH/`$ISSUE`
 pool whose extension is the central bank), one policy signal (net ETH flow through that market), and

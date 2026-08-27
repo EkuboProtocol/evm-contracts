@@ -1,0 +1,5 @@
+{
+  "rules": {
+    "code-complexity": ["warn", 7]
+  }
+}

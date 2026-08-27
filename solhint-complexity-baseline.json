@@ -1,0 +1,46 @@
+{
+  "src/Auctions.sol": [
+    13
+  ],
+  "src/base/BasePositions.sol": [
+    15
+  ],
+  "src/base/BaseRouter.sol": [
+    31
+  ],
+  "src/Core.sol": [
+    25,
+    9
+  ],
+  "src/extensions/MEVCapture.sol": [
+    10
+  ],
+  "src/extensions/SignedExclusiveSwap.sol": [
+    12
+  ],
+  "src/extensions/TWAMM.sol": [
+    21,
+    11
+  ],
+  "src/extensions/Ve33.sol": [
+    13,
+    8
+  ],
+  "src/lens/TokenDataFetcher.sol": [
+    10
+  ],
+  "src/libraries/TimeDescriptor.sol": [
+    13
+  ],
+  "src/math/exp2.sol": [
+    65
+  ],
+  "src/Ve33Positions.sol": [
+    16
+  ],
+  "src/VeTokenMetadata.sol": [
+    64,
+    12,
+    11
+  ]
+}

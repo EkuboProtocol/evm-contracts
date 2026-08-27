@@ -43,6 +43,10 @@ jobs:
           forge build --sizes
         id: build
 
+      - name: Check cyclomatic complexity
+        run: node bin/check-complexity.mjs
+        id: complexity
+
       - name: Run DeployAll script
         run: |
           forge script script/DeployAll.s.sol

@@ -1,0 +1,12 @@
+{
+  "name": "ekubo-evm-contracts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "bun bin/check-complexity.ts",
+    "lint:update": "bun bin/check-complexity.ts --update"
+  },
+  "devDependencies": {
+    "solhint": "6.2.4"
+  }
+}

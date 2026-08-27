@@ -22,3 +22,6 @@ docs/
 
 # Gas snapshot file (snapshots/ directory is tracked instead)
 .gas-snapshot
+
+# Node/Bun dependencies for bin/check-complexity.ts
+node_modules/

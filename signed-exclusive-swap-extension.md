@@ -52,21 +52,22 @@ where:
 
 1. Caller holds a lock and forwards to extension.
 2. Extension validates:
-   - deadline from `meta` has not expired,
+   - deadline from `meta` has not expired, and is no further than 30 days in the future,
    - locker authorization from `meta`,
-   - nonce has not already been used,
    - signature against the pool controller stored in per-pool state.
+   (The nonce is not pre-checked on the forward path; reuse is rejected when the nonce is consumed in step 6.)
 3. Extension accumulates pending extension fees for the pool if this is the first touch in the block.
 4. Extension executes `CORE.swap(...)`.
-5. Extension applies `fee` to the swapper result:
+5. Extension checks `actualBalanceUpdate >= minBalanceUpdate` component-wise (`delta0` and `delta1`) on the raw result returned by Core, before any fee is applied.
+6. Extension consumes the nonce. This happens only after the bounds check passes, so a swap that violates its bounds costs less gas and does not burn the nonce.
+7. Extension applies `fee` to the swapper result:
    - exact-in: fee is charged on output amount,
    - exact-out: fee is charged on required input amount.
-6. Extension checks `actualBalanceUpdate >= minBalanceUpdate` component-wise (`delta0` and `delta1`).
-7. Charged fee is stored in Core saved balances under the extension owner.
+8. Charged fee is stored in Core saved balances owned by the extension itself, salted by the pool ID, and is later donated to that pool's LPs.
 
 ## Why `minBalanceUpdate` is useful
 
-`minBalanceUpdate` is a signed lower bound on the final `PoolBalanceUpdate` returned by the extension, and it is part of the signed payload.
+`minBalanceUpdate` is a signed lower bound on the `PoolBalanceUpdate` that Core returns for the swap, checked before the signed fee is applied, and it is part of the signed payload.
 
 It provides four protections at once:
 - Direction enforcement: by requiring the expected leg to be positive/negative as appropriate, it prevents a fill that moves value in the wrong direction.
@@ -78,16 +79,18 @@ It provides four protections at once:
 
 The extension does not immediately donate its signed fee to LPs.
 
-Instead, on first touch in a new block (`swap`, `beforeUpdatePosition`, or `beforeCollectFees` path), it:
+Instead, on a pool's first touch at a new block *timestamp* (`swap`, `beforeUpdatePosition`, or `beforeCollectFees` path, or the public `accumulatePoolFees`), it:
 - donates previously collected extension fees into pool LP accounting,
-- records the pool as updated for the current block.
+- records the pool as updated for the current block timestamp.
 
-This prevents same-block liquidity changes from capturing fees that were earned in prior blocks.
+This prevents liquidity from being added purely to capture fees that were earned earlier. Note that the gate is the block timestamp, not the block number, so on chains that produce more than one block per second donation happens at most once per second.
 
 ## Replay protection
 
 Each signed quote includes a nonce, and the extension enforces one-time use.
 If a nonce has already been consumed, the swap is rejected.
+
+The nonce `type(uint64).max` is a reserved, reusable sentinel: it is never consumed, so a signature carrying it can be replayed without limit until its deadline passes. Issue it only when unlimited reuse within the deadline is intended.
 
 Nonce lifecycle/reuse strategy is handled off-chain by the controller/signer:
 - track nonces that were used on-chain,
@@ -113,5 +116,9 @@ These controls reduce the value of quote farming and make selective execution ma
 - Contract is `Ownable`.
 - Owner initializes pools by setting a `ControllerAddress controller` via `initializePool(poolKey, tick, controller)`; the EOA/contract flag is encoded in the controller address (high bit at position 159).
 - Direct `Core.initializePool(...)` for this extension is blocked by `beforeInitializePool`.
-- Owner can update per-pool controller for already initialized pools.
-- Controller signatures support both EOAs and ERC-1271 contract wallets.
+- Owner can update per-pool controller for already initialized pools via `setPoolController(...)`.
+- Controller signatures support both EOAs and ERC-1271 contract wallets; which path is used is determined by bit 159 of the controller address itself, not a separate flag. Addresses below `2^159` are verified via ECDSA, addresses at or above it via ERC-1271. Initialization and controller updates enforce that the address's code presence matches the encoded type.
+
+## Broadcasting quotes
+
+`broadcastSignedSwaps(SignedSwapBroadcast[])` is a permissionless entrypoint that validates a batch of signed payloads (deadline window, nonce still available, signature against the pool's current controller) and emits one `SignedSwapBroadcasted` event per valid payload. It executes nothing and consumes no nonces; it exists so a controller can publish live quotes on-chain for takers to discover. The whole call reverts if any payload fails validation.

@@ -56,7 +56,7 @@ where:
    - locker authorization from `meta`,
    - signature against the pool controller stored in per-pool state.
    (The nonce is not pre-checked on the forward path; reuse is rejected when the nonce is consumed in step 6.)
-3. Extension accumulates pending extension fees for the pool if this is the first touch in the block.
+3. Extension accumulates pending extension fees for the pool if this is the pool's first touch at the current block timestamp.
 4. Extension executes `CORE.swap(...)`.
 5. Extension checks `actualBalanceUpdate >= minBalanceUpdate` component-wise (`delta0` and `delta1`) on the raw result returned by Core, before any fee is applied.
 6. Extension consumes the nonce. This happens only after the bounds check passes, so a swap that violates its bounds costs less gas and does not burn the nonce.

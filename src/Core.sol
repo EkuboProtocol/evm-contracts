@@ -538,7 +538,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             uint64 swapFee = config.fee();
             assembly ("memory-safe") {
                 // the pool's own fee is always a valid 0.64 number, so a minimum that does not raise
-                // the fee needs no range check and the common path is a single comparison
+                // the fee needs no range check and the common path is a single comparison. A
+                // branchless max costs more here, whether written out or taken from
+                // FixedPointMathLib: the branch is almost never taken, and skipping the range check
+                // under it is worth more than the jump.
                 if gt(minimumFee, swapFee) {
                     // a fee is a 0.64 number, so anything wider than that is a caller error
                     if shr(64, minimumFee) {

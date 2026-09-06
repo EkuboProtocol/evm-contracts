@@ -8,14 +8,13 @@ import {SignedSwapMeta} from "../../types/signedSwapMeta.sol";
 import {Bitmap} from "../../types/bitmap.sol";
 import {SqrtRatio} from "../../types/sqrtRatio.sol";
 import {ControllerAddress} from "../../types/controllerAddress.sol";
-import {SignedExclusiveSwapPoolState} from "../../types/signedExclusiveSwapPoolState.sol";
-import {ILocker, IForwardee} from "../IFlashAccountant.sol";
+import {IForwardee} from "../IFlashAccountant.sol";
 import {IExtension} from "../ICore.sol";
 import {IExposedStorage} from "../IExposedStorage.sol";
 
 /// @title Signed Exclusive Swap Interface
 /// @notice Extension that enforces forward-only swaps and applies signed, per-swap fee controls.
-interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtension {
+interface ISignedExclusiveSwap is IExposedStorage, IForwardee, IExtension {
     struct SignedSwapBroadcast {
         PoolId poolId;
         SignedSwapMeta meta;
@@ -23,8 +22,8 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
         bytes signature;
     }
 
-    /// @notice Emitted when a pool state is updated.
-    event PoolStateUpdated(PoolId indexed poolId, SignedExclusiveSwapPoolState poolState);
+    /// @notice Emitted when a pool's controller is set or changed.
+    event PoolControllerUpdated(PoolId indexed poolId, ControllerAddress controller);
     /// @notice Emitted when a signed swap payload is validated and broadcast.
     event SignedSwapBroadcasted(
         PoolId indexed poolId, SignedSwapMeta meta, PoolBalanceUpdate minBalanceUpdate, bytes signature
@@ -70,9 +69,6 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
     function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller)
         external
         returns (SqrtRatio sqrtRatio);
-
-    /// @notice Public entrypoint to donate pending extension-collected fees to LPs.
-    function accumulatePoolFees(PoolKey memory poolKey) external;
 
     /// @notice Sets a nonce bitmap word, allowing explicit nonce reuse/reset management.
     function setNonceBitmap(uint256 word, Bitmap bitmap) external;

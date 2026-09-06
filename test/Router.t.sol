@@ -477,13 +477,16 @@ contract RouterTest is FullTest {
         for (uint256 i = 0; i < 4; i++) {
             assertEq(logs[i].emitter, address(core));
             assertEq(logs[i].topics.length, 0);
-            assertEq(logs[i].data.length, 116);
+            assertEq(logs[i].data.length, 124);
             address locker = address(bytes20(LibBytes.load(logs[i].data, 0)));
             assertEq(locker, address(router));
             bytes32 poolId = LibBytes.load(logs[i].data, 20);
             assertEq(poolId, PoolId.unwrap(poolKey.toPoolId()));
 
             assertEq(PoolState.wrap(LibBytes.load(logs[i].data, 84)).liquidity(), liquidity);
+
+            // the router never overpays, so the logged fee is just the pool's own
+            assertEq(uint64(bytes8(LibBytes.load(logs[i].data, 116))), poolKey.config.fee());
         }
 
         // PoolBalanceUpdate is packed as (delta1 << 128) | delta0

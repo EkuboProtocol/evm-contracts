@@ -515,17 +515,43 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             PoolConfig config;
 
             SwapParameters params;
+            // The minimum fee is an optional trailing calldata word, so callers happy to pay the
+            // pool's own fee may simply omit it and `calldataload` reads it as zero.
+            uint256 minimumFee;
 
             assembly ("memory-safe") {
                 token0 := calldataload(4)
                 token1 := calldataload(36)
                 config := calldataload(68)
                 params := calldataload(100)
+                minimumFee := calldataload(132)
                 calldatacopy(poolKey, 4, 96)
             }
 
             SqrtRatio sqrtRatioLimit = params.sqrtRatioLimit();
             if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
+
+            // Every fee computed below uses this, so overpaying is indistinguishable from swapping a
+            // pool whose fee is the minimum: it moves the price less and accrues to the LPs. Taking
+            // the larger of the two rather than summing them means the caller's number is the total
+            // it agreed to, and that no pair of valid fees can overflow.
+            uint64 swapFee = config.fee();
+            assembly ("memory-safe") {
+                // the pool's own fee is always a valid 0.64 number, so a minimum that does not raise
+                // the fee needs no range check and the common path is a single comparison. A
+                // branchless max costs more here, whether written out or taken from
+                // FixedPointMathLib: the branch is almost never taken, and skipping the range check
+                // under it is worth more than the jump.
+                if gt(minimumFee, swapFee) {
+                    // a fee is a 0.64 number, so anything wider than that is a caller error
+                    if shr(64, minimumFee) {
+                        // FeeTooLarge(), pinned by MinimumFeeTest#test_revert_minimum_fee_too_large
+                        mstore(0, 0xfc5bee12)
+                        revert(0x1c, 0x04)
+                    }
+                    swapFee := minimumFee
+                }
+            }
 
             Locker locker = _requireLocker();
 
@@ -640,7 +666,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 // cast is safe because amountRemaining is g.t. 0 and fits in int128
                                 amountU128 := amountRemaining
                             }
-                            uint128 feeAmount = computeFee(amountU128, config.fee());
+                            uint128 feeAmount = computeFee(amountU128, swapFee);
                             assembly ("memory-safe") {
                                 // feeAmount will never exceed amountRemaining since fee is < 100%
                                 priceImpactAmount := sub(amountRemaining, feeAmount)
@@ -677,7 +703,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 );
 
                             if (isExactOut) {
-                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, config.fee());
+                                uint128 beforeFee = amountBeforeFee(limitCalculatedAmountDelta, swapFee);
                                 assembly ("memory-safe") {
                                     calculatedAmount := add(calculatedAmount, beforeFee)
                                     amountRemaining := add(amountRemaining, limitSpecifiedAmountDelta)
@@ -687,7 +713,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                     )
                                 }
                             } else {
-                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, config.fee());
+                                uint128 beforeFee = amountBeforeFee(limitSpecifiedAmountDelta, swapFee);
                                 assembly ("memory-safe") {
                                     calculatedAmount := sub(calculatedAmount, limitCalculatedAmountDelta)
                                     amountRemaining := sub(amountRemaining, beforeFee)
@@ -705,7 +731,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                                 : amount1Delta(sqrtRatioNextFromAmount, sqrtRatio, stepLiquidity, isExactOut);
 
                             if (isExactOut) {
-                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, config.fee());
+                                uint128 includingFee = amountBeforeFee(calculatedAmountWithoutFee, swapFee);
                                 assembly ("memory-safe") {
                                     calculatedAmount := add(calculatedAmount, includingFee)
                                     stepFeesPerLiquidity := div(
@@ -843,7 +869,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     mstore(add(o, 20), poolId)
                     mstore(add(o, 52), balanceUpdate)
                     mstore(add(o, 84), stateAfter)
-                    log0(o, 116)
+                    // the fee actually charged, trailing so that consumers of the original
+                    // 116-byte layout still parse
+                    mstore(add(o, 116), shl(192, swapFee))
+                    log0(o, 124)
                 }
             }
 

@@ -12,10 +12,7 @@ import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBa
 import {PoolState} from "../../src/types/poolState.sol";
 import {Bitmap} from "../../src/types/bitmap.sol";
 import {ControllerAddress} from "../../src/types/controllerAddress.sol";
-import {
-    SignedExclusiveSwapPoolState,
-    createSignedExclusiveSwapPoolState
-} from "../../src/types/signedExclusiveSwapPoolState.sol";
+import {FeesPerLiquidity} from "../../src/types/feesPerLiquidity.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {SignedExclusiveSwapLib} from "../../src/libraries/SignedExclusiveSwapLib.sol";
 import {SignedExclusiveSwap, signedExclusiveSwapCallPoints} from "../../src/extensions/SignedExclusiveSwap.sol";
@@ -150,6 +147,8 @@ contract SignedExclusiveSwapTest is FullTest {
     SignedExclusiveSwap internal signedExclusiveSwap;
     SignedExclusiveSwapEIP712Reference internal eip712Reference;
     SignedExclusiveSwapHarness internal harness;
+    /// @dev `initializePool` seeds both fees-per-liquidity slots with 1
+    uint256 internal constant INITIAL_FEES_PER_LIQUIDITY = 1;
     PoolBalanceUpdate internal constant MIN_BALANCE_UPDATE =
         PoolBalanceUpdate.wrap(bytes32(0x8000000000000000000000000000000080000000000000000000000000000000));
 
@@ -203,7 +202,7 @@ contract SignedExclusiveSwapTest is FullTest {
         signedExclusiveSwap.initializePool(poolKey, tick, poolController);
     }
 
-    function test_signed_swap_helper_and_deferred_fee_donation() public {
+    function test_signed_swap_helper_charges_meta_fee_to_lps() public {
         PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
@@ -239,15 +238,17 @@ contract SignedExclusiveSwapTest is FullTest {
         assertTrue(signedExclusiveSwap.nonceBitmap(nonce >> 8).isSet(uint8(nonce & 0xff)));
 
         PoolId poolId = poolKey.toPoolId();
-        (, uint128 saved1Before) =
-            core.savedBalances(address(signedExclusiveSwap), poolKey.token0, poolKey.token1, PoolId.unwrap(poolId));
-        assertGt(saved1Before, 0);
 
-        advanceTime(1);
-        signedExclusiveSwap.accumulatePoolFees(poolKey);
-        (, uint128 saved1After) =
+        // the signed fee is charged on the input token and credited to the LPs within the swap,
+        // so the extension never holds a balance of its own
+        FeesPerLiquidity memory feesPerLiquidity = core.getPoolFeesPerLiquidity(poolId);
+        assertGt(feesPerLiquidity.value0, INITIAL_FEES_PER_LIQUIDITY);
+        assertEq(feesPerLiquidity.value1, INITIAL_FEES_PER_LIQUIDITY);
+
+        (uint128 saved0, uint128 saved1) =
             core.savedBalances(address(signedExclusiveSwap), poolKey.token0, poolKey.token1, PoolId.unwrap(poolId));
-        assertEq(saved1After, 1);
+        assertEq(saved0, 0);
+        assertEq(saved1, 0);
     }
 
     function test_hash_signed_swap_payload_matches_solady_eip712() public view {
@@ -530,13 +531,11 @@ contract SignedExclusiveSwapTest is FullTest {
         core.initializePool(poolKey, 0);
     }
 
-    function test_initialize_pool_emits_pool_state_updated() public {
+    function test_initialize_pool_emits_pool_controller_updated() public {
         PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
-        SignedExclusiveSwapPoolState expectedState =
-            createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp));
 
         vm.expectEmit(true, false, false, true, address(signedExclusiveSwap));
-        emit ISignedExclusiveSwap.PoolStateUpdated(poolKey.toPoolId(), expectedState);
+        emit ISignedExclusiveSwap.PoolControllerUpdated(poolKey.toPoolId(), controller);
 
         vm.prank(admin);
         signedExclusiveSwap.initializePool(poolKey, 0, controller);
@@ -1087,13 +1086,13 @@ contract SignedExclusiveSwapTest is FullTest {
             address(this)
         );
 
-        assertLt(balanceUpdate.delta0(), 0);
+        assertEq(balanceUpdate.delta0(), -50_000);
         assertGt(balanceUpdate.delta1(), 0);
 
-        PoolId poolId = poolKey.toPoolId();
-        (, uint128 saved1) =
-            core.savedBalances(address(signedExclusiveSwap), poolKey.token0, poolKey.token1, PoolId.unwrap(poolId));
-        assertGt(saved1, 0);
+        // token1 is the input, so the meta fee accrues to the LPs in token1
+        FeesPerLiquidity memory feesPerLiquidity = core.getPoolFeesPerLiquidity(poolKey.toPoolId());
+        assertEq(feesPerLiquidity.value0, INITIAL_FEES_PER_LIQUIDITY);
+        assertGt(feesPerLiquidity.value1, INITIAL_FEES_PER_LIQUIDITY);
     }
 
     function test_exact_out_token1_output_charges_meta_fee_on_token0_input() public {
@@ -1124,11 +1123,11 @@ contract SignedExclusiveSwapTest is FullTest {
         );
 
         assertGt(balanceUpdate.delta0(), 0);
-        assertLt(balanceUpdate.delta1(), 0);
+        assertEq(balanceUpdate.delta1(), -50_000);
 
-        PoolId poolId = poolKey.toPoolId();
-        (uint128 saved0,) =
-            core.savedBalances(address(signedExclusiveSwap), poolKey.token0, poolKey.token1, PoolId.unwrap(poolId));
-        assertGt(saved0, 0);
+        // token0 is the input, so the meta fee accrues to the LPs in token0
+        FeesPerLiquidity memory feesPerLiquidity = core.getPoolFeesPerLiquidity(poolKey.toPoolId());
+        assertGt(feesPerLiquidity.value0, INITIAL_FEES_PER_LIQUIDITY);
+        assertEq(feesPerLiquidity.value1, INITIAL_FEES_PER_LIQUIDITY);
     }
 }

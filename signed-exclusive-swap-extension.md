@@ -11,7 +11,9 @@ It enforces:
 - signatures can optionally restrict which locker is allowed to use them,
 - pool fee must be zero for pools using this extension,
 - pools must be initialized through the extension's owner-only `initializePool(...)`,
-- signed fees are collected by the extension first and donated to LPs on the next block touch.
+- the signed fee is handed to `Core.swap(...)` as that swap's additional fee, so it is charged on the input token and accrues to the LPs within the swap itself.
+
+Call points are `beforeInitializePool` (to block direct initialization) and `beforeSwap` (to block direct swaps). The extension holds no funds and keeps no per-pool state other than the controller.
 
 ## Payload
 
@@ -55,19 +57,14 @@ where:
    - deadline from `meta` has not expired, and is no further than 30 days in the future,
    - locker authorization from `meta`,
    - signature against the pool controller stored in per-pool state.
-   (The nonce is not pre-checked on the forward path; reuse is rejected when the nonce is consumed in step 6.)
-3. Extension accumulates pending extension fees for the pool if this is the pool's first touch at the current block timestamp.
-4. Extension executes `CORE.swap(...)`.
-5. Extension checks `actualBalanceUpdate >= minBalanceUpdate` component-wise (`delta0` and `delta1`) on the raw result returned by Core, before any fee is applied.
-6. Extension consumes the nonce. This happens only after the bounds check passes, so a swap that violates its bounds costs less gas and does not burn the nonce.
-7. Extension applies `fee` to the swapper result:
-   - exact-in: fee is charged on output amount,
-   - exact-out: fee is charged on required input amount.
-8. Charged fee is stored in Core saved balances owned by the extension itself, salted by the pool ID, and is later donated to that pool's LPs.
+   (The nonce is not pre-checked on the forward path; reuse is rejected when the nonce is consumed in step 4.)
+3. Extension executes `CORE.swap(...)`, passing `fee` (a Q32 rate, widened to Core's Q64) as that swap's additional fee. Core adds it to the pool's configured fee — zero for these pools — so it is charged on the input token in both directions, moves the price less, and is credited to the LPs that were in range for each step of the swap.
+4. Extension checks `actualBalanceUpdate >= minBalanceUpdate` component-wise (`delta0` and `delta1`). Because the fee is now inside the Core swap, the bound applies to what the swapper actually pays and receives.
+5. Extension consumes the nonce. This happens only after the bounds check passes, so a swap that violates its bounds costs less gas and does not burn the nonce.
 
 ## Why `minBalanceUpdate` is useful
 
-`minBalanceUpdate` is a signed lower bound on the `PoolBalanceUpdate` that Core returns for the swap, checked before the signed fee is applied, and it is part of the signed payload.
+`minBalanceUpdate` is a signed lower bound on the `PoolBalanceUpdate` that Core returns for the swap, inclusive of the signed fee, and it is part of the signed payload.
 
 It provides four protections at once:
 - Direction enforcement: by requiring the expected leg to be positive/negative as appropriate, it prevents a fill that moves value in the wrong direction.
@@ -75,15 +72,13 @@ It provides four protections at once:
 - Maximum magnitude control: bounds on input/output deltas cap how large a trade can effectively execute under that signature.
 - Best-price cap: because bounds are on both components, the signer can also cap how favorable a fill may be (for example, avoid overfilling beyond inventory/risk limits), not only protect against worse prices.
 
-## Fee donation timing
+## Fee timing and JIT liquidity
 
-The extension does not immediately donate its signed fee to LPs.
+The signed fee is credited to LPs inside the swap, on the same path as an ordinary pool fee.
 
-Instead, on a pool's first touch at a new block *timestamp* (`swap`, `beforeUpdatePosition`, or `beforeCollectFees` path, or the public `accumulatePoolFees`), it:
-- donates previously collected extension fees into pool LP accounting,
-- records the pool as updated for the current block timestamp.
+An earlier version of this extension instead collected the fee into its own Core saved balances, salted by pool ID, and donated it at the pool's first touch at a later block timestamp. That deferral existed to stop liquidity from being added purely to capture a fee it had not been at risk for. It is gone: these pools now carry exactly the just-in-time exposure that every other Ekubo pool carries, and signed fees can be much larger than a typical pool fee, so the payoff to a JIT LP is correspondingly larger.
 
-This prevents liquidity from being added purely to capture fees that were earned earlier. Note that the gate is the block timestamp, not the block number, so on chains that produce more than one block per second donation happens at most once per second.
+What the current scheme buys in exchange is better attribution. A deferred donation credits whoever holds liquidity at donation time, regardless of who was in range when the fee was earned; Core credits the LPs who were actually in range for each step of the swap that paid it.
 
 ## Replay protection
 
@@ -114,7 +109,7 @@ These controls reduce the value of quote farming and make selective execution ma
 ## Controller management
 
 - Contract is `Ownable`.
-- Owner initializes pools by setting a `ControllerAddress controller` via `initializePool(poolKey, tick, controller)`; the EOA/contract flag is encoded in the controller address (high bit at position 159).
+- Owner initializes pools by setting a `ControllerAddress controller` via `initializePool(poolKey, tick, controller)`; the controller is the extension's entire per-pool state, stored at the slot keyed by pool ID; the EOA/contract flag is encoded in the controller address (high bit at position 159).
 - Direct `Core.initializePool(...)` for this extension is blocked by `beforeInitializePool`.
 - Owner can update per-pool controller for already initialized pools via `setPoolController(...)`.
 - Controller signatures support both EOAs and ERC-1271 contract wallets; which path is used is determined by bit 159 of the controller address itself, not a separate flag. Addresses below `2^159` are verified via ECDSA, addresses at or above it via ERC-1271. Initialization and controller updates enforce that the address's code presence matches the encoded type.

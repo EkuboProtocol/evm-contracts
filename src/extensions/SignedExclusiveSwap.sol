@@ -35,8 +35,9 @@ function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Forward-only swap extension with controller-signed, per-swap fee customization.
-/// @dev The signed fee is passed to `Core.swap` as an additional fee, so it is charged on the input
-/// token and accrues to the pool's liquidity providers exactly like a pool fee would.
+/// @dev The signed fee is passed to `Core.swap` as that swap's minimum fee, so it is charged on the
+/// input token and accrues to the pool's liquidity providers exactly like a pool fee would. Pools
+/// here are required to have a zero fee, so the signed fee is the whole fee.
 contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForwardee, ExposedStorage, Ownable {
     using CoreLib for *;
     using ExposedStorageLib for *;

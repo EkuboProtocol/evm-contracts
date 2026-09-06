@@ -167,8 +167,7 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Thrown when the sqrt ratio limit is in the wrong direction of the current price
     error SqrtRatioLimitWrongDirection();
 
-    /// @notice Thrown when the additional fee given to swap is not a 0.64 number, or when adding it
-    /// to the pool's configured fee would not produce one
+    /// @notice Thrown when the minimum fee given to swap is not a valid 0.64 number
     error FeeTooLarge();
 
     /// @notice Thrown when saved balance tokens are not properly sorted
@@ -274,8 +273,9 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Executes a swap against a pool
     /// @dev Function name is mined to have a zero function selector for gas efficiency. Calldata is
     /// read positionally: `PoolKey` (3 words), `SwapParameters` (1 word), and an optional trailing
-    /// `uint64` additional fee (1 word). The additional fee is added to the pool's configured fee
-    /// for this swap only and accrues to the pool's liquidity providers, letting a caller
-    /// deliberately overpay. Omitting the trailing word is equivalent to passing zero.
+    /// `uint64` minimum fee (1 word). The swap is charged the greater of the pool's configured fee
+    /// and the minimum fee, so a caller can deliberately overpay and the number it passes is the
+    /// most it can be charged. The whole fee accrues to the pool's liquidity providers. Omitting
+    /// the trailing word is equivalent to passing zero.
     function swap_6269342730() external payable;
 }

@@ -515,33 +515,38 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             PoolConfig config;
 
             SwapParameters params;
-            // The additional fee is an optional trailing calldata word, so callers that do not want
-            // to overpay may simply omit it and `calldataload` reads it as zero.
-            uint256 additionalFee;
+            // The minimum fee is an optional trailing calldata word, so callers happy to pay the
+            // pool's own fee may simply omit it and `calldataload` reads it as zero.
+            uint256 minimumFee;
 
             assembly ("memory-safe") {
                 token0 := calldataload(4)
                 token1 := calldataload(36)
                 config := calldataload(68)
                 params := calldataload(100)
-                additionalFee := calldataload(132)
+                minimumFee := calldataload(132)
                 calldatacopy(poolKey, 4, 96)
             }
 
             SqrtRatio sqrtRatioLimit = params.sqrtRatioLimit();
             if (!sqrtRatioLimit.isValid()) revert InvalidSqrtRatioLimit();
 
-            // Every fee computed below uses the total, so an additional fee is indistinguishable
-            // from a pool fee of the same size: it moves the price less and accrues to the LPs.
-            uint64 poolFee = config.fee();
-            uint64 swapFee;
+            // Every fee computed below uses this, so overpaying is indistinguishable from swapping a
+            // pool whose fee is the minimum: it moves the price less and accrues to the LPs. Taking
+            // the larger of the two rather than summing them means the caller's number is the total
+            // it agreed to, and that no pair of valid fees can overflow.
+            uint64 swapFee = config.fee();
             assembly ("memory-safe") {
-                swapFee := add(poolFee, additionalFee)
-                // both the additional fee and the total must be valid 0.64 numbers
-                if or(shr(64, additionalFee), shr(64, swapFee)) {
-                    // FeeTooLarge(), pinned by AdditionalFeeTest#test_revert_additional_fee_overflows_pool_fee
-                    mstore(0, 0xfc5bee12)
-                    revert(0x1c, 0x04)
+                // the pool's own fee is always a valid 0.64 number, so a minimum that does not raise
+                // the fee needs no range check and the common path is a single comparison
+                if gt(minimumFee, swapFee) {
+                    // a fee is a 0.64 number, so anything wider than that is a caller error
+                    if shr(64, minimumFee) {
+                        // FeeTooLarge(), pinned by MinimumFeeTest#test_revert_minimum_fee_too_large
+                        mstore(0, 0xfc5bee12)
+                        revert(0x1c, 0x04)
+                    }
+                    swapFee := minimumFee
                 }
             }
 
@@ -861,8 +866,9 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                     mstore(add(o, 20), poolId)
                     mstore(add(o, 52), balanceUpdate)
                     mstore(add(o, 84), stateAfter)
-                    // trailing so that consumers of the original 116-byte layout still parse
-                    mstore(add(o, 116), shl(192, additionalFee))
+                    // the fee actually charged, trailing so that consumers of the original
+                    // 116-byte layout still parse
+                    mstore(add(o, 116), shl(192, swapFee))
                     log0(o, 124)
                 }
             }

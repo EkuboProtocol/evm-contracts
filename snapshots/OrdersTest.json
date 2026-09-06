@@ -1,10 +1,10 @@
 {
-  "lockAndExecuteVirtualOrders max cost": "2384452",
-  "lockAndExecuteVirtualOrders switch sell direction": "38785",
+  "lockAndExecuteVirtualOrders max cost": "2383679",
+  "lockAndExecuteVirtualOrders switch sell direction": "38859",
   "mintAndIncreaseSellAmount(first order)": "253757",
   "mintAndIncreaseSellAmount(second order)": "136004",
-  "swap and executeVirtualOrders double sided": "145019",
-  "swap and executeVirtualOrders double sided crossed": "153740",
-  "swap and executeVirtualOrders no orders": "98786",
-  "swap and executeVirtualOrders single sided": "135477"
+  "swap and executeVirtualOrders double sided": "145032",
+  "swap and executeVirtualOrders double sided crossed": "153753",
+  "swap and executeVirtualOrders no orders": "98799",
+  "swap and executeVirtualOrders single sided": "135503"
 }

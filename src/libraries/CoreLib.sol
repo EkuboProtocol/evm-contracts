@@ -127,17 +127,18 @@ library CoreLib {
         (balanceUpdate, stateAfter) = swap(core, value, poolKey, params, 0);
     }
 
-    /// @notice Executes a swap against the core contract, overpaying the pool fee by `additionalFee`
-    /// @dev The additional fee is added to the pool's configured fee for this swap only, so it is
-    /// charged on the input token and accrues to the pool's liquidity providers
+    /// @notice Executes a swap against the core contract, paying at least `minimumFee`
+    /// @dev The swap is charged the greater of the pool's configured fee and `minimumFee`, so it is
+    /// charged on the input token and accrues to the pool's liquidity providers. Passing a minimum
+    /// below the pool's own fee is a no-op
     /// @param core The core contract instance
     /// @param value Native token value to send with the swap
     /// @param poolKey Pool key identifying the pool
     /// @param params The swap parameters to use
-    /// @param additionalFee Fee to charge on top of the pool's configured fee, as a 0.64 number
+    /// @param minimumFee Least fee this swap may be charged, as a 0.64 number
     /// @return balanceUpdate Change to the pool balances that resulted from the swap
     /// @return stateAfter The pool state after the swap
-    function swap(ICore core, uint256 value, PoolKey memory poolKey, SwapParameters params, uint64 additionalFee)
+    function swap(ICore core, uint256 value, PoolKey memory poolKey, SwapParameters params, uint64 minimumFee)
         internal
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
@@ -153,10 +154,10 @@ library CoreLib {
             // Add SwapParameters
             mstore(add(free, 100), params)
 
-            // Add the additional fee, but only extend the calldata to cover it when it is non-zero,
+            // Add the minimum fee, but only extend the calldata to cover it when it is non-zero,
             // since Core reads a missing trailing word as zero
-            mstore(add(free, 132), additionalFee)
-            let size := add(132, shl(5, iszero(iszero(additionalFee))))
+            mstore(add(free, 132), minimumFee)
+            let size := add(132, shl(5, iszero(iszero(minimumFee))))
 
             if iszero(call(gas(), core, value, free, size, free, 64)) {
                 returndatacopy(free, 0, returndatasize())

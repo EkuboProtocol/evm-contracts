@@ -1,6 +1,6 @@
 {
   "signedExclusiveSwap broadcastSignedSwaps (single)": "36510",
-  "signedExclusiveSwap token0 input (no meta fee)": "118791",
-  "signedExclusiveSwap token0 input (with meta fee)": "123988",
-  "signedExclusiveSwap token1 input (with meta fee)": "124294"
+  "signedExclusiveSwap token0 input (no meta fee)": "118818",
+  "signedExclusiveSwap token0 input (with meta fee)": "124063",
+  "signedExclusiveSwap token1 input (with meta fee)": "124369"
 }

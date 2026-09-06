@@ -485,8 +485,8 @@ contract RouterTest is FullTest {
 
             assertEq(PoolState.wrap(LibBytes.load(logs[i].data, 84)).liquidity(), liquidity);
 
-            // the router never overpays the pool fee
-            assertEq(uint64(bytes8(LibBytes.load(logs[i].data, 116))), 0);
+            // the router never overpays, so the logged fee is just the pool's own
+            assertEq(uint64(bytes8(LibBytes.load(logs[i].data, 116))), poolKey.config.fee());
         }
 
         // PoolBalanceUpdate is packed as (delta1 << 128) | delta0

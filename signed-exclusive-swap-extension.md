@@ -11,7 +11,7 @@ It enforces:
 - signatures can optionally restrict which locker is allowed to use them,
 - pool fee must be zero for pools using this extension,
 - pools must be initialized through the extension's owner-only `initializePool(...)`,
-- the signed fee is handed to `Core.swap(...)` as that swap's additional fee, so it is charged on the input token and accrues to the LPs within the swap itself.
+- the signed fee is handed to `Core.swap(...)` as that swap's minimum fee, so it is charged on the input token and accrues to the LPs within the swap itself.
 
 Call points are `beforeInitializePool` (to block direct initialization) and `beforeSwap` (to block direct swaps). The extension holds no funds and keeps no per-pool state other than the controller.
 
@@ -58,7 +58,7 @@ where:
    - locker authorization from `meta`,
    - signature against the pool controller stored in per-pool state.
    (The nonce is not pre-checked on the forward path; reuse is rejected when the nonce is consumed in step 4.)
-3. Extension executes `CORE.swap(...)`, passing `fee` (a Q32 rate, widened to Core's Q64) as that swap's additional fee. Core adds it to the pool's configured fee — zero for these pools — so it is charged on the input token in both directions, moves the price less, and is credited to the LPs that were in range for each step of the swap.
+3. Extension executes `CORE.swap(...)`, passing `fee` (a Q32 rate, widened to Core's Q64) as that swap's minimum fee. Core charges the greater of the pool's configured fee and that minimum; the pool's fee is required to be zero here, so the signed fee is exactly what is charged. It comes off the input token in both directions, moves the price less, and is credited to the LPs that were in range for each step of the swap.
 4. Extension checks `actualBalanceUpdate >= minBalanceUpdate` component-wise (`delta0` and `delta1`). Because the fee is now inside the Core swap, the bound applies to what the swapper actually pays and receives.
 5. Extension consumes the nonce. This happens only after the bounds check passes, so a swap that violates its bounds costs less gas and does not burn the nonce.
 

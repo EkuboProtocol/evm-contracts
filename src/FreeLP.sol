@@ -9,6 +9,7 @@ import {ICore} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {PoolKey} from "./types/poolKey.sol";
+import {FreeLPPool, FreeLPRange, createFreeLPPool, createFreeLPRange} from "./types/freeLPDescriptor.sol";
 import {PoolId} from "./types/poolId.sol";
 import {PositionId, createPositionId} from "./types/positionId.sol";
 import {Position} from "./types/position.sol";
@@ -31,6 +32,15 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         PoolKey poolKey;
         int32 tickLower;
         int32 tickUpper;
+    }
+
+    // Three slots per NFT: token0/config; token1/ticks; both enumeration indexes.
+    // The extension is always zero, so the full supported config fits in 96 bits.
+    struct StoredPosition {
+        FreeLPPool pool;
+        FreeLPRange range;
+        uint64 ownerIndex;
+        uint64 globalIndex;
     }
 
     struct Amounts {
@@ -56,19 +66,21 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     error InvalidValue();
     error PositionNotEmpty();
     error Reentrancy();
-    error InvalidPage();
+    error EnumerationIndexOutOfBounds();
     error InvalidCore();
+    error TokenIdsExhausted();
 
     event PositionCreated(uint256 indexed id, address indexed holder, PoolKey poolKey, int32 lower, int32 upper);
     event LiquidityAdded(uint256 indexed id, uint128 liquidity, uint128 amount0, uint128 amount1);
     event LiquidityRemoved(uint256 indexed id, uint128 liquidity, uint128 amount0, uint128 amount1);
 
     ICore public immutable CORE;
-    uint192 private _nextId;
+    uint64 private _nextId;
     bool private _mutating;
-    mapping(uint256 => Descriptor) private _descriptors;
-    mapping(address => uint256[]) private _owned;
-    mapping(uint256 => uint256) private _index;
+    mapping(uint256 => StoredPosition) private _positions;
+    // Four IDs per slot. Lengths/indexes cannot exceed the monotonically minted ID count.
+    mapping(address => uint64[]) private _owned;
+    uint64[] private _tokens;
 
     constructor(ICore core) BaseLocker(core) {
         if (address(core).code.length == 0) revert InvalidCore();
@@ -92,24 +104,33 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
 
     function descriptor(uint256 id) public view returns (Descriptor memory) {
         ownerOf(id);
-        return _descriptors[id];
+        return _descriptor(id);
     }
 
-    /// @notice Read all pages at the same block to obtain a consistent ownership snapshot.
-    function ownedIds(address holder, uint256 offset, uint256 limit)
-        external
-        view
-        returns (uint256[] memory ids, uint256 total)
-    {
-        if (limit == 0 || limit > 100) revert InvalidPage();
-        total = _owned[holder].length;
-        if (offset >= total) return (new uint256[](0), total);
-        uint256 count = total - offset;
-        if (count > limit) count = limit;
-        ids = new uint256[](count);
-        for (uint256 i; i < count; ++i) {
-            ids[i] = _owned[holder][offset + i];
-        }
+    function _descriptor(uint256 id) private view returns (Descriptor memory) {
+        StoredPosition storage p = _positions[id];
+        FreeLPPool pool = p.pool;
+        FreeLPRange range = p.range;
+        return Descriptor(PoolKey(pool.token0(), range.token1(), pool.config()), range.tickLower(), range.tickUpper());
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
+        return interfaceId == 0x780e9d63 || super.supportsInterface(interfaceId);
+    }
+
+    function totalSupply() public view returns (uint256) {
+        return _tokens.length;
+    }
+
+    function tokenByIndex(uint256 index) public view returns (uint256) {
+        if (index >= _tokens.length) revert EnumerationIndexOutOfBounds();
+        return _tokens[index];
+    }
+
+    /// @notice Enumeration order is unspecified. Pin reads to one block and sort in the client.
+    function tokenOfOwnerByIndex(address holder, uint256 index) public view returns (uint256) {
+        if (holder == address(0) || index >= _owned[holder].length) revert EnumerationIndexOutOfBounds();
+        return _owned[holder][index];
     }
 
     function tokenURI(uint256 id) public view override returns (string memory) {
@@ -166,8 +187,11 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         _validate(d);
         _deadline(limits.deadline);
         if (CORE.poolState(d.poolKey.toPoolId()).sqrtRatio().isZero()) CORE.initializePool(d.poolKey, initialTick);
+        if (_nextId == type(uint64).max) revert TokenIdsExhausted();
         id = ++_nextId;
-        _descriptors[id] = d;
+        StoredPosition storage p = _positions[id];
+        p.pool = createFreeLPPool(d.poolKey.token0, d.poolKey.config);
+        p.range = createFreeLPRange(d.poolKey.token1, d.tickLower, d.tickUpper);
         _mint(msg.sender, id);
         (liquidity, amount0, amount1) = _deposit(id, d, limits);
         emit PositionCreated(id, msg.sender, d.poolKey, d.tickLower, d.tickUpper);
@@ -181,7 +205,7 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     {
         _authorize(id);
         _deadline(limits.deadline);
-        return _deposit(id, _descriptors[id], limits);
+        return _deposit(id, _descriptor(id), limits);
     }
 
     /// @notice Withdrawal always collects fees; liquidity=0 is fee collection. Minimums include fees.
@@ -205,7 +229,7 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         Amounts memory a = positionAmounts(id);
         if (a.liquidity != 0 || a.fees0 != 0 || a.fees1 != 0) revert PositionNotEmpty();
         _burn(id);
-        delete _descriptors[id];
+        delete _positions[id];
     }
 
     function _authorize(uint256 id) private view {
@@ -254,7 +278,7 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
         (bool deposit, address payer, uint256 id, uint128 liquidity, address recipient) =
             abi.decode(data, (bool, address, uint256, uint128, address));
-        Descriptor memory d = _descriptors[id];
+        Descriptor memory d = _descriptor(id);
         if (deposit) return _settleDeposit(id, d, payer, liquidity);
         return _settleWithdraw(id, d, recipient, liquidity);
     }
@@ -295,19 +319,29 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
 
     function _afterTokenTransfer(address from, address to, uint256 id) internal override {
         if (from == to) return;
+        if (from == address(0)) {
+            _positions[id].globalIndex = uint64(_tokens.length);
+            _tokens.push(uint64(id));
+        } else if (to == address(0)) {
+            uint64 index = _positions[id].globalIndex;
+            uint64 last = _tokens[_tokens.length - 1];
+            _tokens[index] = last;
+            _positions[last].globalIndex = index;
+            _tokens.pop();
+        }
         if (from != address(0)) _removeOwned(from, id);
         if (to != address(0)) {
-            _index[id] = _owned[to].length;
-            _owned[to].push(id);
+            _positions[id].ownerIndex = uint64(_owned[to].length);
+            _owned[to].push(uint64(id));
         }
     }
 
+    // The moved NFT index is overwritten on transfer; burn deletes its entire StoredPosition.
     function _removeOwned(address from, uint256 id) private {
-        uint256 index = _index[id];
-        uint256 last = _owned[from][_owned[from].length - 1];
+        uint64 index = _positions[id].ownerIndex;
+        uint64 last = _owned[from][_owned[from].length - 1];
         _owned[from][index] = last;
-        _index[last] = index;
+        _positions[last].ownerIndex = index;
         _owned[from].pop();
-        delete _index[id];
     }
 }

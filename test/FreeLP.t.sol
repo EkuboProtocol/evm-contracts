@@ -4,11 +4,12 @@ pragma solidity =0.8.33;
 import {FullTest} from "./FullTest.sol";
 import {FreeLP} from "../src/FreeLP.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
+import {PoolConfig, createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Base64} from "solady/utils/Base64.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {RouteNode, TokenAmount} from "../src/base/BaseRouter.sol";
+import {FreeLPPool, FreeLPRange, createFreeLPPool, createFreeLPRange} from "../src/types/freeLPDescriptor.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract NativeReentrantHolder {
@@ -42,8 +43,10 @@ contract ForwardingNftReceiver {
 
     function onERC721Received(address, address, uint256 id, bytes calldata) external returns (bytes4) {
         FreeLP lp = FreeLP(msg.sender);
-        (uint256[] memory ids, uint256 total) = lp.ownedIds(address(this), 0, 100);
-        require(total == 1 && ids[0] == id, "enumeration must precede callback");
+        require(
+            lp.balanceOf(address(this)) == 1 && lp.tokenOfOwnerByIndex(address(this), 0) == id,
+            "enumeration must precede callback"
+        );
         lp.transferFrom(address(this), destination, id);
         return this.onERC721Received.selector;
     }
@@ -89,36 +92,109 @@ contract FreeLPTest is FullTest {
         assertApproxEqAbs(a, paid0, 2);
         assertApproxEqAbs(b, paid1, 2);
         lp.burn(id);
-        (, uint256 total) = lp.ownedIds(address(this), 0, 100);
-        assertEq(total, 0);
+        assertEq(lp.balanceOf(address(this)), 0);
+        assertEq(lp.totalSupply(), 0);
         vm.expectRevert();
         lp.tokenURI(id);
         (uint256 next,) = create(1 ether);
         assertGt(next, id);
     }
 
-    function test_transfersAndPagination() public {
+    function test_idExhaustionNeverReusesBurnedIds() public {
+        // FreeLP's counter occupies the low 64 bits of slot zero; Solady ERC721 uses separate hashed slots.
+        vm.store(address(lp), bytes32(0), bytes32(uint256(type(uint64).max - 1)));
+        (uint256 id, uint128 liquidity) = create(1000);
+        assertEq(id, type(uint64).max);
+        assertEq(lp.tokenByIndex(0), id);
+        assertEq(lp.tokenOfOwnerByIndex(address(this), 0), id);
+        vm.expectRevert(FreeLP.TokenIdsExhausted.selector);
+        create(1000);
+        lp.withdraw(id, liquidity, address(this), 0, 0, block.timestamp);
+        lp.burn(id);
+        vm.expectRevert(FreeLP.TokenIdsExhausted.selector);
+        create(1000);
+        assertEq(lp.totalSupply(), 0);
+    }
+
+    function test_fourIdsPerStorageWord() public {
+        for (uint256 i; i < 9; i++) {
+            create(1000);
+        }
+        uint256 expected = 1 | (uint256(2) << 64) | (uint256(3) << 128) | (uint256(4) << 192);
+        bytes32 globalStart = keccak256(abi.encode(uint256(3)));
+        bytes32 ownerStart = keccak256(abi.encode(keccak256(abi.encode(address(this), uint256(2)))));
+        assertEq(uint256(vm.load(address(lp), globalStart)), expected);
+        assertEq(uint256(vm.load(address(lp), ownerStart)), expected);
+        lp.transferFrom(address(this), address(111), 4);
+        lp.transferFrom(address(this), address(222), 5);
+        lp.withdraw(3, lp.positionAmounts(3).liquidity, address(this), 0, 0, block.timestamp);
+        lp.burn(3);
+        _assertOwnership([address(this), address(111), address(222)]);
+        assertEq(lp.tokenByIndex(2), 9);
+        assertEq(lp.tokenOfOwnerByIndex(address(this), 2), 7);
+    }
+
+    function testFuzz_packedDescriptorRoundtrip(address a, address b, uint96 configBits, int32 lower, int32 upper)
+        public
+        pure
+    {
+        PoolConfig config = PoolConfig.wrap(bytes32(uint256(configBits)));
+        FreeLPPool pool = createFreeLPPool(a, config);
+        FreeLPRange range = createFreeLPRange(b, lower, upper);
+        assertEq(pool.token0(), a);
+        assertEq(PoolConfig.unwrap(pool.config()), PoolConfig.unwrap(config));
+        assertEq(range.token1(), b);
+        assertEq(range.tickLower(), lower);
+        assertEq(range.tickUpper(), upper);
+        assertEq(uint256(FreeLPRange.unwrap(range)) >> 64 & type(uint32).max, 0);
+    }
+
+    function test_enumerableInterfacesAndBounds() public {
+        assertTrue(lp.supportsInterface(0x01ffc9a7));
+        assertTrue(lp.supportsInterface(0x80ac58cd));
+        assertTrue(lp.supportsInterface(0x5b5e139f));
+        assertTrue(lp.supportsInterface(0x780e9d63));
+        assertFalse(lp.supportsInterface(0xffffffff));
+        assertEq(lp.totalSupply(), 0);
+        vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
+        lp.tokenByIndex(0);
+        vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
+        lp.tokenOfOwnerByIndex(address(0), 0);
+        vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
+        lp.tokenOfOwnerByIndex(address(this), 0);
+    }
+
+    function test_transfersAndEnumeration() public {
         (uint256 first,) = create(1000);
-        (uint256 second,) = create(1000);
+        (uint256 second, uint128 liquidity) = create(1000);
         (uint256 third,) = create(1000);
         lp.transferFrom(address(this), address(this), second);
-        (uint256[] memory ids, uint256 total) = lp.ownedIds(address(this), 1, 1);
-        assertEq(ids[0], second);
-        assertEq(total, 3);
+        assertEq(lp.tokenOfOwnerByIndex(address(this), 1), second);
+        assertEq(lp.totalSupply(), 3);
         address recipient = makeAddr("recipient");
         lp.transferFrom(address(this), recipient, second);
-        (ids, total) = lp.ownedIds(address(this), 0, 100);
-        assertEq(total, 2);
-        assertEq(ids[0], first);
-        assertEq(ids[1], third);
-        (ids, total) = lp.ownedIds(recipient, 0, 100);
-        assertEq(ids[0], second);
-        assertEq(total, 1);
+        assertEq(lp.balanceOf(address(this)), 2);
+        assertEq(lp.tokenOfOwnerByIndex(address(this), 0), first);
+        assertEq(lp.tokenOfOwnerByIndex(address(this), 1), third);
+        assertEq(lp.tokenOfOwnerByIndex(recipient, 0), second);
+        assertEq(lp.balanceOf(recipient), 1);
+        assertEq(lp.tokenByIndex(1), second);
         vm.prank(recipient);
         lp.transferFrom(recipient, address(this), second);
-        assertEq(lp.balanceOf(address(this)), 3);
-        vm.expectRevert(FreeLP.InvalidPage.selector);
-        lp.ownedIds(address(this), 0, 101);
+        lp.withdraw(second, liquidity, address(this), 0, 0, block.timestamp);
+        lp.burn(second);
+        assertEq(lp.totalSupply(), 2);
+        assertEq(lp.tokenByIndex(0), first);
+        assertEq(lp.tokenByIndex(1), third);
+        vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
+        lp.tokenByIndex(2);
+        vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
+        lp.tokenOfOwnerByIndex(address(this), 2);
+        vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
+        lp.tokenOfOwnerByIndex(recipient, 0);
+        (uint256 fourth,) = create(1000);
+        assertGt(fourth, third);
+        assertEq(lp.tokenByIndex(2), fourth);
     }
 
     function test_authorizationAndSlippage() public {
@@ -216,11 +292,11 @@ contract FreeLPTest is FullTest {
         ForwardingNftReceiver receiver = new ForwardingNftReceiver(destination);
         lp.safeTransferFrom(address(this), address(receiver), id);
         assertEq(lp.ownerOf(id), destination);
-        (, uint256 remaining) = lp.ownedIds(address(receiver), 0, 100);
-        assertEq(remaining, 0);
-        (uint256[] memory ids, uint256 total) = lp.ownedIds(destination, 0, 100);
-        assertEq(total, 1);
-        assertEq(ids[0], id);
+        assertEq(lp.balanceOf(address(receiver)), 0);
+        assertEq(lp.balanceOf(destination), 1);
+        assertEq(lp.tokenOfOwnerByIndex(destination, 0), id);
+        assertEq(lp.totalSupply(), 1);
+        assertEq(lp.tokenByIndex(0), id);
     }
 
     function testFuzz_ownershipEnumeration(uint256 seed, uint8 steps) public {
@@ -231,11 +307,20 @@ contract FreeLPTest is FullTest {
         }
         for (uint256 i; i < steps; i++) {
             seed = uint256(keccak256(abi.encode(seed, i)));
-            uint256 id = seed % 5 + 1;
+            uint256 id = lp.tokenByIndex(seed % lp.totalSupply());
             address from = lp.ownerOf(id);
             address to = holders[(seed >> 128) % 3];
             vm.prank(from);
             lp.transferFrom(from, to, id);
+            if (seed % 3 == 0) {
+                uint128 liquidity = lp.positionAmounts(id).liquidity;
+                vm.prank(to);
+                lp.withdraw(id, liquidity, to, 0, 0, block.timestamp);
+                vm.prank(to);
+                lp.burn(id);
+                _assertOwnership(holders);
+                create(1000);
+            }
             _assertOwnership(holders);
         }
     }
@@ -244,16 +329,23 @@ contract FreeLPTest is FullTest {
         uint256 seen;
         uint256 mask;
         for (uint256 i; i < holders.length; i++) {
-            (uint256[] memory ids, uint256 total) = lp.ownedIds(holders[i], 0, 100);
-            assertEq(total, lp.balanceOf(holders[i]));
-            for (uint256 j; j < ids.length; j++) {
-                assertEq(lp.ownerOf(ids[j]), holders[i]);
-                assertEq(mask & (1 << ids[j]), 0);
-                mask |= 1 << ids[j];
+            uint256 total = lp.balanceOf(holders[i]);
+            for (uint256 j; j < total; j++) {
+                uint256 id = lp.tokenOfOwnerByIndex(holders[i], j);
+                assertEq(lp.ownerOf(id), holders[i]);
+                assertEq(mask & (1 << id), 0);
+                mask |= 1 << id;
                 seen++;
             }
         }
-        assertEq(seen, 5);
+        assertEq(seen, lp.totalSupply());
+        uint256 globalMask;
+        for (uint256 i; i < lp.totalSupply(); i++) {
+            uint256 id = lp.tokenByIndex(i);
+            assertEq(globalMask & (1 << id), 0);
+            globalMask |= 1 << id;
+        }
+        assertEq(globalMask, mask);
     }
 
     function testFuzz_portionWithdrawal(uint96 amount, uint16 fraction) public {

@@ -5,12 +5,13 @@ import {FullTest} from "./FullTest.sol";
 import {FreeLP} from "../src/FreeLP.sol";
 import {FreeLPDataFetcher} from "../src/lens/FreeLPDataFetcher.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {PoolConfig, createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
+import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {Base64} from "solady/utils/Base64.sol";
 import {LibString} from "solady/utils/LibString.sol";
 import {RouteNode, TokenAmount} from "../src/base/BaseRouter.sol";
 import {FreeLPPool, FreeLPRange, createFreeLPPool, createFreeLPRange} from "../src/types/freeLPDescriptor.sol";
+import {BoundsOrder, StableswapMustBeFullRange} from "../src/types/positionId.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
 contract NativeReentrantHolder {
@@ -182,19 +183,27 @@ contract FreeLPTest is FullTest {
         assertEq(lp.tokenOfOwnerByIndex(address(this), 2), 7);
     }
 
-    function testFuzz_packedDescriptorRoundtrip(address a, address b, uint96 configBits, int32 lower, int32 upper)
-        public
-        pure
-    {
+    function testFuzz_packedDescriptorRoundtrip(
+        address a,
+        address b,
+        uint96 configBits,
+        int32 lower,
+        int32 upper,
+        address extension
+    ) public pure {
         PoolConfig config = PoolConfig.wrap(bytes32(uint256(configBits)));
         FreeLPPool pool = createFreeLPPool(a, config);
-        FreeLPRange range = createFreeLPRange(b, lower, upper);
+        FreeLPRange range = createFreeLPRange(b, lower, upper, extension);
         assertEq(pool.token0(), a);
         assertEq(PoolConfig.unwrap(pool.config()), PoolConfig.unwrap(config));
         assertEq(range.token1(), b);
         assertEq(range.tickLower(), lower);
         assertEq(range.tickUpper(), upper);
-        assertEq(uint256(FreeLPRange.unwrap(range)) >> 64 & type(uint32).max, 0);
+        assertEq(range.extensionHigh(), uint32(uint160(extension) >> 128));
+        assertEq(
+            uint256(PoolConfig.unwrap(pool.fullConfig(range, uint128(uint160(extension))))),
+            (uint256(uint160(extension)) << 96) | configBits
+        );
     }
 
     function test_enumerableInterfacesAndBounds() public {
@@ -287,15 +296,55 @@ contract FreeLPTest is FullTest {
 
     function test_invalidDescriptorAndZeroLiquidity() public {
         d.tickUpper = d.tickLower;
-        vm.expectRevert(FreeLP.InvalidRange.selector);
+        vm.expectRevert(BoundsOrder.selector);
         create(100);
         d.tickUpper = 1000;
-        d.poolKey.config = createConcentratedPoolConfig(0, 10, address(1));
-        vm.expectRevert(FreeLP.UnsupportedPool.selector);
-        create(100);
         d.poolKey.config = createConcentratedPoolConfig(0, 10, address(0));
         vm.expectRevert(FreeLP.Slippage.selector);
         lp.createPosition(d, 0, FreeLP.DepositLimits(0, 0, 0, block.timestamp));
+    }
+
+    function testFuzz_stableswapWithExtension(uint8 amplification, int32 center) public {
+        amplification = uint8(bound(amplification, 0, 26));
+        center = int32(bound(center, -1000000, 1000000)) / 16 * 16;
+        address extension = address(createAndRegisterExtension());
+        d.poolKey.config = createStableswapPoolConfig(type(uint64).max / 1000, amplification, center, extension);
+        (d.tickLower, d.tickUpper) = d.poolKey.config.stableswapActiveLiquidityTickRange();
+        (uint256 id, uint128 liquidity,,) = lp.createPosition(d, center, limits(1 ether));
+        assertEq(abi.encode(lp.descriptor(id)), abi.encode(d));
+        assertGt(lp.positionAmounts(id).principal0 + lp.positionAmounts(id).principal1, 0);
+        lp.withdraw(id, liquidity, address(this), 0, 0, block.timestamp);
+        lp.burn(id);
+    }
+
+    function test_concentratedWithExtension() public {
+        d.poolKey.config = createConcentratedPoolConfig(123456789, 10, address(createAndRegisterExtension()));
+        (uint256 id, uint128 liquidity) = create(1 ether);
+        assertEq(abi.encode(lp.descriptor(id)), abi.encode(d));
+        lp.withdraw(id, liquidity, address(this), 0, 0, block.timestamp);
+        lp.burn(id);
+    }
+
+    function test_stableswapFeesRemainOwedOutsideActiveRange() public {
+        d.poolKey.config =
+            createStableswapPoolConfig(type(uint64).max / 100, 10, 0, address(createAndRegisterExtension()));
+        (d.tickLower, d.tickUpper) = d.poolKey.config.stableswapActiveLiquidityTickRange();
+        (uint256 id,) = create(1 ether);
+        token0.approve(address(router), 10 ether);
+        router.swapAllowPartialFill(RouteNode(d.poolKey, SqrtRatio.wrap(0), 0), TokenAmount(address(token0), 10 ether));
+        (, int32 tick,) = lp.poolState(d.poolKey);
+        assertLe(tick, d.tickLower);
+        FreeLP.Amounts memory amounts = lp.positionAmounts(id);
+        assertGt(amounts.fees0, 0);
+        (uint128 a, uint128 b) = lp.withdraw(id, 0, address(this), 0, 0, block.timestamp);
+        assertEq(a, amounts.fees0);
+        assertEq(b, amounts.fees1);
+    }
+
+    function test_stableswapRejectsPartialRange() public {
+        d.poolKey.config = createStableswapPoolConfig(0, 10, 0, address(0));
+        vm.expectRevert(StableswapMustBeFullRange.selector);
+        create(1000);
     }
 
     function test_metadataIsFullyOnChain() public {

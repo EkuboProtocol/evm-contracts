@@ -8,6 +8,7 @@ import {BaseLocker} from "./base/BaseLocker.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
+import {PoolConfig} from "./types/poolConfig.sol";
 import {PoolKey} from "./types/poolKey.sol";
 import {FreeLPPool, FreeLPRange, createFreeLPPool, createFreeLPRange} from "./types/freeLPDescriptor.sol";
 import {PoolId} from "./types/poolId.sol";
@@ -18,11 +19,11 @@ import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity, liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {FreeLPMetadata} from "./libraries/FreeLPMetadata.sol";
 
 /// @notice Ownerless, zero-fee positions with one immutable pool/range per NFT and RPC-readable ownership.
-/// @dev Adapted from BasePositions settlement. No swap, extension, admin, or external metadata dependency.
+/// @dev Adapted from BasePositions settlement. No swap, admin, or external metadata dependency. Pool extensions are selected by the depositor.
 ///      Nonpayable multicall supports ERC20 operations; native deposits are standalone and refund exact excess.
 contract FreeLP is ERC721, BaseLocker, Multicallable {
     using CoreLib for ICore;
@@ -34,13 +35,13 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         int32 tickUpper;
     }
 
-    // Three slots per NFT: token0/config; token1/ticks; both enumeration indexes.
-    // The extension is always zero, so the full supported config fits in 96 bits.
+    // Three slots per NFT: token0/config; token1/ticks/extension high; indexes/extension low.
     struct StoredPosition {
         FreeLPPool pool;
         FreeLPRange range;
         uint64 ownerIndex;
         uint64 globalIndex;
+        uint128 extensionLow;
     }
 
     struct Amounts {
@@ -59,8 +60,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     }
 
     error Unauthorized();
-    error UnsupportedPool();
-    error InvalidRange();
     error Expired();
     error Slippage();
     error InvalidValue();
@@ -111,7 +110,8 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         StoredPosition storage p = _positions[id];
         FreeLPPool pool = p.pool;
         FreeLPRange range = p.range;
-        return Descriptor(PoolKey(pool.token0(), range.token1(), pool.config()), range.tickLower(), range.tickUpper());
+        PoolConfig config = pool.fullConfig(range, p.extensionLow);
+        return Descriptor(PoolKey(pool.token0(), range.token1(), config), range.tickLower(), range.tickUpper());
     }
 
     function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
@@ -156,7 +156,9 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
             tickToSqrtRatio(d.tickUpper)
         );
         (a.principal0, a.principal1) = (uint128(-delta0), uint128(-delta1));
-        FeesPerLiquidity memory f = CORE.getPoolFeesPerLiquidityInside(poolId, d.tickLower, d.tickUpper);
+        FeesPerLiquidity memory f = d.poolKey.config.isStableswap()
+            ? CORE.getPoolFeesPerLiquidity(poolId)
+            : CORE.getPoolFeesPerLiquidityInside(poolId, d.tickLower, d.tickUpper);
         (a.fees0, a.fees1) = p.fees(f);
     }
 
@@ -191,7 +193,8 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         id = ++_nextId;
         StoredPosition storage p = _positions[id];
         p.pool = createFreeLPPool(d.poolKey.token0, d.poolKey.config);
-        p.range = createFreeLPRange(d.poolKey.token1, d.tickLower, d.tickUpper);
+        p.range = createFreeLPRange(d.poolKey.token1, d.tickLower, d.tickUpper, d.poolKey.config.extension());
+        p.extensionLow = uint128(uint160(d.poolKey.config.extension()));
         _mint(msg.sender, id);
         (liquidity, amount0, amount1) = _deposit(id, d, limits);
         emit PositionCreated(id, msg.sender, d.poolKey, d.tickLower, d.tickUpper);
@@ -242,10 +245,7 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
 
     function _validate(Descriptor memory d) private pure {
         d.poolKey.validate();
-        if (d.poolKey.config.extension() != address(0) || !d.poolKey.config.isConcentrated()) revert UnsupportedPool();
-        if (d.tickLower < MIN_TICK || d.tickUpper > MAX_TICK || d.tickLower >= d.tickUpper) revert InvalidRange();
-        int32 spacing = int32(d.poolKey.config.concentratedTickSpacing());
-        if (d.tickLower % spacing != 0 || d.tickUpper % spacing != 0) revert InvalidRange();
+        _positionId(0, d).validate(d.poolKey.config);
     }
 
     function _positionId(uint256 id, Descriptor memory d) private pure returns (PositionId) {

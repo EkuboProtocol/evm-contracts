@@ -23,26 +23,24 @@ library FreeLPMetadata {
             LibString.toHexString(key.token0),
             '</text><text x="24" y="120">',
             LibString.toHexString(key.token1),
-            '</text><text x="24" y="175">Ticks: ',
-            LibString.toString(int256(lower)),
-            " to ",
-            LibString.toString(int256(upper)),
-            '</text><text x="24" y="215">Chain: ',
-            LibString.toString(block.chainid),
             "</text></g></svg>"
         );
-        string memory attributes = string.concat(
-            _attribute("token0", LibString.toHexString(key.token0)),
-            ",",
-            _attribute("token1", LibString.toHexString(key.token1)),
-            ",",
-            _attribute("core", LibString.toHexString(core)),
-            ",",
-            _attribute("config", LibString.toHexString(uint256(PoolConfig.unwrap(key.config)), 32)),
-            ",",
-            _attribute("tick_lower", LibString.toString(int256(lower))),
-            ",",
-            _attribute("tick_upper", LibString.toString(int256(upper)))
+        string memory properties = string.concat(
+            '"token0":"',
+            LibString.toHexString(key.token0),
+            '","token1":"',
+            LibString.toHexString(key.token1),
+            '","core":"',
+            LibString.toHexString(core),
+            '","chain":"',
+            LibString.toString(block.chainid),
+            '","config":"',
+            LibString.toHexString(uint256(PoolConfig.unwrap(key.config)), 32),
+            '","tick_lower":"',
+            LibString.toString(int256(lower)),
+            '","tick_upper":"',
+            LibString.toString(int256(upper)),
+            '"'
         );
         return string.concat(
             "data:application/json;base64,",
@@ -54,16 +52,12 @@ library FreeLPMetadata {
                         '","description":"An ownerless liquidity position. All metadata is generated on chain.",',
                         '"image":"data:image/svg+xml;base64,',
                         Base64.encode(bytes(svg)),
-                        '","attributes":[',
-                        attributes,
-                        "]}"
+                        '","properties":{',
+                        properties,
+                        "}}"
                     )
                 )
             )
         );
-    }
-
-    function _attribute(string memory trait, string memory value) private pure returns (string memory) {
-        return string.concat('{"trait_type":"', trait, '","value":"', value, '"}');
     }
 }

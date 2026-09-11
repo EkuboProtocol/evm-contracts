@@ -23,6 +23,21 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
         bytes signature;
     }
 
+    /// @notice Emitted when the owner share of subsequently collected swap fees changes.
+    event OwnerFeeUpdated(uint64 fee);
+
+    /// @notice The owner's share of collected swap fees as a Q0.64 fraction, initially zero.
+    function ownerFee() external view returns (uint64);
+
+    /// @notice Sets the owner's Q0.64 share of future swap fees. Only callable by the owner.
+    /// @dev The share is calculated with computeFee (rounded up) and deducted from LP fees.
+    function setOwnerFee(uint64 fee) external;
+
+    /// @notice Withdraws owner fees saved in Core under salt zero. Only callable by the owner.
+    /// @dev Balances are aggregated by ordered token pair, separately from pending LP fees.
+    function withdrawOwnerFees(address token0, address token1, uint128 amount0, uint128 amount1, address recipient)
+        external;
+
     /// @notice Emitted when a pool state is updated.
     event PoolStateUpdated(PoolId indexed poolId, SignedExclusiveSwapPoolState poolState);
     /// @notice Emitted when a signed swap payload is validated and broadcast.

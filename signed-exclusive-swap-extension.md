@@ -11,7 +11,7 @@ It enforces:
 - signatures can optionally restrict which locker is allowed to use them,
 - pool fee must be zero for pools using this extension,
 - pools must be initialized through the extension's owner-only `initializePool(...)`,
-- signed fees are collected by the extension first and donated to LPs on the next block touch.
+- signed fees are split between the owner and LPs; the LP share is donated on the next block touch.
 
 ## Payload
 
@@ -63,7 +63,7 @@ where:
 7. Extension applies `fee` to the swapper result:
    - exact-in: fee is charged on output amount,
    - exact-out: fee is charged on required input amount.
-8. Charged fee is stored in Core saved balances owned by the extension itself, salted by the pool ID, and is later donated to that pool's LPs.
+8. For a nonzero collected fee, the owner share is calculated with `computeFee` and saved separately in Core under salt zero. The remainder is saved under the pool ID and later donated to that pool's LPs.
 
 ## Why `minBalanceUpdate` is useful
 
@@ -77,10 +77,10 @@ It provides four protections at once:
 
 ## Fee donation timing
 
-The extension does not immediately donate its signed fee to LPs.
+The extension does not immediately donate the LP share of its signed fee to LPs.
 
 Instead, on a pool's first touch at a new block *timestamp* (`swap`, `beforeUpdatePosition`, or `beforeCollectFees` path, or the public `accumulatePoolFees`), it:
-- donates previously collected extension fees into pool LP accounting,
+- donates previously collected LP fees into pool LP accounting,
 - records the pool as updated for the current block timestamp.
 
 This prevents liquidity from being added purely to capture fees that were earned earlier. Note that the gate is the block timestamp, not the block number, so on chains that produce more than one block per second donation happens at most once per second.
@@ -122,3 +122,11 @@ These controls reduce the value of quote farming and make selective execution ma
 ## Broadcasting quotes
 
 `broadcastSignedSwaps(SignedSwapBroadcast[])` is a permissionless entrypoint that validates a batch of signed payloads (deadline window, nonce still available, signature against the pool's current controller) and emits one `SignedSwapBroadcasted` event per valid payload. It executes nothing and consumes no nonces; it exists so a controller can publish live quotes on-chain for takers to discover. The whole call reverts if any payload fails validation.
+
+## Owner fee share
+
+The owner can call `setOwnerFee(uint64)` to set a Q0.64 share of subsequently collected swap fees (the same representation as regular pool fees). It defaults to zero. `OwnerFeeUpdated` records changes. For example, `1 << 63` takes half of the collected fee, not half of the swap amount.
+
+During each swap, a nonzero collected fee is split using `computeFee(collectedFee, ownerFee)`, rounding the owner's share up. A nonzero owner share is saved immediately through `CORE.updateSavedBalances` under salt zero, aggregated by ordered token pair. The remaining fee goes to the pool's pending LP balance. The swapper's total fee is unchanged, and rate changes do not affect fees already saved for LPs.
+
+The owner can collect these balances with `withdrawOwnerFees(token0, token1, amount0, amount1, recipient)`. Pending LP balances remain separate under the pool ID salt.

@@ -114,7 +114,7 @@ These controls reduce the value of quote farming and make selective execution ma
 ## Controller management
 
 - Contract is `Ownable`.
-- Owner initializes pools by setting a `ControllerAddress controller` via `initializePool(poolKey, tick, controller)`; the EOA/contract flag is encoded in the controller address (high bit at position 159).
+- Owner initializes pools by setting a `ControllerAddress controller` via `initializePool(poolKey, tick, controller, ownerFee)`; the EOA/contract flag is encoded in the controller address (high bit at position 159).
 - Direct `Core.initializePool(...)` for this extension is blocked by `beforeInitializePool`.
 - Owner can update per-pool controller for already initialized pools via `setPoolController(...)`.
 - Controller signatures support both EOAs and ERC-1271 contract wallets; which path is used is determined by bit 159 of the controller address itself, not a separate flag. Addresses below `2^159` are verified via ECDSA, addresses at or above it via ERC-1271. Initialization and controller updates enforce that the address's code presence matches the encoded type.
@@ -125,10 +125,10 @@ These controls reduce the value of quote farming and make selective execution ma
 
 ## Owner fee share
 
-The owner can call `setOwnerFee(PoolKey,uint64)` to set a Q0.64 share of subsequently collected swap fees for an initialized pool (the same representation as regular pool fees). Each pool defaults to zero. `PoolStateUpdated` records changes, and `ownerFee(PoolId)` reads the configured share. For example, `1 << 63` takes half of the collected fee, not half of the swap amount.
+The owner can call `setOwnerFee(PoolKey,uint64)` to set a Q0.64 share of subsequently collected swap fees for an initialized pool (the same representation as regular pool fees). The initial share is supplied to `initializePool(poolKey, tick, controller, ownerFee)`. `PoolStateUpdated` records changes. Read the share through ExposedStorage at the pool ID slot and decode it with `SignedExclusiveSwapPoolState.ownerFee()`. For example, `1 << 63` takes half of the collected fee, not half of the swap amount.
 
 The fee occupies bits [63..0] of `SignedExclusiveSwapPoolState`, alongside the 160-bit controller and 32-bit last-update timestamp. Swaps read the fee from the already loaded state, requiring no additional storage read.
 
-During each swap, a nonzero collected fee is split using `computeFee(collectedFee, ownerFee)`, rounding the owner's share up. A nonzero owner share is saved immediately through `CORE.updateSavedBalances` under salt zero, aggregated by ordered token pair. The remaining fee goes to the pool's pending LP balance. The swapper's total fee is unchanged, and rate changes do not affect fees already saved for LPs.
+During each swap, a nonzero collected fee is split using `computeFee(collectedFee, ownerFee)`, rounding the owner's share up. Only a nonzero computed owner share is saved immediately through `CORE.updateSavedBalances` under salt zero, aggregated by ordered token pair. The remaining fee goes to the pool's pending LP balance. The swapper's total fee is unchanged, and rate changes do not affect fees already saved for LPs.
 
 The owner can collect these balances with `withdrawOwnerFees(token0, token1, amount0, amount1, recipient)`. Pending LP balances remain separate under the pool ID salt.

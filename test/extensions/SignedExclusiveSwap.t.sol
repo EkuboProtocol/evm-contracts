@@ -17,6 +17,7 @@ import {
     SignedExclusiveSwapPoolState,
     createSignedExclusiveSwapPoolState
 } from "../../src/types/signedExclusiveSwapPoolState.sol";
+import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {SignedExclusiveSwapLib} from "../../src/libraries/SignedExclusiveSwapLib.sol";
 import {SignedExclusiveSwap, signedExclusiveSwapCallPoints} from "../../src/extensions/SignedExclusiveSwap.sol";
@@ -141,6 +142,7 @@ contract SignedExclusiveSwapHarness is BaseLocker {
 }
 
 contract SignedExclusiveSwapTest is FullTest {
+    using ExposedStorageLib for *;
     using CoreLib for *;
     using SignedExclusiveSwapLib for *;
 
@@ -199,9 +201,20 @@ contract SignedExclusiveSwapTest is FullTest {
         internal
         returns (PoolKey memory poolKey)
     {
+        return createSignedExclusiveSwapPool(tick, tickSpacing, poolController, 0);
+    }
+
+    function createSignedExclusiveSwapPool(int32 tick, uint32 tickSpacing, ControllerAddress poolController, uint64 fee)
+        internal
+        returns (PoolKey memory poolKey)
+    {
         poolKey = signedExclusiveSwapPoolKey(tickSpacing);
         vm.prank(admin);
-        signedExclusiveSwap.initializePool(poolKey, tick, poolController);
+        signedExclusiveSwap.initializePool(poolKey, tick, poolController, fee);
+    }
+
+    function _poolState(PoolKey memory poolKey) internal view returns (SignedExclusiveSwapPoolState) {
+        return SignedExclusiveSwapPoolState.wrap(signedExclusiveSwap.sload(PoolId.unwrap(poolKey.toPoolId())));
     }
 
     function test_signed_swap_helper_and_deferred_fee_donation() public {
@@ -253,17 +266,20 @@ contract SignedExclusiveSwapTest is FullTest {
 
     function test_owner_fee_administration() public {
         PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
-        assertEq(signedExclusiveSwap.ownerFee(poolKey.toPoolId()), 0);
+        assertEq(_poolState(poolKey).ownerFee(), 0);
         vm.expectRevert(Ownable.Unauthorized.selector);
         signedExclusiveSwap.setOwnerFee(poolKey, 1);
         vm.prank(admin);
         vm.expectEmit(address(signedExclusiveSwap));
         emit ISignedExclusiveSwap.PoolStateUpdated(
             poolKey.toPoolId(),
-            createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp), type(uint64).max)
+            createSignedExclusiveSwapPoolState({
+                _controller: controller, _lastUpdateTime: uint32(block.timestamp), _ownerFee: type(uint64).max
+            })
         );
+        vm.expectCall(address(core), bytes(""), uint64(0));
         signedExclusiveSwap.setOwnerFee(poolKey, type(uint64).max);
-        assertEq(signedExclusiveSwap.ownerFee(poolKey.toPoolId()), type(uint64).max);
+        assertEq(_poolState(poolKey).ownerFee(), type(uint64).max);
         vm.expectRevert(Ownable.Unauthorized.selector);
         signedExclusiveSwap.withdrawOwnerFees(address(token0), address(token1), 0, 0, address(this));
     }
@@ -273,17 +289,19 @@ contract SignedExclusiveSwapTest is FullTest {
         PoolKey memory otherPool = createSignedExclusiveSwapPool(0, 10_000);
         vm.prank(admin);
         signedExclusiveSwap.setOwnerFee(poolKey, 1 << 63);
-        assertEq(signedExclusiveSwap.ownerFee(poolKey.toPoolId()), 1 << 63);
-        assertEq(signedExclusiveSwap.ownerFee(otherPool.toPoolId()), 0);
+        assertEq(_poolState(poolKey).ownerFee(), 1 << 63);
+        assertEq(_poolState(otherPool).ownerFee(), 0);
         vm.prank(admin);
         signedExclusiveSwap.setPoolController(poolKey, controller);
         advanceTime(1);
         signedExclusiveSwap.accumulatePoolFees(poolKey);
-        assertEq(signedExclusiveSwap.ownerFee(poolKey.toPoolId()), 1 << 63);
+        assertEq(_poolState(poolKey).ownerFee(), 1 << 63);
     }
 
     function test_revert_owner_fee_uninitialized_pool() public {
         PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+        signedExclusiveSwap.accumulatePoolFees(poolKey);
+        assertGt(_poolState(poolKey).lastUpdateTime(), 0);
         vm.prank(admin);
         vm.expectRevert(ICore.PoolNotInitialized.selector);
         signedExclusiveSwap.setOwnerFee(poolKey, 1);
@@ -324,22 +342,40 @@ contract SignedExclusiveSwapTest is FullTest {
         );
     }
 
-    function test_fuzz_owner_fee_split(bool isToken1, bool exactOut, uint64 shareRate, uint128 amount) public {
+    function test_fuzz_owner_fee_exact_in_token0(uint64 shareRate, uint128 amount, uint32 swapFee) public {
+        _testOwnerFeeSplit(false, false, shareRate, amount, swapFee);
+    }
+
+    function test_fuzz_owner_fee_exact_in_token1(uint64 shareRate, uint128 amount, uint32 swapFee) public {
+        _testOwnerFeeSplit(true, false, shareRate, amount, swapFee);
+    }
+
+    function test_fuzz_owner_fee_exact_out_token0(uint64 shareRate, uint128 amount, uint32 swapFee) public {
+        _testOwnerFeeSplit(false, true, shareRate, amount, swapFee);
+    }
+
+    function test_fuzz_owner_fee_exact_out_token1(uint64 shareRate, uint128 amount, uint32 swapFee) public {
+        _testOwnerFeeSplit(true, true, shareRate, amount, swapFee);
+    }
+
+    function _testOwnerFeeSplit(bool isToken1, bool exactOut, uint64 shareRate, uint128 amount, uint32 swapFee)
+        internal
+    {
         amount = uint128(bound(amount, 1, 100_000));
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000, controller, shareRate);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
         token0.approve(address(harness), type(uint256).max);
         token1.approve(address(harness), type(uint256).max);
         uint256 snapshot = vm.snapshotState();
+        vm.prank(admin);
+        signedExclusiveSwap.setOwnerFee(poolKey, 0);
         int128 swapAmount = exactOut ? -int128(amount) : int128(amount);
-        PoolBalanceUpdate baseline = _ownerFeeSwap(poolKey, isToken1, swapAmount, uint32(1 << 26));
+        PoolBalanceUpdate baseline = _ownerFeeSwap(poolKey, isToken1, swapAmount, swapFee);
         (uint128 total0, uint128 total1) = core.savedBalances(
             address(signedExclusiveSwap), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId())
         );
         assertTrue(vm.revertToState(snapshot));
-        vm.prank(admin);
-        signedExclusiveSwap.setOwnerFee(poolKey, shareRate);
-        PoolBalanceUpdate actual = _ownerFeeSwap(poolKey, isToken1, swapAmount, uint32(1 << 26));
+        PoolBalanceUpdate actual = _ownerFeeSwap(poolKey, isToken1, swapAmount, swapFee);
         assertEq(PoolBalanceUpdate.unwrap(actual), PoolBalanceUpdate.unwrap(baseline));
         uint128 expected0 = computeFee(total0, shareRate);
         uint128 expected1 = computeFee(total1, shareRate);
@@ -371,6 +407,44 @@ contract SignedExclusiveSwapTest is FullTest {
         (after0, after1) = core.savedBalances(address(signedExclusiveSwap), poolKey.token0, poolKey.token1, bytes32(0));
         assertEq(after0, 0);
         assertEq(after1, 0);
+    }
+
+    function test_owner_fee_boundaries_all_swap_cases() public {
+        uint64[3] memory rates = [uint64(0), uint64(1), type(uint64).max];
+        for (uint256 direction; direction < 4; ++direction) {
+            for (uint256 i; i < rates.length; ++i) {
+                uint256 snapshot = vm.snapshotState();
+                _testOwnerFeeSplit(direction & 1 != 0, direction & 2 != 0, rates[i], 100_000, type(uint32).max);
+                assertTrue(vm.revertToState(snapshot));
+            }
+        }
+    }
+
+    function test_zero_owner_share_skips_saved_balance_call_all_swap_cases() public {
+        vm.expectCall(
+            address(core),
+            abi.encodeWithSelector(ICore.updateSavedBalances.selector, address(token0), address(token1), bytes32(0)),
+            uint64(0)
+        );
+        for (uint256 direction; direction < 4; ++direction) {
+            for (uint256 scenario; scenario < 4; ++scenario) {
+                uint256 snapshot = vm.snapshotState();
+                uint64 rate = scenario == 0 || scenario == 3 ? 0 : type(uint64).max;
+                PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000, controller, rate);
+                createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+                token0.approve(address(harness), type(uint256).max);
+                token1.approve(address(harness), type(uint256).max);
+                uint32 swapFee = scenario == 1 || scenario == 3 ? 0 : uint32(1 << 26);
+                int128 amount = scenario == 2 ? int128(0) : int128(100_000);
+                if (direction & 2 != 0) amount = -amount;
+                _ownerFeeSwap(poolKey, direction & 1 != 0, amount, swapFee);
+                (uint128 owner0, uint128 owner1) =
+                    core.savedBalances(address(signedExclusiveSwap), poolKey.token0, poolKey.token1, bytes32(0));
+                assertEq(owner0, 0);
+                assertEq(owner1, 0);
+                assertTrue(vm.revertToState(snapshot));
+            }
+        }
     }
 
     function test_owner_fee_inline_donation_and_rate_change() public {
@@ -405,7 +479,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_owner_fee_rounds_up_entire_single_unit_fee() public {
-        test_fuzz_owner_fee_split(false, true, 1, 1);
+        _testOwnerFeeSplit(false, true, 1, 1, uint32(1 << 26));
     }
 
     function test_zero_collected_fee_skips_owner_balance_update() public {
@@ -699,14 +773,18 @@ contract SignedExclusiveSwapTest is FullTest {
 
     function test_initialize_pool_emits_pool_state_updated() public {
         PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
-        SignedExclusiveSwapPoolState expectedState =
-            createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp), 0);
+        SignedExclusiveSwapPoolState expectedState = createSignedExclusiveSwapPoolState({
+            _controller: controller, _lastUpdateTime: uint32(block.timestamp), _ownerFee: 1 << 63
+        });
 
         vm.expectEmit(true, false, false, true, address(signedExclusiveSwap));
         emit ISignedExclusiveSwap.PoolStateUpdated(poolKey.toPoolId(), expectedState);
 
         vm.prank(admin);
-        signedExclusiveSwap.initializePool(poolKey, 0, controller);
+        signedExclusiveSwap.initializePool(poolKey, 0, controller, 1 << 63);
+        assertEq(
+            SignedExclusiveSwapPoolState.unwrap(_poolState(poolKey)), SignedExclusiveSwapPoolState.unwrap(expectedState)
+        );
     }
 
     function test_owner_initializes_pool_with_specified_controller() public {
@@ -1151,7 +1229,7 @@ contract SignedExclusiveSwapTest is FullTest {
         PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
 
         vm.expectRevert(Ownable.Unauthorized.selector);
-        signedExclusiveSwap.initializePool(poolKey, 0, controller);
+        signedExclusiveSwap.initializePool(poolKey, 0, controller, 0);
     }
 
     function test_revert_initialize_pool_wrong_extension() public {
@@ -1163,7 +1241,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
         vm.prank(admin);
         vm.expectRevert(ISignedExclusiveSwap.PoolExtensionMustBeSelf.selector);
-        signedExclusiveSwap.initializePool(poolKey, 0, controller);
+        signedExclusiveSwap.initializePool(poolKey, 0, controller, 0);
     }
 
     function test_revert_initialize_pool_zero_controller() public {
@@ -1171,7 +1249,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
         vm.prank(admin);
         vm.expectRevert(ISignedExclusiveSwap.InvalidController.selector);
-        signedExclusiveSwap.initializePool(poolKey, 0, ControllerAddress.wrap(address(0)));
+        signedExclusiveSwap.initializePool(poolKey, 0, ControllerAddress.wrap(address(0)), 0);
     }
 
     function test_revert_initialize_pool_contract_with_eoa_controller_encoding() public {
@@ -1183,7 +1261,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
         vm.prank(admin);
         vm.expectRevert(ISignedExclusiveSwap.InvalidController.selector);
-        signedExclusiveSwap.initializePool(poolKey, 0, ControllerAddress.wrap(lowBitContract));
+        signedExclusiveSwap.initializePool(poolKey, 0, ControllerAddress.wrap(lowBitContract), 0);
     }
 
     function test_revert_initialize_pool_eoa_with_contract_controller_encoding() public {
@@ -1194,7 +1272,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
         vm.prank(admin);
         vm.expectRevert(ISignedExclusiveSwap.InvalidController.selector);
-        signedExclusiveSwap.initializePool(poolKey, 0, ControllerAddress.wrap(highBitNoCode));
+        signedExclusiveSwap.initializePool(poolKey, 0, ControllerAddress.wrap(highBitNoCode), 0);
     }
 
     function test_owner_can_set_nonce_bitmap() public {

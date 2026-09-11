@@ -60,17 +60,11 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     mapping(uint256 => Bitmap) public nonceBitmap;
 
     /// @inheritdoc ISignedExclusiveSwap
-    function ownerFee(PoolId poolId) external view returns (uint64) {
-        return _getPoolState(poolId).ownerFee();
-    }
-
-    /// @inheritdoc ISignedExclusiveSwap
     function setOwnerFee(PoolKey memory poolKey, uint64 fee) external onlyOwner {
-        if (poolKey.config.extension() != address(this) || !CORE.poolState(poolKey.toPoolId()).isInitialized()) {
-            revert ICore.PoolNotInitialized();
-        }
         PoolId poolId = poolKey.toPoolId();
-        _setPoolState(poolId, _getPoolState(poolId).withOwnerFee(fee));
+        SignedExclusiveSwapPoolState state = _getPoolState(poolId);
+        if (ControllerAddress.unwrap(state.controller()) == address(0)) revert ICore.PoolNotInitialized();
+        _setPoolState(poolId, state.withOwnerFee(fee));
     }
 
     /// @inheritdoc ISignedExclusiveSwap
@@ -102,7 +96,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     /// @inheritdoc ISignedExclusiveSwap
-    function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller)
+    function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller, uint64 ownerFee)
         external
         onlyOwner
         returns (SqrtRatio sqrtRatio)
@@ -114,7 +108,9 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         sqrtRatio = CORE.initializePool(poolKey, tick);
         _setPoolState({
             poolId: poolKey.toPoolId(),
-            state: createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp), 0)
+            state: createSignedExclusiveSwapPoolState({
+                _controller: controller, _lastUpdateTime: uint32(block.timestamp), _ownerFee: ownerFee
+            })
         });
     }
 

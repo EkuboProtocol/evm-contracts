@@ -17,8 +17,9 @@ import {ControllerAddress, isEoa} from "../../src/types/controllerAddress.sol";
 contract SignedExclusiveSwapPoolStateTest is Test {
     function test_pack_unpack(address _controller, uint32 _lastUpdateTime, uint64 _ownerFee) public pure {
         ControllerAddress controllerAddress = ControllerAddress.wrap(_controller);
-        SignedExclusiveSwapPoolState state =
-            createSignedExclusiveSwapPoolState(controllerAddress, _lastUpdateTime, _ownerFee);
+        SignedExclusiveSwapPoolState state = createSignedExclusiveSwapPoolState({
+            _controller: controllerAddress, _lastUpdateTime: _lastUpdateTime, _ownerFee: _ownerFee
+        });
 
         assertEq(ControllerAddress.unwrap(controller(state)), _controller);
         assertEq(lastUpdateTime(state), _lastUpdateTime);
@@ -31,8 +32,9 @@ contract SignedExclusiveSwapPoolStateTest is Test {
         pure
     {
         ControllerAddress controllerAddress = ControllerAddress.wrap(_controller);
-        SignedExclusiveSwapPoolState state =
-            createSignedExclusiveSwapPoolState(controllerAddress, _lastUpdateTime, _ownerFee);
+        SignedExclusiveSwapPoolState state = createSignedExclusiveSwapPoolState({
+            _controller: controllerAddress, _lastUpdateTime: _lastUpdateTime, _ownerFee: _ownerFee
+        });
         SignedExclusiveSwapPoolState updated = withLastUpdateTime(state, nextTime);
 
         assertEq(ControllerAddress.unwrap(controller(updated)), _controller);
@@ -47,8 +49,9 @@ contract SignedExclusiveSwapPoolStateTest is Test {
     {
         ControllerAddress controllerAddress = ControllerAddress.wrap(_controller);
         ControllerAddress nextControllerAddress = ControllerAddress.wrap(nextController);
-        SignedExclusiveSwapPoolState state =
-            createSignedExclusiveSwapPoolState(controllerAddress, _lastUpdateTime, _ownerFee);
+        SignedExclusiveSwapPoolState state = createSignedExclusiveSwapPoolState({
+            _controller: controllerAddress, _lastUpdateTime: _lastUpdateTime, _ownerFee: _ownerFee
+        });
         SignedExclusiveSwapPoolState updated = withController(state, nextControllerAddress);
 
         assertEq(ControllerAddress.unwrap(controller(updated)), nextController);
@@ -58,8 +61,9 @@ contract SignedExclusiveSwapPoolStateTest is Test {
     }
 
     function test_withOwnerFee(address _controller, uint32 time, uint64 fee, uint64 nextFee) public pure {
-        SignedExclusiveSwapPoolState state =
-            createSignedExclusiveSwapPoolState(ControllerAddress.wrap(_controller), time, fee);
+        SignedExclusiveSwapPoolState state = createSignedExclusiveSwapPoolState({
+            _controller: ControllerAddress.wrap(_controller), _lastUpdateTime: time, _ownerFee: fee
+        });
         SignedExclusiveSwapPoolState updated = withOwnerFee(state, nextFee);
         assertEq(ControllerAddress.unwrap(controller(updated)), _controller);
         assertEq(lastUpdateTime(updated), time);

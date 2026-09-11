@@ -63,7 +63,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     error Expired();
     error Slippage();
     error InvalidValue();
-    error PositionNotEmpty();
     error Reentrancy();
     error EnumerationIndexOutOfBounds();
     error InvalidCore();
@@ -212,6 +211,7 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     }
 
     /// @notice Withdrawal always collects fees; liquidity=0 is fee collection. Minimums include fees.
+    ///         Removing the remaining liquidity burns the NFT and clears its descriptor and enumeration storage.
     function withdraw(uint256 id, uint128 liquidity, address recipient, uint128 min0, uint128 min1, uint256 deadline)
         external
         guarded
@@ -225,14 +225,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
             abi.decode(lock(abi.encode(false, msg.sender, id, liquidity, recipient)), (uint128, uint128));
         if (amount0 < min0 || amount1 < min1) revert Slippage();
         emit LiquidityRemoved(id, liquidity, amount0, amount1);
-    }
-
-    function burn(uint256 id) external guarded {
-        _authorize(id);
-        Amounts memory a = positionAmounts(id);
-        if (a.liquidity != 0 || a.fees0 != 0 || a.fees1 != 0) revert PositionNotEmpty();
-        _burn(id);
-        delete _positions[id];
     }
 
     function _authorize(uint256 id) private view {
@@ -308,6 +300,10 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
             PoolBalanceUpdate update = CORE.updatePosition(d.poolKey, _positionId(id, d), -int128(liquidity));
             amount0 += uint128(-update.delta0());
             amount1 += uint128(-update.delta1());
+            if (CORE.poolPositions(d.poolKey.toPoolId(), address(this), _positionId(id, d)).liquidity == 0) {
+                _burn(id);
+                delete _positions[id];
+            }
         }
         ACCOUNTANT.withdrawTwo(d.poolKey.token0, d.poolKey.token1, recipient, amount0, amount1);
         return abi.encode(amount0, amount1);

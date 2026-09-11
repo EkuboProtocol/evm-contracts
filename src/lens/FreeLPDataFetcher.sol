@@ -1,10 +1,16 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
+import {QuoteDataFetcher} from "./QuoteDataFetcher.sol";
+import {TokenDataFetcher} from "./TokenDataFetcher.sol";
+import {ICore} from "../interfaces/ICore.sol";
+
 import {FreeLP} from "../FreeLP.sol";
 
 /// @notice Complete owned LP position snapshots without an indexer or per-position RPC calls.
-contract FreeLPDataFetcher {
+contract FreeLPDataFetcher is QuoteDataFetcher, TokenDataFetcher {
+    constructor(ICore core) QuoteDataFetcher(core) {}
+
     struct OwnedPosition {
         uint256 id;
         FreeLP.Descriptor descriptor;

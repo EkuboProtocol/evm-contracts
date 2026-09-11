@@ -3,6 +3,8 @@ pragma solidity =0.8.33;
 
 import {FullTest} from "./FullTest.sol";
 import {FreeLP} from "../src/FreeLP.sol";
+import {QuoteData} from "../src/lens/QuoteDataFetcher.sol";
+import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
 import {FreeLPDataFetcher} from "../src/lens/FreeLPDataFetcher.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.sol";
@@ -78,8 +80,31 @@ contract FreeLPTest is FullTest {
         (id, liquidity,,) = lp.createPosition(d, 0, limits(amount));
     }
 
+    function test_unifiedFetcherQuotesAndBalances() public {
+        create(1 ether);
+        FreeLPDataFetcher fetcher = new FreeLPDataFetcher(core);
+        PoolKey[] memory keys = new PoolKey[](1);
+        keys[0] = d.poolKey;
+        QuoteData[] memory quotes = fetcher.getQuoteData(keys, 1);
+        (uint256 ratio,, uint128 liquidity) = lp.poolState(d.poolKey);
+        assertEq(quotes.length, 1);
+        assertEq(quotes[0].sqrtRatio.toFixed(), ratio);
+        assertEq(quotes[0].liquidity, liquidity);
+        assertGt(quotes[0].ticks.length, 0);
+        address[] memory tokens = new address[](2);
+        tokens[0] = address(token0);
+        tokens[1] = NATIVE_TOKEN_ADDRESS;
+        address[] memory spenders = new address[](1);
+        spenders[0] = address(lp);
+        (TokenDataFetcher.Balance[] memory balances, TokenDataFetcher.Allowance[] memory allowances) =
+            fetcher.getNonzeroBalancesAndAllowances(address(this), tokens, spenders);
+        assertEq(balances[0].amount, token0.balanceOf(address(this)));
+        assertEq(balances[1].amount, address(this).balance);
+        assertEq(allowances[0].amount, token0.allowance(address(this), address(lp)));
+    }
+
     function test_ownedPositions_missingManager_and_zeroHolder() public {
-        FreeLPDataFetcher fetcher = new FreeLPDataFetcher();
+        FreeLPDataFetcher fetcher = new FreeLPDataFetcher(core);
         (uint256 chainId, bool deployed, FreeLPDataFetcher.OwnedPosition[] memory items) =
             fetcher.ownedPositions(FreeLP(address(123)), address(this));
         assertEq(chainId, block.chainid);
@@ -92,7 +117,7 @@ contract FreeLPTest is FullTest {
     }
 
     function test_ownedPositions_snapshot_tracks_transfers_fees_and_burns() public {
-        FreeLPDataFetcher fetcher = new FreeLPDataFetcher();
+        FreeLPDataFetcher fetcher = new FreeLPDataFetcher(core);
         (uint256 chainId, bool deployed, FreeLPDataFetcher.OwnedPosition[] memory empty) =
             fetcher.ownedPositions(lp, address(this));
         assertTrue(deployed);

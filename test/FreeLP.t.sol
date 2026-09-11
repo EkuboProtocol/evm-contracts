@@ -3,6 +3,7 @@ pragma solidity =0.8.33;
 
 import {FullTest} from "./FullTest.sol";
 import {FreeLP} from "../src/FreeLP.sol";
+import {FreeLPDataFetcher} from "../src/lens/FreeLPDataFetcher.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {PoolConfig, createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
@@ -74,6 +75,53 @@ contract FreeLPTest is FullTest {
 
     function create(uint128 amount) internal returns (uint256 id, uint128 liquidity) {
         (id, liquidity,,) = lp.createPosition(d, 0, limits(amount));
+    }
+
+    function test_ownedPositions_missingManager_and_zeroHolder() public {
+        FreeLPDataFetcher fetcher = new FreeLPDataFetcher();
+        (uint256 chainId, bool deployed, FreeLPDataFetcher.OwnedPosition[] memory items) =
+            fetcher.ownedPositions(FreeLP(address(123)), address(this));
+        assertEq(chainId, block.chainid);
+        assertFalse(deployed);
+        assertEq(items.length, 0);
+        (, deployed, items) = fetcher.ownedPositions(lp, address(0));
+        assertTrue(deployed);
+        assertEq(items.length, 0);
+        assertLt(address(fetcher).code.length, 24576);
+    }
+
+    function test_ownedPositions_snapshot_tracks_transfers_fees_and_burns() public {
+        FreeLPDataFetcher fetcher = new FreeLPDataFetcher();
+        (uint256 chainId, bool deployed, FreeLPDataFetcher.OwnedPosition[] memory empty) =
+            fetcher.ownedPositions(lp, address(this));
+        assertTrue(deployed);
+        assertEq(chainId, block.chainid);
+        assertEq(empty.length, 0);
+        (uint256 first,) = create(1 ether);
+        (uint256 second,) = create(2 ether);
+        token0.approve(address(router), 1 ether);
+        router.swapAllowPartialFill(RouteNode(d.poolKey, SqrtRatio.wrap(0), 0), TokenAmount(address(token0), 1000));
+        (,, FreeLPDataFetcher.OwnedPosition[] memory items) = fetcher.ownedPositions(lp, address(this));
+        assertEq(items.length, 2);
+        assertEq(items[0].id, first);
+        assertEq(items[1].id, second);
+        assertEq(abi.encode(items[0].descriptor), abi.encode(lp.descriptor(first)));
+        assertEq(abi.encode(items[0].amounts), abi.encode(lp.positionAmounts(first)));
+        assertGt(items[0].amounts.fees0, 0);
+        (uint256 ratio,,) = lp.poolState(d.poolKey);
+        assertEq(items[0].sqrtRatio, ratio);
+        assertEq(items[0].metadata, lp.tokenURI(first));
+        lp.transferFrom(address(this), address(123), first);
+        (,, items) = fetcher.ownedPositions(lp, address(this));
+        assertEq(items.length, 1);
+        assertEq(items[0].id, second);
+        lp.withdraw(second, items[0].amounts.liquidity, address(this), 0, 0, block.timestamp);
+        lp.burn(second);
+        (,, items) = fetcher.ownedPositions(lp, address(this));
+        assertEq(items.length, 0);
+        (,, items) = fetcher.ownedPositions(lp, address(123));
+        assertEq(items.length, 1);
+        assertEq(items[0].id, first);
     }
 
     function test_lifecycle() public {

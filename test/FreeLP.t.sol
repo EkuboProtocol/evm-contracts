@@ -2,6 +2,13 @@
 pragma solidity =0.8.33;
 
 import {FullTest} from "./FullTest.sol";
+import {ERC721} from "solady/tokens/ERC721.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
+import {Locker} from "../src/types/locker.sol";
+import {PositionId, createPositionId} from "../src/types/positionId.sol";
+import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
+import {StorageSlot} from "../src/types/storageSlot.sol";
+import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {FreeLP} from "../src/FreeLP.sol";
 import {QuoteData} from "../src/lens/QuoteDataFetcher.sol";
 import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
@@ -35,6 +42,58 @@ contract NativeReentrantHolder {
     receive() external payable {
         callbackAttempted = true;
         (callbackSucceeded,) = address(lp).call(abi.encodeCall(lp.transferFrom, (address(this), address(123), 1)));
+    }
+}
+
+contract NativeReentrantDepositor {
+    FreeLP private immutable lp;
+    FreeLP.Descriptor private d;
+    bool private entered;
+
+    constructor(FreeLP manager) {
+        lp = manager;
+    }
+
+    function open(FreeLP.Descriptor memory descriptor) external payable {
+        d = descriptor;
+        lp.createPosition{value: msg.value}(d, 0, FreeLP.DepositLimits(uint128(msg.value / 2), 0, 1, block.timestamp));
+    }
+
+    function close() external {
+        lp.withdraw(1, lp.positionAmounts(1).liquidity, address(this), 0, 0, block.timestamp);
+        lp.withdraw(2, lp.positionAmounts(2).liquidity, address(this), 0, 0, block.timestamp);
+    }
+
+    receive() external payable {
+        if (!entered) {
+            entered = true;
+            lp.createPosition{value: msg.value}(d, 0, FreeLP.DepositLimits(uint128(msg.value), 0, 1, block.timestamp));
+        }
+    }
+}
+
+contract ReentrantBurnExtension {
+    FreeLP private lp;
+    uint256 private id;
+    address private recipient;
+    bool private armed;
+
+    function register(ICore core) external {
+        core.registerExtension(byteToCallPoints(16));
+    }
+
+    function arm(FreeLP manager, uint256 tokenId, address to) external {
+        lp = manager;
+        id = tokenId;
+        recipient = to;
+        armed = true;
+    }
+
+    function beforeUpdatePosition(Locker, PoolKey memory, PositionId, int128 delta) external {
+        if (armed && delta > 0) {
+            armed = false;
+            lp.withdraw(id, lp.positionAmounts(id).liquidity, recipient, 0, 0, block.timestamp);
+        }
     }
 }
 
@@ -405,7 +464,7 @@ contract FreeLPTest is FullTest {
         assertEq(lp.balanceOf(address(this)), 0);
     }
 
-    function test_refundCallbackCannotTransferDuringDeposit() public {
+    function test_refundCallbackCanTransferAfterSettlement() public {
         d.poolKey.token0 = NATIVE_TOKEN_ADDRESS;
         d.tickLower = 1000;
         d.tickUpper = 2000;
@@ -413,9 +472,64 @@ contract FreeLPTest is FullTest {
         vm.deal(address(this), 2 ether);
         holder.open{value: 2 ether}(d);
         assertTrue(holder.callbackAttempted());
-        assertFalse(holder.callbackSucceeded());
-        assertEq(lp.ownerOf(1), address(holder));
+        assertTrue(holder.callbackSucceeded());
+        assertEq(lp.ownerOf(1), address(123));
+        assertEq(lp.balanceOf(address(holder)), 0);
+        assertEq(lp.tokenOfOwnerByIndex(address(123), 0), 1);
+        assertEq(lp.totalSupply(), 1);
+        assertGt(lp.positionAmounts(1).liquidity, 0);
         assertEq(address(lp).balance, 0);
+    }
+
+    function test_refundCallbackCanCreateAnotherPosition() public {
+        d.poolKey.token0 = NATIVE_TOKEN_ADDRESS;
+        d.tickLower = 1000;
+        d.tickUpper = 2000;
+        NativeReentrantDepositor holder = new NativeReentrantDepositor(lp);
+        vm.deal(address(this), 2 ether);
+        holder.open{value: 2 ether}(d);
+        assertEq(lp.balanceOf(address(holder)), 2);
+        assertEq(lp.totalSupply(), 2);
+        assertEq(lp.tokenOfOwnerByIndex(address(holder), 0), 1);
+        assertEq(lp.tokenOfOwnerByIndex(address(holder), 1), 2);
+        assertGt(lp.positionAmounts(1).liquidity, 0);
+        assertGt(lp.positionAmounts(2).liquidity, 0);
+        assertEq(address(lp).balance, 0);
+        holder.close();
+        assertEq(lp.totalSupply(), 0);
+        assertApproxEqAbs(address(holder).balance, 2 ether, 4);
+        assertEq(address(lp).balance, 0);
+    }
+
+    function test_positionAmountsRejectsLiquidityOutsideSignedRange() public {
+        (uint256 id,) = create(1 ether);
+        StorageSlot slot = CoreStorageLayout.poolPositionsSlot(
+            d.poolKey.toPoolId(), address(lp), createPositionId(bytes24(uint192(id)), d.tickLower, d.tickUpper)
+        );
+        // An extension can read during a Core callback before the deposit's bounds check returns.
+        vm.store(address(core), StorageSlot.unwrap(slot), bytes32(uint256(1) << 255));
+        vm.expectRevert(FreeLP.InvalidValue.selector);
+        lp.positionAmounts(id);
+    }
+
+    function test_nestedBurnCannotOrphanAnOuterDeposit() public {
+        ReentrantBurnExtension implementation = new ReentrantBurnExtension();
+        ReentrantBurnExtension extension = ReentrantBurnExtension(address(uint160(16) << 152));
+        vm.etch(address(extension), address(implementation).code);
+        extension.register(core);
+        d.poolKey.config = createConcentratedPoolConfig(123456789, 10, address(extension));
+        (uint256 id, uint128 liquidity) = create(1 ether);
+        lp.setApprovalForAll(address(extension), true);
+        extension.arm(lp, id, address(this));
+        uint256 balance0 = token0.balanceOf(address(this));
+        uint256 balance1 = token1.balanceOf(address(this));
+        vm.expectRevert(ERC721.TokenDoesNotExist.selector);
+        lp.addLiquidity(id, limits(1 ether));
+        assertEq(lp.ownerOf(id), address(this));
+        assertEq(lp.positionAmounts(id).liquidity, liquidity);
+        assertEq(lp.totalSupply(), 1);
+        assertEq(token0.balanceOf(address(this)), balance0);
+        assertEq(token1.balanceOf(address(this)), balance1);
     }
 
     function test_safeTransferCallbackCanForwardWithConsistentEnumeration() public {

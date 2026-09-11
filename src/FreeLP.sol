@@ -63,7 +63,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     error Expired();
     error Slippage();
     error InvalidValue();
-    error Reentrancy();
     error EnumerationIndexOutOfBounds();
     error InvalidCore();
     error TokenIdsExhausted();
@@ -74,7 +73,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
 
     ICore public immutable CORE;
     uint64 private _nextId;
-    bool private _mutating;
     mapping(uint256 => StoredPosition) private _positions;
     // Four IDs per slot. Lengths/indexes cannot exceed the monotonically minted ID count.
     mapping(address => uint64[]) private _owned;
@@ -83,13 +81,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     constructor(ICore core) BaseLocker(core) {
         if (address(core).code.length == 0) revert InvalidCore();
         CORE = core;
-    }
-
-    modifier guarded() {
-        if (_mutating) revert Reentrancy();
-        _mutating = true;
-        _;
-        _mutating = false;
     }
 
     function name() public pure override returns (string memory) {
@@ -147,6 +138,7 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         Descriptor memory d = descriptor(id);
         PoolId poolId = d.poolKey.toPoolId();
         Position memory p = CORE.poolPositions(poolId, address(this), _positionId(id, d));
+        if (p.liquidity > uint128(type(int128).max)) revert InvalidValue();
         a.liquidity = p.liquidity;
         (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
             CORE.poolState(poolId).sqrtRatio(),
@@ -165,7 +157,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     function createPosition(Descriptor memory d, int32 initialTick, DepositLimits memory limits)
         external
         payable
-        guarded
         returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
     {
         _validate(d);
@@ -185,7 +176,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     function addLiquidity(uint256 id, DepositLimits memory limits)
         external
         payable
-        guarded
         returns (uint128 liquidity, uint128 amount0, uint128 amount1)
     {
         _authorize(id);
@@ -197,7 +187,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     ///         Removing the remaining liquidity burns the NFT and clears its descriptor and enumeration storage.
     function withdraw(uint256 id, uint128 liquidity, address recipient, uint128 min0, uint128 min1, uint256 deadline)
         external
-        guarded
         returns (uint128 amount0, uint128 amount1)
     {
         _authorize(id);
@@ -238,9 +227,8 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
             limits.maxAmount0,
             limits.maxAmount1
         );
-        uint128 existing = CORE.poolPositions(d.poolKey.toPoolId(), address(this), _positionId(id, d)).liquidity;
         if (liquidity == 0 || liquidity < limits.minLiquidity) revert Slippage();
-        if (uint256(existing) + liquidity > uint128(type(int128).max)) revert InvalidValue();
+        if (liquidity > uint128(type(int128).max)) revert InvalidValue();
         (amount0, amount1) =
             abi.decode(lock(abi.encode(true, msg.sender, id, liquidity, address(0))), (uint128, uint128));
         if (amount0 > limits.maxAmount0 || amount1 > limits.maxAmount1) revert Slippage();
@@ -263,6 +251,14 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         returns (bytes memory)
     {
         PoolBalanceUpdate update = CORE.updatePosition(d.poolKey, _positionId(id, d), int128(liquidity));
+        // Callbacks may transfer or mutate positions. Never leave a funded Core position without an NFT.
+        ownerOf(id);
+        if (
+            CORE.poolPositions(d.poolKey.toPoolId(), address(this), _positionId(id, d)).liquidity
+                > uint128(type(int128).max)
+        ) {
+            revert InvalidValue();
+        }
         uint128 amount0 = uint128(update.delta0());
         uint128 amount1 = uint128(update.delta1());
         if (d.poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
@@ -290,10 +286,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         }
         ACCOUNTANT.withdrawTwo(d.poolKey.token0, d.poolKey.token1, recipient, amount0, amount1);
         return abi.encode(amount0, amount1);
-    }
-
-    function _beforeTokenTransfer(address from, address to, uint256) internal view override {
-        if (_mutating && from != address(0) && to != address(0)) revert Reentrancy();
     }
 
     function _afterTokenTransfer(address from, address to, uint256 id) internal override {

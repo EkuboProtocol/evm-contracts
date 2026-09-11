@@ -161,23 +161,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         (a.fees0, a.fees1) = p.fees(f);
     }
 
-    /// @notice Quote a deposit without approvals or token transfers, including a not-yet-initialized pool.
-    function quoteDeposit(Descriptor memory d, int32 initialTick, uint128 max0, uint128 max1)
-        external
-        view
-        returns (uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
-        _validate(d);
-        SqrtRatio ratio = CORE.poolState(d.poolKey.toPoolId()).sqrtRatio();
-        if (ratio.isZero()) ratio = tickToSqrtRatio(initialTick);
-        liquidity = maxLiquidity(ratio, tickToSqrtRatio(d.tickLower), tickToSqrtRatio(d.tickUpper), max0, max1);
-        if (liquidity > uint128(type(int128).max)) revert InvalidValue();
-        (int128 a, int128 b) = liquidityDeltaToAmountDelta(
-            ratio, int128(liquidity), tickToSqrtRatio(d.tickLower), tickToSqrtRatio(d.tickUpper)
-        );
-        (amount0, amount1) = (uint128(a), uint128(b));
-    }
-
     /// @notice Initializes a missing pool at initialTick, then mints and funds a position atomically.
     function createPosition(Descriptor memory d, int32 initialTick, DepositLimits memory limits)
         external

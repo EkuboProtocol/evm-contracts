@@ -60,12 +60,17 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     mapping(uint256 => Bitmap) public nonceBitmap;
 
     /// @inheritdoc ISignedExclusiveSwap
-    uint64 public ownerFee;
+    function ownerFee(PoolId poolId) external view returns (uint64) {
+        return _getPoolState(poolId).ownerFee();
+    }
 
     /// @inheritdoc ISignedExclusiveSwap
-    function setOwnerFee(uint64 fee) external onlyOwner {
-        ownerFee = fee;
-        emit OwnerFeeUpdated(fee);
+    function setOwnerFee(PoolKey memory poolKey, uint64 fee) external onlyOwner {
+        if (poolKey.config.extension() != address(this) || !CORE.poolState(poolKey.toPoolId()).isInitialized()) {
+            revert ICore.PoolNotInitialized();
+        }
+        PoolId poolId = poolKey.toPoolId();
+        _setPoolState(poolId, _getPoolState(poolId).withOwnerFee(fee));
     }
 
     /// @inheritdoc ISignedExclusiveSwap
@@ -108,7 +113,8 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
         sqrtRatio = CORE.initializePool(poolKey, tick);
         _setPoolState({
-            poolId: poolKey.toPoolId(), state: createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp))
+            poolId: poolKey.toPoolId(),
+            state: createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp), 0)
         });
     }
 
@@ -283,13 +289,15 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
                     if (balanceUpdate.delta0() > 0) {
                         uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta0())));
                         int128 feeAmount = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64) - inputAmount);
-                        saveDelta0 += feeAmount - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), false)));
+                        saveDelta0 += feeAmount
+                            - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), false, state.ownerFee())));
                         balanceUpdate =
                             createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
                     } else if (balanceUpdate.delta1() > 0) {
                         uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta1())));
                         int128 feeAmount = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64) - inputAmount);
-                        saveDelta1 += feeAmount - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), true)));
+                        saveDelta1 += feeAmount
+                            - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), true, state.ownerFee())));
                         balanceUpdate =
                             createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
                     }
@@ -298,14 +306,16 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
                         int128 feeAmount = SafeCastLib.toInt128(
                             computeFee(uint128(uint256(-int256(balanceUpdate.delta0()))), metaFeeX64)
                         );
-                        saveDelta0 += feeAmount - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), false)));
+                        saveDelta0 += feeAmount
+                            - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), false, state.ownerFee())));
                         balanceUpdate =
                             createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
                     } else if (balanceUpdate.delta1() < 0) {
                         int128 feeAmount = SafeCastLib.toInt128(
                             computeFee(uint128(uint256(-int256(balanceUpdate.delta1()))), metaFeeX64)
                         );
-                        saveDelta1 += feeAmount - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), true)));
+                        saveDelta1 += feeAmount
+                            - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), true, state.ownerFee())));
                         balanceUpdate =
                             createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
                     }
@@ -321,12 +331,12 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     /// @dev Saves only the owner's share of this swap's collected fee, never pending LP fees.
-    function _saveOwnerFee(PoolKey memory poolKey, uint128 collectedFee, bool isToken1)
+    function _saveOwnerFee(PoolKey memory poolKey, uint128 collectedFee, bool isToken1, uint64 fee)
         internal
         returns (uint128 share)
     {
         if (collectedFee != 0) {
-            share = computeFee(collectedFee, ownerFee);
+            share = computeFee(collectedFee, fee);
             if (share != 0) {
                 CORE.updateSavedBalances(
                     poolKey.token0,

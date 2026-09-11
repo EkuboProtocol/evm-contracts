@@ -125,7 +125,9 @@ These controls reduce the value of quote farming and make selective execution ma
 
 ## Owner fee share
 
-The owner can call `setOwnerFee(uint64)` to set a Q0.64 share of subsequently collected swap fees (the same representation as regular pool fees). It defaults to zero. `OwnerFeeUpdated` records changes. For example, `1 << 63` takes half of the collected fee, not half of the swap amount.
+The owner can call `setOwnerFee(PoolKey,uint64)` to set a Q0.64 share of subsequently collected swap fees for an initialized pool (the same representation as regular pool fees). Each pool defaults to zero. `PoolStateUpdated` records changes, and `ownerFee(PoolId)` reads the configured share. For example, `1 << 63` takes half of the collected fee, not half of the swap amount.
+
+The fee occupies bits [63..0] of `SignedExclusiveSwapPoolState`, alongside the 160-bit controller and 32-bit last-update timestamp. Swaps read the fee from the already loaded state, requiring no additional storage read.
 
 During each swap, a nonzero collected fee is split using `computeFee(collectedFee, ownerFee)`, rounding the owner's share up. A nonzero owner share is saved immediately through `CORE.updateSavedBalances` under salt zero, aggregated by ordered token pair. The remaining fee goes to the pool's pending LP balance. The swapper's total fee is unchanged, and rate changes do not affect fees already saved for LPs.
 

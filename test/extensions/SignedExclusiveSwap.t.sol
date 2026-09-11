@@ -26,6 +26,7 @@ import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {EIP712} from "solady/utils/EIP712.sol";
 
 contract MockSigner1271 {
@@ -489,6 +490,57 @@ contract SignedExclusiveSwapTest is FullTest {
         signedExclusiveSwap.setOwnerFee(poolKey, type(uint64).max);
         vm.expectCall(address(core), abi.encodeWithSelector(ICore.updateSavedBalances.selector), uint64(0));
         _ownerFeeSwap(poolKey, false, 0, type(uint32).max);
+    }
+
+    function test_pending_fees_exclude_same_timestamp_new_liquidity(bool isToken1) public {
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000, controller, 1 << 63);
+        (uint256 incumbent,) = createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+        _ownerFeeSwap(poolKey, isToken1, 100_000, uint32(1 << 30));
+        (uint128 owner0, uint128 owner1) =
+            core.savedBalances(address(signedExclusiveSwap), poolKey.token0, poolKey.token1, bytes32(0));
+
+        (uint256 newcomer,) = createPosition(poolKey, -100_000, 100_000, 100_000_000, 100_000_000);
+        advanceTime(1);
+        (uint128 new0, uint128 new1) = positions.collectFees(newcomer, poolKey, -100_000, 100_000);
+        assertEq(new0, 0);
+        assertEq(new1, 0);
+        (uint128 old0, uint128 old1) = positions.collectFees(incumbent, poolKey, -100_000, 100_000);
+        assertGt(isToken1 ? old0 : old1, 0);
+        (uint128 after0, uint128 after1) =
+            core.savedBalances(address(signedExclusiveSwap), poolKey.token0, poolKey.token1, bytes32(0));
+        assertEq(after0, owner0);
+        assertEq(after1, owner1);
+    }
+
+    function test_pending_fees_paid_on_same_timestamp_full_withdrawal(bool isToken1) public {
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000, controller, 1 << 63);
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+        token0.approve(address(harness), type(uint256).max);
+        token1.approve(address(harness), type(uint256).max);
+        _ownerFeeSwap(poolKey, isToken1, 100_000, uint32(1 << 30));
+        (, uint128 principal0, uint128 principal1,,) =
+            positions.getPositionFeesAndLiquidity(id, poolKey, -100_000, 100_000);
+        (uint128 pending0, uint128 pending1) = core.savedBalances(
+            address(signedExclusiveSwap), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId())
+        );
+        (uint128 received0, uint128 received1) = positions.withdraw(id, poolKey, -100_000, 100_000, liquidity);
+        // One unit stays in saved balances and at most one is lost to fee-growth rounding.
+        assertApproxEqAbs(received0 - principal0, pending0, 2);
+        assertApproxEqAbs(received1 - principal1, pending1, 2);
+        assertEq(core.poolState(poolKey.toPoolId()).liquidity(), 0);
+    }
+
+    function test_exact_out_reverts_when_total_input_overflows(bool isToken1, uint128 rawInput) public {
+        rawInput = uint128(bound(rawInput, uint128(type(int128).max) / 2 + 1, uint128(type(int128).max)));
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolBalanceUpdate raw =
+            isToken1 ? createPoolBalanceUpdate(int128(rawInput), -1) : createPoolBalanceUpdate(-1, int128(rawInput));
+        // Isolate extension arithmetic from Core's price/liquidity limits.
+        vm.mockCall(address(core), bytes(hex"00000000"), abi.encode(raw, core.poolState(poolKey.toPoolId())));
+        vm.expectRevert(SafeCastLib.Overflow.selector);
+        _ownerFeeSwap(poolKey, isToken1, -1, uint32(1 << 31));
     }
 
     function test_hash_signed_swap_payload_matches_solady_eip712() public view {

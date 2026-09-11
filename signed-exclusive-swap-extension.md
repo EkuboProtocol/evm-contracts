@@ -62,7 +62,7 @@ where:
 6. Extension consumes the nonce. This happens only after the bounds check passes, so a swap that violates its bounds costs less gas and does not burn the nonce.
 7. Extension applies `fee` to the swapper result:
    - exact-in: fee is charged on output amount,
-   - exact-out: fee is charged on required input amount.
+   - exact-out: fee is charged on required input amount; the total input including the fee must fit `int128`, otherwise the swap reverts.
 8. For a nonzero collected fee, the owner share is calculated with `computeFee` and saved separately in Core under salt zero. The remainder is saved under the pool ID and later donated to that pool's LPs.
 
 ## Why `minBalanceUpdate` is useful
@@ -79,11 +79,11 @@ It provides four protections at once:
 
 The extension does not immediately donate the LP share of its signed fee to LPs.
 
-Instead, on a pool's first touch at a new block *timestamp* (`swap`, `beforeUpdatePosition`, or `beforeCollectFees` path, or the public `accumulatePoolFees`), it:
+On a pool's first swap or public `accumulatePoolFees` call at a new block *timestamp*, it:
 - donates previously collected LP fees into pool LP accounting,
 - records the pool as updated for the current block timestamp.
 
-This prevents liquidity from being added purely to capture fees that were earned earlier. Note that the gate is the block timestamp, not the block number, so on chains that produce more than one block per second donation happens at most once per second.
+Position updates and fee collection always flush pending LP fees first, even at the same timestamp. This prevents newly added liquidity from capturing fees earned before it joined and lets withdrawing LPs collect their pending fees before their position is removed. These hooks are callable only by Core. Ordinary swaps and public accumulation remain timestamp-gated, so multiple swaps in the same second can share a pending fee bucket.
 
 ## Replay protection
 

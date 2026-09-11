@@ -45,7 +45,7 @@ function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Forward-only swap extension with controller-signed, per-swap fee customization.
-/// @dev After the owner share is deducted, LP fees are first collected into extension saved balances, then donated to LPs at the start of the next block.
+/// @dev After the owner share is deducted, LP fees are saved until the next timestamp or an earlier position update or fee collection.
 contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForwardee, ExposedStorage, Ownable {
     using CoreLib for *;
     using ExposedStorageLib for *;
@@ -133,33 +133,40 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     function beforeUpdatePosition(Locker, PoolKey memory poolKey, PositionId, int128)
         external
         override(BaseExtension, IExtension)
+        onlyCore
     {
-        accumulatePoolFees(poolKey);
+        _accumulatePoolFees(poolKey, poolKey.toPoolId());
     }
 
-    /// @dev Allows fee collection to observe extension donations up to the start of the current block.
+    /// @dev Flushes pending LP fees before collection, including before a full withdrawal.
     function beforeCollectFees(Locker, PoolKey memory poolKey, PositionId)
         external
         override(BaseExtension, IExtension)
+        onlyCore
     {
-        accumulatePoolFees(poolKey);
+        _accumulatePoolFees(poolKey, poolKey.toPoolId());
     }
 
     /// @inheritdoc ISignedExclusiveSwap
     function accumulatePoolFees(PoolKey memory poolKey) public {
         PoolId poolId = poolKey.toPoolId();
         if (_getPoolState(poolId).lastUpdateTime() != uint32(block.timestamp)) {
-            address target = address(CORE);
-            assembly ("memory-safe") {
-                let o := mload(0x40)
-                mstore(o, shl(224, 0xf83d08ba))
-                mcopy(add(o, 4), poolKey, 96)
-                mstore(add(o, 100), poolId)
+            _accumulatePoolFees(poolKey, poolId);
+        }
+    }
 
-                if iszero(call(gas(), target, 0, o, 132, 0, 0)) {
-                    returndatacopy(o, 0, returndatasize())
-                    revert(o, returndatasize())
-                }
+    /// @dev LP lifecycle hooks must flush even if a swap already updated this timestamp.
+    function _accumulatePoolFees(PoolKey memory poolKey, PoolId poolId) internal {
+        address target = address(CORE);
+        assembly ("memory-safe") {
+            let o := mload(0x40)
+            mstore(o, shl(224, 0xf83d08ba))
+            mcopy(add(o, 4), poolKey, 96)
+            mstore(add(o, 100), poolId)
+
+            if iszero(call(gas(), target, 0, o, 132, 0, 0)) {
+                returndatacopy(o, 0, returndatasize())
+                revert(o, returndatasize())
             }
         }
     }
@@ -284,18 +291,18 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
                 if (params.isExactOut()) {
                     if (balanceUpdate.delta0() > 0) {
                         uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta0())));
-                        int128 feeAmount = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64) - inputAmount);
+                        int128 inputWithFee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64));
+                        int128 feeAmount = inputWithFee - balanceUpdate.delta0();
                         saveDelta0 += feeAmount
                             - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), false, state.ownerFee())));
-                        balanceUpdate =
-                            createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
+                        balanceUpdate = createPoolBalanceUpdate(inputWithFee, balanceUpdate.delta1());
                     } else if (balanceUpdate.delta1() > 0) {
                         uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta1())));
-                        int128 feeAmount = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64) - inputAmount);
+                        int128 inputWithFee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64));
+                        int128 feeAmount = inputWithFee - balanceUpdate.delta1();
                         saveDelta1 += feeAmount
                             - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), true, state.ownerFee())));
-                        balanceUpdate =
-                            createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
+                        balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), inputWithFee);
                     }
                 } else {
                     if (balanceUpdate.delta0() < 0) {

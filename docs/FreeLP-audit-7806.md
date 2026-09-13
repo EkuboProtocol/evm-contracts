@@ -4,15 +4,15 @@
 
 All five findings were independently exercised using real Core/token/extension interactions in `test/FreeLPAudit.t.sol`. No mock Core receipts or balances substitute for settlement. Native account funding uses the test VM.
 
-## 277790: native surplus — narrowed and fixed
+## 277790: native surplus — acknowledged, caller-managed refund policy
 
-The report's cross-transaction surplus claim is expected behavior: native deposits must include `refundNativeToken` in the same atomic manager multicall. FreeLP is not a custody contract. Unassigned ETH remains permissionlessly refundable; automatic refunds have not been added.
+The report's cross-transaction surplus claim is expected behavior. Refunds are optional and the caller's responsibility: include `refundNativeToken` in the same atomic manager multicall when returning leftovers is worth the gas, or intentionally leave small leftovers. FreeLP is not a custody contract. Unassigned ETH remains permissionlessly spendable/refundable.
 
 The separate callback case was reproduced even with `[createPosition, refundNativeToken]` in one multicall. The malicious token's payment callback refunded approximately 2 ETH to itself before the outer refund. A second reproduction minted an attacker-owned native-only position from the same surplus without contributing ETH.
 
-`NativePaymentScope` reserves an active caller's balance against a different nested caller. Nested operations can still use their own value and proceeds, and existing same-caller multicall funding and explicit refunds remain supported. The shared legacy PayableMulticallable and other protocol contracts are unchanged. The narrowed issue requires malicious callback code; the original blanket critical claim overstates the scope.
+Per explicit owner direction after the initial triage, `NativePaymentScope` has been removed and the original `PayableMulticallable` behavior restored. The shared-balance callback behavior is accepted rather than mitigated by per-caller isolation. This supersedes the earlier V12 comment that described isolation as a retained fix. There are no forced refunds or zero-ending-balance requirements. Deposit ownership/liquidity and combined-withdrawal overflow fixes are retained.
 
-Regressions: `test_auditTokenCallbackCannotRefundOuterSurplus`, `test_auditTokenCallbackCannotMintWithOuterSurplus`, `test_auditNestedCallerCanDepositItsOwnNativeFunds`, `test_auditExplicitRefundReturnsNativeSurplus`, `test_auditUnassignedNativeBalanceRemainsPermissionlesslyRefundable`.
+Behavior tests: `test_auditSharedNativeBalanceIsAvailableToCallbackRefund`, `test_auditSharedNativeBalanceIsAvailableToCallbackDeposit`, `test_auditNestedCallerCanDepositItsOwnNativeFunds`, `test_auditExplicitRefundReturnsNativeSurplus`, `test_auditUnassignedNativeBalanceRemainsPermissionlesslyRefundable`, `test_auditNativeDepositMayLeaveLeftoversWithoutRefund`.
 
 ## 277795: deposit callback mutations — fixed
 

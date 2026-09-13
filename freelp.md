@@ -1,6 +1,6 @@
 # FreeLP
 
-FreeLP is an ownerless LP manager with RPC-readable owner enumeration. Deploy it with Core, the shared `PoolKeyIndex`, and a stateless `FreeLPMetadataRenderer`. The renderer is immutable for each manager and uses no hosted assets or URI setter. Keeping rendering in its own contract leaves both runtimes below EIP-170: FreeLP is 17,910 bytes and the renderer is 14,751 bytes with Solidity 0.8.33, via IR, and 9,999,999 optimizer runs.
+FreeLP is an ownerless LP manager with RPC-readable owner enumeration. Deploy it with Core, the shared `PoolKeyIndex`, and a stateless `FreeLPMetadataRenderer`. The renderer is immutable for each manager and uses no hosted assets or URI setter. Keeping rendering in its own contract leaves both runtimes below EIP-170: FreeLP is 16,734 bytes and the renderer is 14,751 bytes with Solidity 0.8.33, via IR, and 9,999,999 optimizer runs.
 
 ## Deployment
 
@@ -11,8 +11,8 @@ FreeLP is an ownerless LP manager with RPC-readable owner enumeration. Deploy it
 | Core | `0x00000000000014aA86C5d3c41765bb24e11bd701` |
 | PoolKeyIndex | `0x827A68AC37AA3715c865F2E0704a63118496986f` |
 | FreeLPMetadataRenderer | `0x3E3142aA2143bC05BA92986a9D4867C1409FB8E2` |
-| FreeLP | `0x49dD410ef9F68160d6917615766d806e7F354a09` |
-| FreeLPDataFetcher | `0xA6E606E3D106664262D8eBC7399032d66b05B398` |
+| FreeLP | `0x0dB596aF023b61c681c91c39E540829bf81bEcD5` |
+| FreeLPDataFetcher | `0x304bDc1869F392740aE879164428ae6A51B71114` |
 
 The manager constructor is `FreeLP(core, index, renderer)`. It assigns immutable references without code-length probes; dependency deployment/configuration is the deployer's responsibility. These predictions replace the previous index/FreeLP/fetcher deployment predictions; existing NFTs remain in their original manager. The pair-index revision deploys a new registry, so previously registered keys must be registered there to appear in its discovery results.
 
@@ -45,9 +45,7 @@ Both creation and liquidity additions require `minLiquidity > 0` and enforce max
 
 The withdrawal check applies only while the NFT remains open. Core runs its before-hooks before updating its accounting: an approved callback can transfer the NFT before the outer withdrawal reduces its liquidity, or perform a nested partial withdrawal that combines with the outer withdrawal to empty an unburned NFT. Removing the open-position guard makes both regression tests fail because these operations no longer revert. Full closes need no equivalent postcheck because the NFT has already been burned before callbacks.
 
-Native deposits spend the active caller frame's available balance. Append `refundNativeToken()` to the same manager multicall to return excess ETH; do not make the refund a separate wallet-batch transaction. Native proceeds withdrawn to the manager can fund another deposit in that multicall. Unassigned ETH remains permissionlessly spendable/refundable between calls; this is not a custody contract, and refunds remain explicit.
-
-`NativePaymentScope` isolates active native balances from a different reentrant caller: that nested frame reserves the balance preceding its own `msg.value`. It can fund operations with its own ETH and withdrawal proceeds, but cannot refund or consume the outer caller's surplus. Delegatecalled multicall steps share their caller's existing budget without counting `msg.value` twice. Frames are restored on normal return, and a revert rolls their transient state back.
+Native deposits use `PayableMulticallable` and spend the manager's shared ETH balance. Refunds are optional and caller-managed: append `refundNativeToken()` to the same manager multicall when recovering leftovers is worth the gas, or deliberately leave small leftovers. There is no automatic refund, forced zero-ending balance, or per-caller native-payment scope. Native proceeds withdrawn to the manager can fund another deposit in that multicall. Shared ETH remains permissionlessly spendable/refundable, including by callbacks; this is not a custody contract. A caller wanting an atomic refund must include it in the manager multicall rather than a separate wallet-batch transaction.
 
 Deposits snapshot existing ownership and liquidity before Core callbacks. After settlement, ownership must be unchanged and liquidity must be at least the prior amount plus the requested addition (and within the signed limit). This prevents callback-time withdrawals from consuming the addition while the payer is charged.
 
@@ -79,12 +77,12 @@ Measured with the CI-pinned Foundry 1.5.1 and solc 0.8.33. These are execution-f
 
 | Create operation | Full-word IDs (`4fccdc6`) | Packed IDs, pair index, and audit fixes |
 | --- | ---: | ---: |
-| First position in an existing registered pool | 452,209 | 454,934 |
-| Second position in the same pool, cold | 236,187 | 219,012 |
-| Second position in the same pool, warm | 198,187 | 179,012 |
-| New pool initialization and registration | 768,086 | 816,892 |
+| First position in an existing registered pool | 452,209 | 453,920 |
+| Second position in the same pool, cold | 236,187 | 217,998 |
+| Second position in the same pool, warm | 198,187 | 177,998 |
+| New pool initialization and registration | 768,086 | 814,476 |
 
-The last row measures the initialize/create multicall. Existing-pool cold measurements call `createPosition` directly after cooling the contracts, so an unmeasured initialization helper cannot accidentally warm the measured operation. This revision's first-registration path costs 48,806 more gas overall, primarily for the pair list's new length and first entry; subsequent registrations of the same pool are idempotent. These end-to-end comparisons include the other contract changes too.
+The last row measures the initialize/create multicall. Existing-pool cold measurements call `createPosition` directly after cooling the contracts, so an unmeasured initialization helper cannot accidentally warm the measured operation. This revision's first-registration path costs 46,390 more gas overall, primarily for the pair list's new length and first entry; subsequent registrations of the same pool are idempotent. These end-to-end comparisons include the other contract changes too.
 
 `FreeLPOwnerPackingTest` isolates packing with an otherwise identical ERC-721 harness: a cold second mint to the same owner costs **56,463 gas packed versus 76,313 full-word**, saving **19,850 gas**. It verifies slot reuse directly. The renderer is a separate one-time deployment; token metadata calls are view work, not part of deposit accounting.
 

@@ -122,16 +122,16 @@ contract FreeLPAuditTest is FullTest {
         lp.multicall{value: 3 ether}(calls);
     }
 
-    function test_auditTokenCallbackCannotRefundOuterSurplus() public {
+    function test_auditSharedNativeBalanceIsAvailableToCallbackRefund() public {
         AuditNativeToken token = _nativeToken(false);
-        assertEq(address(token).balance, 0);
+        assertGt(address(token).balance, 0);
         assertEq(address(lp).balance, 0);
     }
 
-    function test_auditTokenCallbackCannotMintWithOuterSurplus() public {
+    function test_auditSharedNativeBalanceIsAvailableToCallbackDeposit() public {
         AuditNativeToken token = _nativeToken(true);
-        assertFalse(token.nestedDepositSucceeded());
-        assertEq(lp.balanceOf(address(token)), 0);
+        assertTrue(token.nestedDepositSucceeded());
+        assertEq(lp.balanceOf(address(token)), 1);
         assertEq(address(lp).balance, 0);
     }
 
@@ -172,6 +172,17 @@ contract FreeLPAuditTest is FullTest {
         lp.refundNativeToken();
         assertEq(address(lp).balance, 0);
         assertEq(address(this).balance, beforeBalance + 3 ether);
+    }
+
+    function test_auditNativeDepositMayLeaveLeftoversWithoutRefund() public {
+        PoolKey memory key = createETHPool(0, 0, 10);
+        bytes[] memory calls = new bytes[](1);
+        calls[0] = abi.encodeCall(lp.createPosition, (key, 1000, 2000, 1 ether, 0, 1));
+        bytes[] memory results = lp.multicall{value: 1 ether + 1}(calls);
+        (uint256 id,, uint128 spent,) = abi.decode(results[0], (uint256, uint128, uint128, uint128));
+        assertEq(lp.ownerOf(id), address(this));
+        assertEq(address(lp).balance, 1 ether + 1 - spent);
+        assertGt(address(lp).balance, 0);
     }
 
     function test_auditWholePairReadCanExceedGasWhileIndexedReadsRemainAvailable() public {

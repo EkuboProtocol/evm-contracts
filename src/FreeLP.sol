@@ -2,7 +2,8 @@
 pragma solidity =0.8.33;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {NativePaymentScope} from "./base/NativePaymentScope.sol";
+import {PayableMulticallable} from "./base/PayableMulticallable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
@@ -20,7 +21,7 @@ import {IFreeLPMetadataRenderer} from "./interfaces/IFreeLPMetadataRenderer.sol"
 
 /// @notice Ownerless, zero-fee positions with one immutable pool/range per NFT and RPC-readable ownership.
 /// @dev Pool initialization and native refunds are explicit payable multicall steps.
-contract FreeLP is ERC721, BaseLocker, NativePaymentScope {
+contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
 
@@ -96,7 +97,6 @@ contract FreeLP is ERC721, BaseLocker, NativePaymentScope {
     function maybeInitializePool(PoolKey memory key, int32 tick)
         external
         payable
-        nativePaymentScope
         returns (bool initialized, SqrtRatio sqrtRatio)
     {
         sqrtRatio = CORE.poolState(key.toPoolId()).sqrtRatio();
@@ -114,7 +114,7 @@ contract FreeLP is ERC721, BaseLocker, NativePaymentScope {
         uint128 maxAmount0,
         uint128 maxAmount1,
         uint128 minLiquidity
-    ) external payable nativePaymentScope returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         // register is idempotent and rejects uninitialized pools.
         POOL_KEY_INDEX.register(key);
         id = nextId++;
@@ -129,7 +129,6 @@ contract FreeLP is ERC721, BaseLocker, NativePaymentScope {
     function addLiquidity(uint256 id, uint128 maxAmount0, uint128 maxAmount1, uint128 minLiquidity)
         external
         payable
-        nativePaymentScope
         authorizedForNft(id)
         returns (uint128 liquidity, uint128 amount0, uint128 amount1)
     {
@@ -141,7 +140,6 @@ contract FreeLP is ERC721, BaseLocker, NativePaymentScope {
     function withdraw(uint256 id, uint128 liquidity, address recipient)
         external
         payable
-        nativePaymentScope
         authorizedForNft(id)
         returns (uint256 amount0, uint256 amount1)
     {
@@ -209,7 +207,7 @@ contract FreeLP is ERC721, BaseLocker, NativePaymentScope {
         uint128 amount0 = uint128(update.delta0());
         uint128 amount1 = uint128(update.delta1());
         if (key.token0 == NATIVE_TOKEN_ADDRESS) {
-            _payNative(address(ACCOUNTANT), amount0);
+            if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
             if (amount1 != 0) ACCOUNTANT.payFrom(payer, key.token1, amount1);
         } else {
             ACCOUNTANT.payTwoFrom(payer, key.token0, key.token1, amount0, amount1);

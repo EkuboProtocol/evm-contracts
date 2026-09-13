@@ -21,13 +21,13 @@ contract FreeLPDeploymentTest is Test {
             getCreate2Address(
                 salt, keccak256(abi.encodePacked(type(FreeLP).creationCode, abi.encode(core, index, renderer)))
             ),
-            0x49dD410ef9F68160d6917615766d806e7F354a09
+            0x0dB596aF023b61c681c91c39E540829bf81bEcD5
         );
         assertEq(
             getCreate2Address(
                 salt, keccak256(abi.encodePacked(type(FreeLPDataFetcher).creationCode, abi.encode(core)))
             ),
-            0xA6E606E3D106664262D8eBC7399032d66b05B398
+            0x304bDc1869F392740aE879164428ae6A51B71114
         );
     }
 }

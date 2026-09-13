@@ -492,7 +492,7 @@ contract SignedExclusiveSwapTest is FullTest {
         _ownerFeeSwap(poolKey, false, 0, type(uint32).max);
     }
 
-    function test_pending_fees_exclude_same_timestamp_new_liquidity(bool isToken1) public {
+    function test_pending_fees_include_same_timestamp_new_liquidity(bool isToken1) public {
         PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000, controller, 1 << 63);
         (uint256 incumbent,) = createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
         token0.approve(address(harness), type(uint256).max);
@@ -504,8 +504,8 @@ contract SignedExclusiveSwapTest is FullTest {
         (uint256 newcomer,) = createPosition(poolKey, -100_000, 100_000, 100_000_000, 100_000_000);
         advanceTime(1);
         (uint128 new0, uint128 new1) = positions.collectFees(newcomer, poolKey, -100_000, 100_000);
-        assertEq(new0, 0);
-        assertEq(new1, 0);
+        assertGt(isToken1 ? new0 : new1, 0);
+        assertEq(isToken1 ? new1 : new0, 0);
         (uint128 old0, uint128 old1) = positions.collectFees(incumbent, poolKey, -100_000, 100_000);
         assertGt(isToken1 ? old0 : old1, 0);
         (uint128 after0, uint128 after1) =
@@ -514,7 +514,7 @@ contract SignedExclusiveSwapTest is FullTest {
         assertEq(after1, owner1);
     }
 
-    function test_pending_fees_paid_on_same_timestamp_full_withdrawal(bool isToken1) public {
+    function test_pending_fees_remain_on_same_timestamp_full_withdrawal(bool isToken1) public {
         PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000, controller, 1 << 63);
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
         token0.approve(address(harness), type(uint256).max);
@@ -526,9 +526,14 @@ contract SignedExclusiveSwapTest is FullTest {
             address(signedExclusiveSwap), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId())
         );
         (uint128 received0, uint128 received1) = positions.withdraw(id, poolKey, -100_000, 100_000, liquidity);
-        // One unit stays in saved balances and at most one is lost to fee-growth rounding.
-        assertApproxEqAbs(received0 - principal0, pending0, 2);
-        assertApproxEqAbs(received1 - principal1, pending1, 2);
+        assertEq(received0, principal0);
+        assertEq(received1, principal1);
+        (uint128 after0, uint128 after1) = core.savedBalances(
+            address(signedExclusiveSwap), poolKey.token0, poolKey.token1, PoolId.unwrap(poolKey.toPoolId())
+        );
+        assertEq(after0, pending0);
+        assertEq(after1, pending1);
+        assertGt(isToken1 ? after0 : after1, 1);
         assertEq(core.poolState(poolKey.toPoolId()).liquidity(), 0);
     }
 

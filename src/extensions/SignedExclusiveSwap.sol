@@ -45,7 +45,7 @@ function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Forward-only swap extension with controller-signed, per-swap fee customization.
-/// @dev After the owner share is deducted, LP fees are saved until the next timestamp or an earlier position update or fee collection.
+/// @dev After the owner share is deducted, LP fees are saved and donated on the first accumulation at a later timestamp.
 contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForwardee, ExposedStorage, Ownable {
     using CoreLib for *;
     using ExposedStorageLib for *;
@@ -129,44 +129,37 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         revert SwapMustHappenThroughForward();
     }
 
-    /// @dev Prevents new liquidity from collecting extension fees that should belong to existing LPs.
+    /// @dev Accumulates prior-timestamp LP fees before updating a position.
     function beforeUpdatePosition(Locker, PoolKey memory poolKey, PositionId, int128)
         external
         override(BaseExtension, IExtension)
-        onlyCore
     {
-        _accumulatePoolFees(poolKey, poolKey.toPoolId());
+        accumulatePoolFees(poolKey);
     }
 
-    /// @dev Flushes pending LP fees before collection, including before a full withdrawal.
+    /// @dev Allows fee collection to observe extension donations up to the start of the current timestamp.
     function beforeCollectFees(Locker, PoolKey memory poolKey, PositionId)
         external
         override(BaseExtension, IExtension)
-        onlyCore
     {
-        _accumulatePoolFees(poolKey, poolKey.toPoolId());
+        accumulatePoolFees(poolKey);
     }
 
     /// @inheritdoc ISignedExclusiveSwap
     function accumulatePoolFees(PoolKey memory poolKey) public {
         PoolId poolId = poolKey.toPoolId();
         if (_getPoolState(poolId).lastUpdateTime() != uint32(block.timestamp)) {
-            _accumulatePoolFees(poolKey, poolId);
-        }
-    }
+            address target = address(CORE);
+            assembly ("memory-safe") {
+                let o := mload(0x40)
+                mstore(o, shl(224, 0xf83d08ba))
+                mcopy(add(o, 4), poolKey, 96)
+                mstore(add(o, 100), poolId)
 
-    /// @dev LP lifecycle hooks must flush even if a swap already updated this timestamp.
-    function _accumulatePoolFees(PoolKey memory poolKey, PoolId poolId) internal {
-        address target = address(CORE);
-        assembly ("memory-safe") {
-            let o := mload(0x40)
-            mstore(o, shl(224, 0xf83d08ba))
-            mcopy(add(o, 4), poolKey, 96)
-            mstore(add(o, 100), poolId)
-
-            if iszero(call(gas(), target, 0, o, 132, 0, 0)) {
-                returndatacopy(o, 0, returndatasize())
-                revert(o, returndatasize())
+                if iszero(call(gas(), target, 0, o, 132, 0, 0)) {
+                    returndatacopy(o, 0, returndatasize())
+                    revert(o, returndatasize())
+                }
             }
         }
     }

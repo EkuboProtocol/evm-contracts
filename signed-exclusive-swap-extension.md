@@ -79,11 +79,13 @@ It provides four protections at once:
 
 The extension does not immediately donate the LP share of its signed fee to LPs.
 
-On a pool's first swap or public `accumulatePoolFees` call at a new block *timestamp*, it:
+On a pool's first touch at a new block *timestamp* (`swap`, `beforeUpdatePosition`, `beforeCollectFees`, or public `accumulatePoolFees`), it:
 - donates previously collected LP fees into pool LP accounting,
 - records the pool as updated for the current block timestamp.
 
-Position updates and fee collection always flush pending LP fees first, even at the same timestamp. This prevents newly added liquidity from capturing fees earned before it joined and lets withdrawing LPs collect their pending fees before their position is removed. These hooks are callable only by Core. Ordinary swaps and public accumulation remain timestamp-gated, so multiple swaps in the same second can share a pending fee bucket.
+Position updates and fee collection at the same timestamp do not flush pending LP fees. Donations go to liquidity active at donation time, so liquidity added before donation can receive earlier fees, withdrawing liquidity can miss pending fees, and a donation with no active liquidity is burned. The gate uses the timestamp rather than the block number; on chains with multiple blocks per second, those blocks can share a pending fee bucket.
+
+This attribution tradeoff is intentional. The controller authorizes swaps and their fees, and has an arbitrage incentive to leave the pool at the correct price at the end of the block. Flushing on position changes would not prevent controller-authorized swaps from moving the active range before donation, so it does not provide a useful attribution guarantee for this design. The end-of-block price is an economic expectation, not an enforced invariant. Perfect attribution to the liquidity used throughout a swap requires per-step fee accounting in Core. See the [acknowledged V12 finding](https://v12.sh/runs/7702/274639).
 
 ## Replay protection
 

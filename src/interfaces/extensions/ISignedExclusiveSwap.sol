@@ -23,6 +23,16 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
         bytes signature;
     }
 
+    /// @notice Sets the pool's owner Q0.64 share of future swap fees. Only callable by the owner.
+    /// @dev Stored in the pool state; emits PoolStateUpdated. The pool must be initialized.
+    /// The share is calculated with computeFee (rounded up) and deducted from LP fees.
+    function setOwnerFee(PoolKey memory poolKey, uint64 fee) external;
+
+    /// @notice Withdraws owner fees saved in Core under salt zero. Only callable by the owner.
+    /// @dev Balances are aggregated by ordered token pair, separately from pending LP fees.
+    function withdrawOwnerFees(address token0, address token1, uint128 amount0, uint128 amount1, address recipient)
+        external;
+
     /// @notice Emitted when a pool state is updated.
     event PoolStateUpdated(PoolId indexed poolId, SignedExclusiveSwapPoolState poolState);
     /// @notice Emitted when a signed swap payload is validated and broadcast.
@@ -67,7 +77,8 @@ interface ISignedExclusiveSwap is IExposedStorage, ILocker, IForwardee, IExtensi
     /// @param poolKey Pool configuration to initialize. Must point its extension to this contract.
     /// @param tick Initial tick for the pool.
     /// @param controller Initial pool controller with EOA/contract type encoded in bit 159 (high bit: 0 = EOA, 1 = contract).
-    function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller)
+    /// @param ownerFee Initial Q0.64 owner share of collected swap fees.
+    function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller, uint64 ownerFee)
         external
         returns (SqrtRatio sqrtRatio);
 

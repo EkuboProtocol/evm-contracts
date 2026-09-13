@@ -6,9 +6,17 @@ import {ControllerAddress} from "./controllerAddress.sol";
 /// @dev Layout:
 /// - bits [255..96]: controller (160 bits)
 /// - bits [95..64]: last update time (uint32)
+/// - bits [63..0]: owner fee share (uint64, Q0.64)
 type SignedExclusiveSwapPoolState is bytes32;
 
-using {controller, lastUpdateTime, withLastUpdateTime, withController} for SignedExclusiveSwapPoolState global;
+using {
+    controller,
+    lastUpdateTime,
+    withLastUpdateTime,
+    withController,
+    ownerFee,
+    withOwnerFee
+} for SignedExclusiveSwapPoolState global;
 
 function controller(SignedExclusiveSwapPoolState state) pure returns (ControllerAddress result) {
     assembly ("memory-safe") {
@@ -22,12 +30,12 @@ function lastUpdateTime(SignedExclusiveSwapPoolState state) pure returns (uint32
     }
 }
 
-function createSignedExclusiveSwapPoolState(ControllerAddress _controller, uint32 _lastUpdateTime)
+function createSignedExclusiveSwapPoolState(ControllerAddress _controller, uint32 _lastUpdateTime, uint64 _ownerFee)
     pure
     returns (SignedExclusiveSwapPoolState state)
 {
     assembly ("memory-safe") {
-        state := or(shl(96, _controller), shl(64, _lastUpdateTime))
+        state := or(or(shl(96, _controller), shl(64, _lastUpdateTime)), and(_ownerFee, 0xffffffffffffffff))
     }
 }
 
@@ -49,5 +57,20 @@ function withController(SignedExclusiveSwapPoolState state, ControllerAddress _c
             and(state, 0x0000000000000000000000000000000000000000ffffffffffffffffffffffff),
             shl(96, _controller)
         )
+    }
+}
+
+function ownerFee(SignedExclusiveSwapPoolState state) pure returns (uint64 result) {
+    assembly ("memory-safe") {
+        result := and(state, 0xffffffffffffffff)
+    }
+}
+
+function withOwnerFee(SignedExclusiveSwapPoolState state, uint64 _ownerFee)
+    pure
+    returns (SignedExclusiveSwapPoolState updated)
+{
+    assembly ("memory-safe") {
+        updated := or(and(state, not(0xffffffffffffffff)), and(_ownerFee, 0xffffffffffffffff))
     }
 }

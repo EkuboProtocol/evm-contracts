@@ -7,6 +7,8 @@ import {ISignedExclusiveSwap} from "../interfaces/extensions/ISignedExclusiveSwa
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
+import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
+import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
 import {SignedExclusiveSwapLib} from "../libraries/SignedExclusiveSwapLib.sol";
@@ -43,7 +45,7 @@ function signedExclusiveSwapCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Forward-only swap extension with controller-signed, per-swap fee customization.
-/// @dev Fees are first collected into extension saved balances, then donated to LPs at the start of the next block.
+/// @dev After the owner share is deducted, LP fees are saved and donated on the first accumulation at a later timestamp.
 contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForwardee, ExposedStorage, Ownable {
     using CoreLib for *;
     using ExposedStorageLib for *;
@@ -57,6 +59,32 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
     mapping(uint256 => Bitmap) public nonceBitmap;
 
+    /// @inheritdoc ISignedExclusiveSwap
+    function setOwnerFee(PoolKey memory poolKey, uint64 fee) external onlyOwner {
+        PoolId poolId = poolKey.toPoolId();
+        SignedExclusiveSwapPoolState state = _getPoolState(poolId);
+        if (ControllerAddress.unwrap(state.controller()) == address(0)) revert ICore.PoolNotInitialized();
+        _setPoolState(poolId, state.withOwnerFee(fee));
+    }
+
+    /// @inheritdoc ISignedExclusiveSwap
+    function withdrawOwnerFees(address token0, address token1, uint128 amount0, uint128 amount1, address recipient)
+        external
+        onlyOwner
+    {
+        (bool success, bytes memory result) = address(CORE)
+            .call(
+                abi.encodePacked(
+                    IFlashAccountant.lock.selector, abi.encode(token0, token1, amount0, amount1, recipient)
+                )
+            );
+        if (!success) {
+            assembly ("memory-safe") {
+                revert(add(result, 32), mload(result))
+            }
+        }
+    }
+
     constructor(ICore core, address owner) BaseExtension(core) BaseForwardee(core) {
         _initializeOwner(owner);
         _DOMAIN_SEPARATOR = this.computeDomainSeparatorHash();
@@ -68,7 +96,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
     }
 
     /// @inheritdoc ISignedExclusiveSwap
-    function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller)
+    function initializePool(PoolKey memory poolKey, int32 tick, ControllerAddress controller, uint64 ownerFee)
         external
         onlyOwner
         returns (SqrtRatio sqrtRatio)
@@ -79,7 +107,10 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
         sqrtRatio = CORE.initializePool(poolKey, tick);
         _setPoolState({
-            poolId: poolKey.toPoolId(), state: createSignedExclusiveSwapPoolState(controller, uint32(block.timestamp))
+            poolId: poolKey.toPoolId(),
+            state: createSignedExclusiveSwapPoolState({
+                _controller: controller, _lastUpdateTime: uint32(block.timestamp), _ownerFee: ownerFee
+            })
         });
     }
 
@@ -98,7 +129,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         revert SwapMustHappenThroughForward();
     }
 
-    /// @dev Prevents new liquidity from collecting extension fees that should belong to existing LPs.
+    /// @dev Accumulates prior-timestamp LP fees before updating a position.
     function beforeUpdatePosition(Locker, PoolKey memory poolKey, PositionId, int128)
         external
         override(BaseExtension, IExtension)
@@ -106,7 +137,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         accumulatePoolFees(poolKey);
     }
 
-    /// @dev Allows fee collection to observe extension donations up to the start of the current block.
+    /// @dev Allows fee collection to observe extension donations up to the start of the current timestamp.
     function beforeCollectFees(Locker, PoolKey memory poolKey, PositionId)
         external
         override(BaseExtension, IExtension)
@@ -133,8 +164,17 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         }
     }
 
-    /// @dev Core lock callback used by `accumulatePoolFees`.
+    /// @dev Core lock callback used by `accumulatePoolFees` and owner fee withdrawals.
     function locked_6416899205(uint256) external onlyCore {
+        // Withdrawal locks carry five words; fee accumulation locks carry four.
+        if (msg.data.length == 196) {
+            (address token0, address token1, uint128 amount0, uint128 amount1, address recipient) =
+                abi.decode(msg.data[36:], (address, address, uint128, uint128, address));
+            CORE.updateSavedBalances(token0, token1, bytes32(0), -int256(uint256(amount0)), -int256(uint256(amount1)));
+            FlashAccountantLib.withdrawTwo(CORE, token0, token1, recipient, amount0, amount1);
+            return;
+        }
+
         PoolKey memory poolKey;
         PoolId poolId;
         assembly ("memory-safe") {
@@ -244,30 +284,34 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
                 if (params.isExactOut()) {
                     if (balanceUpdate.delta0() > 0) {
                         uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta0())));
-                        int128 feeAmount = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64) - inputAmount);
-                        saveDelta0 += feeAmount;
-                        balanceUpdate =
-                            createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
+                        int128 inputWithFee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64));
+                        int128 feeAmount = inputWithFee - balanceUpdate.delta0();
+                        saveDelta0 += feeAmount
+                            - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), false, state.ownerFee())));
+                        balanceUpdate = createPoolBalanceUpdate(inputWithFee, balanceUpdate.delta1());
                     } else if (balanceUpdate.delta1() > 0) {
                         uint128 inputAmount = uint128(uint256(int256(balanceUpdate.delta1())));
-                        int128 feeAmount = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64) - inputAmount);
-                        saveDelta1 += feeAmount;
-                        balanceUpdate =
-                            createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
+                        int128 inputWithFee = SafeCastLib.toInt128(amountBeforeFee(inputAmount, metaFeeX64));
+                        int128 feeAmount = inputWithFee - balanceUpdate.delta1();
+                        saveDelta1 += feeAmount
+                            - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), true, state.ownerFee())));
+                        balanceUpdate = createPoolBalanceUpdate(balanceUpdate.delta0(), inputWithFee);
                     }
                 } else {
                     if (balanceUpdate.delta0() < 0) {
                         int128 feeAmount = SafeCastLib.toInt128(
                             computeFee(uint128(uint256(-int256(balanceUpdate.delta0()))), metaFeeX64)
                         );
-                        saveDelta0 += feeAmount;
+                        saveDelta0 += feeAmount
+                            - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), false, state.ownerFee())));
                         balanceUpdate =
                             createPoolBalanceUpdate(balanceUpdate.delta0() + feeAmount, balanceUpdate.delta1());
                     } else if (balanceUpdate.delta1() < 0) {
                         int128 feeAmount = SafeCastLib.toInt128(
                             computeFee(uint128(uint256(-int256(balanceUpdate.delta1()))), metaFeeX64)
                         );
-                        saveDelta1 += feeAmount;
+                        saveDelta1 += feeAmount
+                            - int256(uint256(_saveOwnerFee(poolKey, uint128(feeAmount), true, state.ownerFee())));
                         balanceUpdate =
                             createPoolBalanceUpdate(balanceUpdate.delta0(), balanceUpdate.delta1() + feeAmount);
                     }
@@ -279,6 +323,25 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
             }
 
             result = abi.encode(balanceUpdate, stateAfter);
+        }
+    }
+
+    /// @dev Saves only the owner's share of this swap's collected fee, never pending LP fees.
+    function _saveOwnerFee(PoolKey memory poolKey, uint128 collectedFee, bool isToken1, uint64 fee)
+        internal
+        returns (uint128 share)
+    {
+        if (collectedFee != 0) {
+            share = computeFee(collectedFee, fee);
+            if (share != 0) {
+                CORE.updateSavedBalances(
+                    poolKey.token0,
+                    poolKey.token1,
+                    bytes32(0),
+                    isToken1 ? int256(0) : int256(uint256(share)),
+                    isToken1 ? int256(uint256(share)) : int256(0)
+                );
+            }
         }
     }
 

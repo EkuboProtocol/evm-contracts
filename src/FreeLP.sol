@@ -2,30 +2,26 @@
 pragma solidity =0.8.33;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {Multicallable} from "solady/utils/Multicallable.sol";
+import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
-import {PoolConfig} from "./types/poolConfig.sol";
 import {PoolKey} from "./types/poolKey.sol";
-import {FreeLPPool, FreeLPRange, createFreeLPPool, createFreeLPRange} from "./types/freeLPDescriptor.sol";
+import {PoolKeyIndex} from "./PoolKeyIndex.sol";
 import {PoolId} from "./types/poolId.sol";
 import {PositionId, createPositionId} from "./types/positionId.sol";
-import {Position} from "./types/position.sol";
-import {FeesPerLiquidity} from "./types/feesPerLiquidity.sol";
-import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
-import {maxLiquidity, liquidityDeltaToAmountDelta} from "./math/liquidity.sol";
+import {maxLiquidity} from "./math/liquidity.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
 import {FreeLPMetadata} from "./libraries/FreeLPMetadata.sol";
 
 /// @notice Ownerless, zero-fee positions with one immutable pool/range per NFT and RPC-readable ownership.
 /// @dev Adapted from BasePositions settlement. No swap, admin, or external metadata dependency. Pool extensions are selected by the depositor.
-///      Nonpayable multicall supports ERC20 operations; native deposits are standalone and refund exact excess.
-contract FreeLP is ERC721, BaseLocker, Multicallable {
+///      Native deposits spend the shared call balance; append refundNativeToken to refund excess.
+contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
 
@@ -35,32 +31,15 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         int32 tickUpper;
     }
 
-    // Three slots per NFT: token0/config; token1/ticks/extension high; indexes/extension low.
+    // Two slots per NFT. Bounds occupy 64 of the ERC721 owner slot's 96 extra bits.
+    // Pool keys live in the shared PoolKeyIndex and survive the last position's burn.
     struct StoredPosition {
-        FreeLPPool pool;
-        FreeLPRange range;
+        PoolId poolId;
         uint64 ownerIndex;
         uint64 globalIndex;
-        uint128 extensionLow;
-    }
-
-    struct Amounts {
-        uint128 liquidity;
-        uint128 principal0;
-        uint128 principal1;
-        uint128 fees0;
-        uint128 fees1;
-    }
-
-    struct DepositLimits {
-        uint128 maxAmount0;
-        uint128 maxAmount1;
-        uint128 minLiquidity;
-        uint256 deadline;
     }
 
     error Unauthorized();
-    error Expired();
     error Slippage();
     error InvalidValue();
     error EnumerationIndexOutOfBounds();
@@ -72,15 +51,23 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     event LiquidityRemoved(uint256 indexed id, uint128 liquidity, uint128 amount0, uint128 amount1);
 
     ICore public immutable CORE;
+    PoolKeyIndex public immutable POOL_KEY_INDEX;
     uint64 private _nextId;
     mapping(uint256 => StoredPosition) private _positions;
     // Four IDs per slot. Lengths/indexes cannot exceed the monotonically minted ID count.
     mapping(address => uint64[]) private _owned;
     uint64[] private _tokens;
 
-    constructor(ICore core) BaseLocker(core) {
+    /// @param index The shared PoolKeyIndex deployed for this core.
+    constructor(ICore core, PoolKeyIndex index) BaseLocker(core) {
         if (address(core).code.length == 0) revert InvalidCore();
+        if (address(index).code.length == 0) revert InvalidValue();
         CORE = core;
+        POOL_KEY_INDEX = index;
+    }
+
+    receive() external payable {
+        if (msg.sender != address(CORE)) revert Unauthorized();
     }
 
     function name() public pure override returns (string memory) {
@@ -91,17 +78,17 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         return "LP";
     }
 
-    function descriptor(uint256 id) public view returns (Descriptor memory) {
+    function position(uint256 id) public view returns (PoolId poolId, int32 tickLower, int32 tickUpper) {
         ownerOf(id);
-        return _descriptor(id);
+        uint96 bounds = _getExtraData(id);
+        return (_positions[id].poolId, int32(uint32(bounds)), int32(uint32(bounds >> 32)));
     }
 
     function _descriptor(uint256 id) private view returns (Descriptor memory) {
-        StoredPosition storage p = _positions[id];
-        FreeLPPool pool = p.pool;
-        FreeLPRange range = p.range;
-        PoolConfig config = pool.fullConfig(range, p.extensionLow);
-        return Descriptor(PoolKey(pool.token0(), range.token1(), config), range.tickLower(), range.tickUpper());
+        uint96 bounds = _getExtraData(id);
+        PoolKey memory key;
+        (key.token0, key.token1, key.config) = POOL_KEY_INDEX.poolKeyById(_positions[id].poolId);
+        return Descriptor(key, int32(uint32(bounds)), int32(uint32(bounds >> 32)));
     }
 
     function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
@@ -124,73 +111,51 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
     }
 
     function tokenURI(uint256 id) public view override returns (string memory) {
-        Descriptor memory d = descriptor(id);
+        ownerOf(id);
+        Descriptor memory d = _descriptor(id);
         return FreeLPMetadata.tokenURI(id, address(CORE), d.poolKey, d.tickLower, d.tickUpper);
     }
 
-    function poolState(PoolKey memory key) public view returns (uint256 sqrtRatio, int32 tick, uint128 liquidity) {
-        SqrtRatio ratio;
-        (ratio, tick, liquidity) = CORE.poolState(key.toPoolId()).parse();
-        sqrtRatio = ratio.toFixed();
-    }
-
-    function positionAmounts(uint256 id) public view returns (Amounts memory a) {
-        Descriptor memory d = descriptor(id);
-        PoolId poolId = d.poolKey.toPoolId();
-        Position memory p = CORE.poolPositions(poolId, address(this), _positionId(id, d));
-        if (p.liquidity > uint128(type(int128).max)) revert InvalidValue();
-        a.liquidity = p.liquidity;
-        (int128 delta0, int128 delta1) = liquidityDeltaToAmountDelta(
-            CORE.poolState(poolId).sqrtRatio(),
-            -int128(p.liquidity),
-            tickToSqrtRatio(d.tickLower),
-            tickToSqrtRatio(d.tickUpper)
-        );
-        (a.principal0, a.principal1) = (uint128(-delta0), uint128(-delta1));
-        FeesPerLiquidity memory f = d.poolKey.config.isStableswap()
-            ? CORE.getPoolFeesPerLiquidity(poolId)
-            : CORE.getPoolFeesPerLiquidityInside(poolId, d.tickLower, d.tickUpper);
-        (a.fees0, a.fees1) = p.fees(f);
-    }
-
     /// @notice Initializes a missing pool at initialTick, then mints and funds a position atomically.
-    function createPosition(Descriptor memory d, int32 initialTick, DepositLimits memory limits)
-        external
-        payable
-        returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
+    function createPosition(
+        PoolKey memory key,
+        int32 lower,
+        int32 upper,
+        int32 initialTick,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        uint128 minLiquidity
+    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+        Descriptor memory d = Descriptor(key, lower, upper);
         _validate(d);
-        _deadline(limits.deadline);
-        if (CORE.poolState(d.poolKey.toPoolId()).sqrtRatio().isZero()) CORE.initializePool(d.poolKey, initialTick);
+        PoolId poolId = key.toPoolId();
+        if (CORE.poolState(poolId).sqrtRatio().isZero()) CORE.initializePool(key, initialTick);
+        if (!POOL_KEY_INDEX.isRegistered(poolId)) POOL_KEY_INDEX.register(key);
         if (_nextId == type(uint64).max) revert TokenIdsExhausted();
         id = ++_nextId;
-        StoredPosition storage p = _positions[id];
-        p.pool = createFreeLPPool(d.poolKey.token0, d.poolKey.config);
-        p.range = createFreeLPRange(d.poolKey.token1, d.tickLower, d.tickUpper, d.poolKey.config.extension());
-        p.extensionLow = uint128(uint160(d.poolKey.config.extension()));
-        _mint(msg.sender, id);
-        (liquidity, amount0, amount1) = _deposit(id, d, limits);
+        _positions[id].poolId = poolId;
+        _mintAndSetExtraDataUnchecked(msg.sender, id, uint96(uint32(lower)) | (uint96(uint32(upper)) << 32));
+        (liquidity, amount0, amount1) = _deposit(id, d, maxAmount0, maxAmount1, minLiquidity);
         emit PositionCreated(id, msg.sender, d.poolKey, d.tickLower, d.tickUpper);
     }
 
-    function addLiquidity(uint256 id, DepositLimits memory limits)
+    function addLiquidity(uint256 id, uint128 maxAmount0, uint128 maxAmount1, uint128 minLiquidity)
         external
         payable
         returns (uint128 liquidity, uint128 amount0, uint128 amount1)
     {
         _authorize(id);
-        _deadline(limits.deadline);
-        return _deposit(id, _descriptor(id), limits);
+        return _deposit(id, _descriptor(id), maxAmount0, maxAmount1, minLiquidity);
     }
 
     /// @notice Withdrawal always collects fees; liquidity=0 is fee collection. Minimums include fees.
     ///         Removing the remaining liquidity burns the NFT and clears its descriptor and enumeration storage.
-    function withdraw(uint256 id, uint128 liquidity, address recipient, uint128 min0, uint128 min1, uint256 deadline)
+    function withdraw(uint256 id, uint128 liquidity, address recipient, uint128 min0, uint128 min1)
         external
+        payable
         returns (uint128 amount0, uint128 amount1)
     {
         _authorize(id);
-        _deadline(deadline);
         if (recipient == address(0)) revert InvalidValue();
         if (liquidity > uint128(type(int128).max)) revert InvalidValue();
         (amount0, amount1) =
@@ -203,10 +168,6 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         if (!_isApprovedOrOwner(msg.sender, id)) revert Unauthorized();
     }
 
-    function _deadline(uint256 deadline) private view {
-        if (block.timestamp > deadline) revert Expired();
-    }
-
     function _validate(Descriptor memory d) private pure {
         d.poolKey.validate();
         _positionId(0, d).validate(d.poolKey.config);
@@ -216,7 +177,7 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
         return createPositionId(bytes24(uint192(id)), d.tickLower, d.tickUpper);
     }
 
-    function _deposit(uint256 id, Descriptor memory d, DepositLimits memory limits)
+    function _deposit(uint256 id, Descriptor memory d, uint128 maxAmount0, uint128 maxAmount1, uint128 minLiquidity)
         private
         returns (uint128 liquidity, uint128 amount0, uint128 amount1)
     {
@@ -224,17 +185,14 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
             CORE.poolState(d.poolKey.toPoolId()).sqrtRatio(),
             tickToSqrtRatio(d.tickLower),
             tickToSqrtRatio(d.tickUpper),
-            limits.maxAmount0,
-            limits.maxAmount1
+            maxAmount0,
+            maxAmount1
         );
-        if (liquidity == 0 || liquidity < limits.minLiquidity) revert Slippage();
+        if (liquidity == 0 || liquidity < minLiquidity) revert Slippage();
         if (liquidity > uint128(type(int128).max)) revert InvalidValue();
         (amount0, amount1) =
             abi.decode(lock(abi.encode(true, msg.sender, id, liquidity, address(0))), (uint128, uint128));
-        if (amount0 > limits.maxAmount0 || amount1 > limits.maxAmount1) revert Slippage();
-        uint256 spent = d.poolKey.token0 == NATIVE_TOKEN_ADDRESS ? amount0 : 0;
-        if (msg.value < spent) revert InvalidValue();
-        if (msg.value > spent) SafeTransferLib.safeTransferETH(msg.sender, msg.value - spent);
+        if (amount0 > maxAmount0 || amount1 > maxAmount1) revert Slippage();
         emit LiquidityAdded(id, liquidity, amount0, amount1);
     }
 
@@ -281,6 +239,7 @@ contract FreeLP is ERC721, BaseLocker, Multicallable {
             amount1 += uint128(-update.delta1());
             if (CORE.poolPositions(d.poolKey.toPoolId(), address(this), _positionId(id, d)).liquidity == 0) {
                 _burn(id);
+                _setExtraData(id, 0);
                 delete _positions[id];
             }
         }

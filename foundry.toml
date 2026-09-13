@@ -14,6 +14,11 @@ via_ir = true
 ignored_error_codes = [2394, 6321, 3860, 5574, 2424, 8429, 4591]
 fs_permissions = [{ access = "read", path = "./snapshots" }]
 
+# Explicit opt-in for regenerating NFT artwork fixtures.
+# UPDATE_SNAPSHOTS=true FOUNDRY_PROFILE=snapshots forge test --offline --match-contract FreeLPMetadataTest
+[profile.snapshots]
+fs_permissions = [{ access = "read-write", path = "./snapshots" }]
+
 [invariant]
 fail_on_revert = true
 runs = 1

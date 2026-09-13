@@ -265,7 +265,7 @@ contract FreeLPTest is FullTest {
         (uint128 added,,) = lp.addLiquidity(id, 1 ether, 1 ether, 1);
         uint256 paid0 = token0.balanceOf(address(core));
         uint256 paid1 = token1.balanceOf(address(core));
-        (uint128 a, uint128 b) = lp.withdraw(id, liquidity + added, address(this));
+        (uint256 a, uint256 b) = lp.withdraw(id, liquidity + added, address(this));
         assertApproxEqAbs(a, paid0, 2);
         assertApproxEqAbs(b, paid1, 2);
         assertEq(lp.balanceOf(address(this)), 0);
@@ -470,7 +470,7 @@ contract FreeLPTest is FullTest {
         router.swapAllowPartialFill(RouteNode(d.poolKey, SqrtRatio.wrap(0), 0), TokenAmount(address(token0), 1000));
         FreeLPDataFetcher.Amounts memory before = reader.positionAmounts(lp, id);
         assertGt(before.fees0, 0);
-        (uint128 a, uint128 b) = lp.withdraw(id, 0, address(this));
+        (uint256 a, uint256 b) = lp.withdraw(id, 0, address(this));
         assertEq(a, before.fees0);
         assertEq(b, before.fees1);
         assertEq(reader.positionAmounts(lp, id).fees0, 0);
@@ -532,7 +532,7 @@ contract FreeLPTest is FullTest {
         assertLe(tick, d.tickLower);
         FreeLPDataFetcher.Amounts memory amounts = reader.positionAmounts(lp, id);
         assertGt(amounts.fees0, 0);
-        (uint128 a, uint128 b) = lp.withdraw(id, 0, address(this));
+        (uint256 a, uint256 b) = lp.withdraw(id, 0, address(this));
         assertEq(a, amounts.fees0);
         assertEq(b, amounts.fees1);
     }

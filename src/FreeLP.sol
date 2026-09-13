@@ -2,8 +2,7 @@
 pragma solidity =0.8.33;
 
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {PayableMulticallable} from "./base/PayableMulticallable.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {NativePaymentScope} from "./base/NativePaymentScope.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
@@ -21,7 +20,7 @@ import {IFreeLPMetadataRenderer} from "./interfaces/IFreeLPMetadataRenderer.sol"
 
 /// @notice Ownerless, zero-fee positions with one immutable pool/range per NFT and RPC-readable ownership.
 /// @dev Pool initialization and native refunds are explicit payable multicall steps.
-contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
+contract FreeLP is ERC721, BaseLocker, NativePaymentScope {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
 
@@ -97,6 +96,7 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
     function maybeInitializePool(PoolKey memory key, int32 tick)
         external
         payable
+        nativePaymentScope
         returns (bool initialized, SqrtRatio sqrtRatio)
     {
         sqrtRatio = CORE.poolState(key.toPoolId()).sqrtRatio();
@@ -114,7 +114,7 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
         uint128 maxAmount0,
         uint128 maxAmount1,
         uint128 minLiquidity
-    ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
+    ) external payable nativePaymentScope returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         // register is idempotent and rejects uninitialized pools.
         POOL_KEY_INDEX.register(key);
         id = nextId++;
@@ -129,6 +129,7 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
     function addLiquidity(uint256 id, uint128 maxAmount0, uint128 maxAmount1, uint128 minLiquidity)
         external
         payable
+        nativePaymentScope
         authorizedForNft(id)
         returns (uint128 liquidity, uint128 amount0, uint128 amount1)
     {
@@ -140,15 +141,16 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
     function withdraw(uint256 id, uint128 liquidity, address recipient)
         external
         payable
+        nativePaymentScope
         authorizedForNft(id)
-        returns (uint128 amount0, uint128 amount1)
+        returns (uint256 amount0, uint256 amount1)
     {
         if (recipient == address(0) || liquidity > uint128(type(int128).max)) {
             revert InvalidValue();
         }
         (PoolKey memory key, PositionId positionId) = _positionKey(id);
         (amount0, amount1) = abi.decode(
-            lock(abi.encode(false, false, ownerOf(id), id, key, positionId, liquidity, recipient)), (uint128, uint128)
+            lock(abi.encode(false, false, ownerOf(id), id, key, positionId, liquidity, recipient)), (uint256, uint256)
         );
     }
 
@@ -200,21 +202,31 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
         uint128 liquidity,
         bool isNew
     ) private returns (bytes memory) {
+        address holder = isNew ? address(0) : ownerOf(id);
+        uint256 expectedLiquidity =
+            uint256(CORE.poolPositions(key.toPoolId(), address(this), positionId).liquidity) + liquidity;
         PoolBalanceUpdate update = CORE.updatePosition(key, positionId, int128(liquidity));
         uint128 amount0 = uint128(update.delta0());
         uint128 amount1 = uint128(update.delta1());
         if (key.token0 == NATIVE_TOKEN_ADDRESS) {
-            if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
+            _payNative(address(ACCOUNTANT), amount0);
             if (amount1 != 0) ACCOUNTANT.payFrom(payer, key.token1, amount1);
         } else {
             ACCOUNTANT.payTwoFrom(payer, key.token0, key.token1, amount0, amount1);
         }
-        // Existing positions cannot be burned by callbacks and left funded. New NFTs do not exist yet.
-        if (!isNew) ownerOf(id);
-        if (CORE.poolPositions(key.toPoolId(), address(this), positionId).liquidity > uint128(type(int128).max)) {
+        _checkDeposit(id, key.toPoolId(), positionId, holder, expectedLiquidity);
+        return abi.encode(amount0, amount1);
+    }
+
+    function _checkDeposit(uint256 id, PoolId poolId, PositionId positionId, address holder, uint256 expectedLiquidity)
+        private
+        view
+    {
+        if (holder != address(0) && ownerOf(id) != holder) revert InvalidValue();
+        uint128 remaining = CORE.poolPositions(poolId, address(this), positionId).liquidity;
+        if (remaining < expectedLiquidity || remaining > uint128(type(int128).max)) {
             revert InvalidValue();
         }
-        return abi.encode(amount0, amount1);
     }
 
     function _settleWithdraw(
@@ -234,7 +246,9 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
             delete _ownerIndexes[id];
             _setExtraData(id, 0);
         }
-        (uint128 amount0, uint128 amount1) = CORE.collectFees(key, positionId);
+        (uint128 fees0, uint128 fees1) = CORE.collectFees(key, positionId);
+        uint256 amount0 = fees0;
+        uint256 amount1 = fees1;
         if (liquidity != 0) {
             PoolBalanceUpdate update = CORE.updatePosition(key, positionId, -int128(liquidity));
             amount0 += uint128(-update.delta0());
@@ -248,8 +262,16 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
         ) {
             revert InvalidValue();
         }
-        ACCOUNTANT.withdrawTwo(key.token0, key.token1, recipient, amount0, amount1);
+        _withdrawAmounts(key, recipient, amount0, amount1);
         return abi.encode(amount0, amount1);
+    }
+
+    function _withdrawAmounts(PoolKey memory key, address recipient, uint256 amount0, uint256 amount1) private {
+        uint128 first0 = amount0 > type(uint128).max ? type(uint128).max : uint128(amount0);
+        uint128 first1 = amount1 > type(uint128).max ? type(uint128).max : uint128(amount1);
+        ACCOUNTANT.withdrawTwo(key.token0, key.token1, recipient, first0, first1);
+        if (amount0 > first0) ACCOUNTANT.withdraw(key.token0, recipient, uint128(amount0 - first0));
+        if (amount1 > first1) ACCOUNTANT.withdraw(key.token1, recipient, uint128(amount1 - first1));
     }
 
     function _afterTokenTransfer(address from, address to, uint256 id) internal override {

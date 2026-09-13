@@ -31,13 +31,13 @@ contract DeployFreeLP is Script {
         deployIfNeeded(
             abi.encodePacked(type(FreeLP).creationCode, abi.encode(core, index, renderer)),
             SALT,
-            0x0b1605F6ab7CC5A51846cbaCc2A73730C7770c4C,
+            0x49dD410ef9F68160d6917615766d806e7F354a09,
             "FreeLP"
         );
         deployIfNeeded(
             abi.encodePacked(type(FreeLPDataFetcher).creationCode, abi.encode(core)),
             SALT,
-            0xf4653c16A87828D3901E376eB3578fA50c5bbdD5,
+            0xA6E606E3D106664262D8eBC7399032d66b05B398,
             "FreeLPDataFetcher"
         );
         vm.stopBroadcast();

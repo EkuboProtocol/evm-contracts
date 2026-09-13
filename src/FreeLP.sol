@@ -13,30 +13,21 @@ import {PoolKeyIndex} from "./PoolKeyIndex.sol";
 import {PoolId} from "./types/poolId.sol";
 import {PositionId, createPositionId} from "./types/positionId.sol";
 import {PoolBalanceUpdate} from "./types/poolBalanceUpdate.sol";
+import {SqrtRatio} from "./types/sqrtRatio.sol";
 import {tickToSqrtRatio} from "./math/ticks.sol";
 import {maxLiquidity} from "./math/liquidity.sol";
 import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
-import {FreeLPMetadata} from "./libraries/FreeLPMetadata.sol";
+import {IFreeLPMetadataRenderer} from "./interfaces/IFreeLPMetadataRenderer.sol";
 
 /// @notice Ownerless, zero-fee positions with one immutable pool/range per NFT and RPC-readable ownership.
-/// @dev Adapted from BasePositions settlement. No swap, admin, or external metadata dependency. Pool extensions are selected by the depositor.
-///      Native deposits spend the shared call balance; append refundNativeToken to refund excess.
+/// @dev Pool initialization and native refunds are explicit payable multicall steps.
 contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
 
-    struct Descriptor {
-        PoolKey poolKey;
-        int32 tickLower;
-        int32 tickUpper;
-    }
-
-    // Two slots per NFT. Bounds occupy 64 of the ERC721 owner slot's 96 extra bits.
-    // Pool keys live in the shared PoolKeyIndex and survive the last position's burn.
     struct StoredPosition {
         PoolId poolId;
         uint64 ownerIndex;
-        uint64 globalIndex;
     }
 
     error Unauthorized();
@@ -44,7 +35,6 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
     error InvalidValue();
     error EnumerationIndexOutOfBounds();
     error InvalidCore();
-    error TokenIdsExhausted();
 
     event PositionCreated(uint256 indexed id, address indexed holder, PoolKey poolKey, int32 lower, int32 upper);
     event LiquidityAdded(uint256 indexed id, uint128 liquidity, uint128 amount0, uint128 amount1);
@@ -52,18 +42,24 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
 
     ICore public immutable CORE;
     PoolKeyIndex public immutable POOL_KEY_INDEX;
-    uint64 private _nextId;
+    IFreeLPMetadataRenderer public immutable METADATA_RENDERER;
+    /// @notice IDs below this high-water mark have been allocated; ownerOf rejects burned IDs.
+    uint64 public nextId = 1;
     mapping(uint256 => StoredPosition) private _positions;
-    // Four IDs per slot. Lengths/indexes cannot exceed the monotonically minted ID count.
     mapping(address => uint64[]) private _owned;
-    uint64[] private _tokens;
 
-    /// @param index The shared PoolKeyIndex deployed for this core.
-    constructor(ICore core, PoolKeyIndex index) BaseLocker(core) {
+    constructor(ICore core, PoolKeyIndex index, IFreeLPMetadataRenderer renderer) BaseLocker(core) {
         if (address(core).code.length == 0) revert InvalidCore();
         if (address(index).code.length == 0) revert InvalidValue();
+        if (address(renderer).code.length == 0) revert InvalidValue();
         CORE = core;
         POOL_KEY_INDEX = index;
+        METADATA_RENDERER = renderer;
+    }
+
+    modifier authorizedForNft(uint256 id) {
+        if (!_isApprovedOrOwner(msg.sender, id)) revert Unauthorized();
+        _;
     }
 
     receive() external payable {
@@ -84,194 +80,207 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
         return (_positions[id].poolId, int32(uint32(bounds)), int32(uint32(bounds >> 32)));
     }
 
-    function _descriptor(uint256 id) private view returns (Descriptor memory) {
+    function _poolKey(PoolId poolId) private view returns (PoolKey memory key) {
+        (key.token0, key.token1, key.config) = POOL_KEY_INDEX.poolKeyById(poolId);
+    }
+
+    function _positionKey(uint256 id) private view returns (PoolKey memory key, PositionId positionId) {
         uint96 bounds = _getExtraData(id);
-        PoolKey memory key;
-        (key.token0, key.token1, key.config) = POOL_KEY_INDEX.poolKeyById(_positions[id].poolId);
-        return Descriptor(key, int32(uint32(bounds)), int32(uint32(bounds >> 32)));
+        key = _poolKey(_positions[id].poolId);
+        positionId = createPositionId(bytes24(uint192(id)), int32(uint32(bounds)), int32(uint32(bounds >> 32)));
     }
 
-    function supportsInterface(bytes4 interfaceId) public view override returns (bool) {
-        return interfaceId == 0x780e9d63 || super.supportsInterface(interfaceId);
-    }
-
-    function totalSupply() public view returns (uint256) {
-        return _tokens.length;
-    }
-
-    function tokenByIndex(uint256 index) public view returns (uint256) {
-        if (index >= _tokens.length) revert EnumerationIndexOutOfBounds();
-        return _tokens[index];
-    }
-
-    /// @notice Enumeration order is unspecified. Pin reads to one block and sort in the client.
+    /// @notice Owner-only enumeration; order is unspecified. Pin reads to one block.
+    /// @dev This extension does not advertise ERC721Enumerable: there is no global live-token array.
     function tokenOfOwnerByIndex(address holder, uint256 index) public view returns (uint256) {
         if (holder == address(0) || index >= _owned[holder].length) revert EnumerationIndexOutOfBounds();
         return _owned[holder][index];
     }
 
     function tokenURI(uint256 id) public view override returns (string memory) {
-        ownerOf(id);
-        Descriptor memory d = _descriptor(id);
-        return FreeLPMetadata.tokenURI(id, address(CORE), d.poolKey, d.tickLower, d.tickUpper);
+        (PoolId poolId, int32 lower, int32 upper) = position(id);
+        return METADATA_RENDERER.tokenURI(id, address(CORE), _poolKey(poolId), lower, upper);
     }
 
-    /// @notice Initializes a missing pool at initialTick, then mints and funds a position atomically.
+    /// @notice Initializes a missing pool; compose with createPosition in a payable multicall.
+    function maybeInitializePool(PoolKey memory key, int32 tick)
+        external
+        payable
+        returns (bool initialized, SqrtRatio sqrtRatio)
+    {
+        sqrtRatio = CORE.poolState(key.toPoolId()).sqrtRatio();
+        if (sqrtRatio.isZero()) {
+            initialized = true;
+            sqrtRatio = CORE.initializePool(key, tick);
+        }
+    }
+
+    /// @notice Funds an initialized pool position, then mints its NFT after every deposit callback.
     function createPosition(
         PoolKey memory key,
         int32 lower,
         int32 upper,
-        int32 initialTick,
         uint128 maxAmount0,
         uint128 maxAmount1,
         uint128 minLiquidity
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
-        Descriptor memory d = Descriptor(key, lower, upper);
-        _validate(d);
-        PoolId poolId = key.toPoolId();
-        if (CORE.poolState(poolId).sqrtRatio().isZero()) CORE.initializePool(key, initialTick);
-        if (!POOL_KEY_INDEX.isRegistered(poolId)) POOL_KEY_INDEX.register(key);
-        if (_nextId == type(uint64).max) revert TokenIdsExhausted();
-        id = ++_nextId;
-        _positions[id].poolId = poolId;
+        key.validate();
+        // register is idempotent and rejects uninitialized pools.
+        POOL_KEY_INDEX.register(key);
+        id = nextId++;
+        PositionId positionId = createPositionId(bytes24(uint192(id)), lower, upper);
+        positionId.validate(key.config);
+        emit PositionCreated(id, msg.sender, key, lower, upper);
+        (liquidity, amount0, amount1) = _deposit(id, key, positionId, maxAmount0, maxAmount1, minLiquidity, true);
+        _positions[id].poolId = key.toPoolId();
         _mintAndSetExtraDataUnchecked(msg.sender, id, uint96(uint32(lower)) | (uint96(uint32(upper)) << 32));
-        (liquidity, amount0, amount1) = _deposit(id, d, maxAmount0, maxAmount1, minLiquidity);
-        emit PositionCreated(id, msg.sender, d.poolKey, d.tickLower, d.tickUpper);
     }
 
     function addLiquidity(uint256 id, uint128 maxAmount0, uint128 maxAmount1, uint128 minLiquidity)
         external
         payable
+        authorizedForNft(id)
         returns (uint128 liquidity, uint128 amount0, uint128 amount1)
     {
-        _authorize(id);
-        return _deposit(id, _descriptor(id), maxAmount0, maxAmount1, minLiquidity);
+        (PoolKey memory key, PositionId positionId) = _positionKey(id);
+        return _deposit(id, key, positionId, maxAmount0, maxAmount1, minLiquidity, false);
     }
 
-    /// @notice Withdrawal always collects fees; liquidity=0 is fee collection. Minimums include fees.
-    ///         Removing the remaining liquidity burns the NFT and clears its descriptor and enumeration storage.
-    function withdraw(uint256 id, uint128 liquidity, address recipient, uint128 min0, uint128 min1)
+    /// @notice Always collects fees; liquidity=0 is fee collection. Full withdrawals burn before callbacks.
+    function withdraw(uint256 id, uint128 liquidity, address recipient)
         external
         payable
+        authorizedForNft(id)
         returns (uint128 amount0, uint128 amount1)
     {
-        _authorize(id);
-        if (recipient == address(0)) revert InvalidValue();
-        if (liquidity > uint128(type(int128).max)) revert InvalidValue();
-        (amount0, amount1) =
-            abi.decode(lock(abi.encode(false, msg.sender, id, liquidity, recipient)), (uint128, uint128));
-        if (amount0 < min0 || amount1 < min1) revert Slippage();
+        if (recipient == address(0) || liquidity > uint128(type(int128).max)) {
+            revert InvalidValue();
+        }
+        (PoolKey memory key, PositionId positionId) = _positionKey(id);
+        (amount0, amount1) = abi.decode(
+            lock(abi.encode(false, false, ownerOf(id), id, key, positionId, liquidity, recipient)), (uint128, uint128)
+        );
         emit LiquidityRemoved(id, liquidity, amount0, amount1);
     }
 
-    function _authorize(uint256 id) private view {
-        if (!_isApprovedOrOwner(msg.sender, id)) revert Unauthorized();
-    }
-
-    function _validate(Descriptor memory d) private pure {
-        d.poolKey.validate();
-        _positionId(0, d).validate(d.poolKey.config);
-    }
-
-    function _positionId(uint256 id, Descriptor memory d) private pure returns (PositionId) {
-        return createPositionId(bytes24(uint192(id)), d.tickLower, d.tickUpper);
-    }
-
-    function _deposit(uint256 id, Descriptor memory d, uint128 maxAmount0, uint128 maxAmount1, uint128 minLiquidity)
-        private
-        returns (uint128 liquidity, uint128 amount0, uint128 amount1)
-    {
+    function _deposit(
+        uint256 id,
+        PoolKey memory key,
+        PositionId positionId,
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        uint128 minLiquidity,
+        bool isNew
+    ) private returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
         liquidity = maxLiquidity(
-            CORE.poolState(d.poolKey.toPoolId()).sqrtRatio(),
-            tickToSqrtRatio(d.tickLower),
-            tickToSqrtRatio(d.tickUpper),
+            CORE.poolState(key.toPoolId()).sqrtRatio(),
+            tickToSqrtRatio(positionId.tickLower()),
+            tickToSqrtRatio(positionId.tickUpper()),
             maxAmount0,
             maxAmount1
         );
         if (liquidity == 0 || liquidity < minLiquidity) revert Slippage();
         if (liquidity > uint128(type(int128).max)) revert InvalidValue();
-        (amount0, amount1) =
-            abi.decode(lock(abi.encode(true, msg.sender, id, liquidity, address(0))), (uint128, uint128));
+        (amount0, amount1) = abi.decode(
+            lock(abi.encode(true, isNew, msg.sender, id, key, positionId, liquidity, address(0))), (uint128, uint128)
+        );
         if (amount0 > maxAmount0 || amount1 > maxAmount1) revert Slippage();
         emit LiquidityAdded(id, liquidity, amount0, amount1);
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (bool deposit, address payer, uint256 id, uint128 liquidity, address recipient) =
-            abi.decode(data, (bool, address, uint256, uint128, address));
-        Descriptor memory d = _descriptor(id);
-        if (deposit) return _settleDeposit(id, d, payer, liquidity);
-        return _settleWithdraw(id, d, recipient, liquidity);
+        (
+            bool deposit,
+            bool isNew,
+            address payerOrHolder,
+            uint256 id,
+            PoolKey memory key,
+            PositionId positionId,
+            uint128 liquidity,
+            address recipient
+        ) = abi.decode(data, (bool, bool, address, uint256, PoolKey, PositionId, uint128, address));
+        if (deposit) return _settleDeposit(id, key, positionId, payerOrHolder, liquidity, isNew);
+        return _settleWithdraw(id, key, positionId, payerOrHolder, recipient, liquidity);
     }
 
-    function _settleDeposit(uint256 id, Descriptor memory d, address payer, uint128 liquidity)
-        private
-        returns (bytes memory)
-    {
-        PoolBalanceUpdate update = CORE.updatePosition(d.poolKey, _positionId(id, d), int128(liquidity));
-        // Callbacks may transfer or mutate positions. Never leave a funded Core position without an NFT.
-        ownerOf(id);
-        if (
-            CORE.poolPositions(d.poolKey.toPoolId(), address(this), _positionId(id, d)).liquidity
-                > uint128(type(int128).max)
-        ) {
-            revert InvalidValue();
-        }
+    function _settleDeposit(
+        uint256 id,
+        PoolKey memory key,
+        PositionId positionId,
+        address payer,
+        uint128 liquidity,
+        bool isNew
+    ) private returns (bytes memory) {
+        PoolBalanceUpdate update = CORE.updatePosition(key, positionId, int128(liquidity));
         uint128 amount0 = uint128(update.delta0());
         uint128 amount1 = uint128(update.delta1());
-        if (d.poolKey.token0 == NATIVE_TOKEN_ADDRESS) {
+        if (key.token0 == NATIVE_TOKEN_ADDRESS) {
             if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
-            if (amount1 != 0) ACCOUNTANT.payFrom(payer, d.poolKey.token1, amount1);
+            if (amount1 != 0) ACCOUNTANT.payFrom(payer, key.token1, amount1);
         } else {
-            ACCOUNTANT.payTwoFrom(payer, d.poolKey.token0, d.poolKey.token1, amount0, amount1);
+            ACCOUNTANT.payTwoFrom(payer, key.token0, key.token1, amount0, amount1);
+        }
+        // Existing positions cannot be burned by callbacks and left funded. New NFTs do not exist yet.
+        if (!isNew) ownerOf(id);
+        if (CORE.poolPositions(key.toPoolId(), address(this), positionId).liquidity > uint128(type(int128).max)) {
+            revert InvalidValue();
         }
         return abi.encode(amount0, amount1);
     }
 
-    function _settleWithdraw(uint256 id, Descriptor memory d, address recipient, uint128 liquidity)
-        private
-        returns (bytes memory)
-    {
-        (uint128 amount0, uint128 amount1) = CORE.collectFees(d.poolKey, _positionId(id, d));
+    function _settleWithdraw(
+        uint256 id,
+        PoolKey memory key,
+        PositionId positionId,
+        address holder,
+        address recipient,
+        uint128 liquidity
+    ) private returns (bytes memory) {
+        uint128 beforeLiquidity = CORE.poolPositions(key.toPoolId(), address(this), positionId).liquidity;
+        if (liquidity > beforeLiquidity) revert InvalidValue();
+        bool closing = liquidity != 0 && liquidity == beforeLiquidity;
+        if (closing) {
+            _burn(id);
+            delete _positions[id];
+            _setExtraData(id, 0);
+        }
+        (uint128 amount0, uint128 amount1) = CORE.collectFees(key, positionId);
         if (liquidity != 0) {
-            PoolBalanceUpdate update = CORE.updatePosition(d.poolKey, _positionId(id, d), -int128(liquidity));
+            PoolBalanceUpdate update = CORE.updatePosition(key, positionId, -int128(liquidity));
             amount0 += uint128(-update.delta0());
             amount1 += uint128(-update.delta1());
-            if (CORE.poolPositions(d.poolKey.toPoolId(), address(this), _positionId(id, d)).liquidity == 0) {
-                _burn(id);
-                _setExtraData(id, 0);
-                delete _positions[id];
-            }
         }
-        ACCOUNTANT.withdrawTwo(d.poolKey.token0, d.poolKey.token1, recipient, amount0, amount1);
+        _checkWithdrawal(id, key.toPoolId(), positionId, holder, closing);
+        ACCOUNTANT.withdrawTwo(key.token0, key.token1, recipient, amount0, amount1);
         return abi.encode(amount0, amount1);
+    }
+
+    function _checkWithdrawal(uint256 id, PoolId poolId, PositionId positionId, address holder, bool closing)
+        private
+        view
+    {
+        uint128 remaining = CORE.poolPositions(poolId, address(this), positionId).liquidity;
+        if (closing) {
+            if (remaining != 0) revert InvalidValue();
+        } else {
+            // Reentrant partial withdrawals may not unexpectedly close or sell this NFT mid-operation.
+            if (remaining == 0 || ownerOf(id) != holder) revert InvalidValue();
+        }
     }
 
     function _afterTokenTransfer(address from, address to, uint256 id) internal override {
         if (from == to) return;
-        if (from == address(0)) {
-            _positions[id].globalIndex = uint64(_tokens.length);
-            _tokens.push(uint64(id));
-        } else if (to == address(0)) {
-            uint64 index = _positions[id].globalIndex;
-            uint64 last = _tokens[_tokens.length - 1];
-            _tokens[index] = last;
-            _positions[last].globalIndex = index;
-            _tokens.pop();
+        if (from != address(0)) {
+            uint64 index = _positions[id].ownerIndex;
+            uint64 last = _owned[from][_owned[from].length - 1];
+            _owned[from][index] = last;
+            _positions[last].ownerIndex = index;
+            _owned[from].pop();
         }
-        if (from != address(0)) _removeOwned(from, id);
+        // ERC721 rejects public transfers to zero before this hook; only an internal burn reaches zero.
         if (to != address(0)) {
             _positions[id].ownerIndex = uint64(_owned[to].length);
             _owned[to].push(uint64(id));
         }
-    }
-
-    // The moved NFT index is overwritten on transfer; burn deletes its entire StoredPosition.
-    function _removeOwned(address from, uint256 id) private {
-        uint64 index = _positions[id].ownerIndex;
-        uint64 last = _owned[from][_owned[from].length - 1];
-        _owned[from][index] = last;
-        _positions[last].ownerIndex = index;
-        _owned[from].pop();
     }
 }

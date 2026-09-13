@@ -28,17 +28,23 @@ contract FreeLPDataFetcher is QuoteDataFetcher, TokenDataFetcher {
         uint128 fees1;
     }
 
+    struct Descriptor {
+        PoolKey poolKey;
+        int32 tickLower;
+        int32 tickUpper;
+    }
+
     constructor(ICore core) QuoteDataFetcher(core) {}
 
     struct OwnedPosition {
         uint256 id;
-        FreeLP.Descriptor descriptor;
+        Descriptor descriptor;
         Amounts amounts;
         uint256 sqrtRatio;
         string metadata;
     }
 
-    function descriptor(FreeLP manager, uint256 id) public view returns (FreeLP.Descriptor memory d) {
+    function descriptor(FreeLP manager, uint256 id) public view returns (Descriptor memory d) {
         PoolId poolId;
         (poolId, d.tickLower, d.tickUpper) = manager.position(id);
         (d.poolKey.token0, d.poolKey.token1, d.poolKey.config) = manager.POOL_KEY_INDEX().poolKeyById(poolId);
@@ -58,7 +64,7 @@ contract FreeLPDataFetcher is QuoteDataFetcher, TokenDataFetcher {
         return _positionAmounts(manager.CORE(), manager, id, descriptor(manager, id));
     }
 
-    function _positionAmounts(ICore core, FreeLP manager, uint256 id, FreeLP.Descriptor memory d)
+    function _positionAmounts(ICore core, FreeLP manager, uint256 id, Descriptor memory d)
         private
         view
         returns (Amounts memory a)
@@ -96,7 +102,7 @@ contract FreeLPDataFetcher is QuoteDataFetcher, TokenDataFetcher {
         result = new OwnedPosition[](length);
         for (uint256 i; i < length; ++i) {
             uint256 id = manager.tokenOfOwnerByIndex(holder, i);
-            FreeLP.Descriptor memory d = descriptor(manager, id);
+            Descriptor memory d = descriptor(manager, id);
             (uint256 sqrtRatio,,) = poolState(manager, d.poolKey);
             result[i] =
                 OwnedPosition(id, d, _positionAmounts(manager.CORE(), manager, id, d), sqrtRatio, manager.tokenURI(id));

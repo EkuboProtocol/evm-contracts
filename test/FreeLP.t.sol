@@ -10,6 +10,7 @@ import {CoreStorageLayout} from "../src/libraries/CoreStorageLayout.sol";
 import {StorageSlot} from "../src/types/storageSlot.sol";
 import {byteToCallPoints} from "../src/types/callPoints.sol";
 import {FreeLP} from "../src/FreeLP.sol";
+import {FreeLPMetadataRenderer} from "../src/FreeLPMetadataRenderer.sol";
 import {QuoteData} from "../src/lens/QuoteDataFetcher.sol";
 import {TokenDataFetcher} from "../src/lens/TokenDataFetcher.sol";
 import {FreeLPDataFetcher} from "../src/lens/FreeLPDataFetcher.sol";
@@ -33,11 +34,10 @@ contract NativeReentrantHolder {
         lp = manager;
     }
 
-    function open(FreeLP.Descriptor memory desc) external payable {
+    function open(FreeLPDataFetcher.Descriptor memory desc) external payable {
         // This range is below the current price: only token1 would be required. Use a range above it for native-only.
-        lp.createPosition{value: msg.value}(
-            desc.poolKey, desc.tickLower, desc.tickUpper, 0, uint128(msg.value / 2), 0, 1
-        );
+        lp.maybeInitializePool(desc.poolKey, 0);
+        lp.createPosition{value: msg.value}(desc.poolKey, desc.tickLower, desc.tickUpper, uint128(msg.value / 2), 0, 1);
         lp.refundNativeToken();
     }
 
@@ -49,29 +49,31 @@ contract NativeReentrantHolder {
 
 contract NativeReentrantDepositor {
     FreeLP private immutable lp;
-    FreeLP.Descriptor private d;
+    FreeLPDataFetcher.Descriptor private d;
     bool private entered;
 
     constructor(FreeLP manager) {
         lp = manager;
     }
 
-    function open(FreeLP.Descriptor memory descriptor) external payable {
+    function open(FreeLPDataFetcher.Descriptor memory descriptor) external payable {
         d = descriptor;
-        lp.createPosition{value: msg.value}(d.poolKey, d.tickLower, d.tickUpper, 0, uint128(msg.value / 2), 0, 1);
+        lp.maybeInitializePool(d.poolKey, 0);
+        lp.createPosition{value: msg.value}(d.poolKey, d.tickLower, d.tickUpper, uint128(msg.value / 2), 0, 1);
         lp.refundNativeToken();
     }
 
     function close() external {
         FreeLPDataFetcher fetcher = new FreeLPDataFetcher(lp.CORE());
-        lp.withdraw(1, fetcher.positionAmounts(lp, 1).liquidity, address(this), 0, 0);
-        lp.withdraw(2, fetcher.positionAmounts(lp, 2).liquidity, address(this), 0, 0);
+        lp.withdraw(1, fetcher.positionAmounts(lp, 1).liquidity, address(this));
+        lp.withdraw(2, fetcher.positionAmounts(lp, 2).liquidity, address(this));
     }
 
     receive() external payable {
         if (!entered) {
             entered = true;
-            lp.createPosition{value: msg.value}(d.poolKey, d.tickLower, d.tickUpper, 0, uint128(msg.value), 0, 1);
+            lp.maybeInitializePool(d.poolKey, 0);
+            lp.createPosition{value: msg.value}(d.poolKey, d.tickLower, d.tickUpper, uint128(msg.value), 0, 1);
             lp.refundNativeToken();
         }
     }
@@ -98,7 +100,7 @@ contract ReentrantBurnExtension {
         if (armed && delta > 0) {
             armed = false;
             FreeLPDataFetcher fetcher = new FreeLPDataFetcher(lp.CORE());
-            lp.withdraw(id, fetcher.positionAmounts(lp, id).liquidity, recipient, 0, 0);
+            lp.withdraw(id, fetcher.positionAmounts(lp, id).liquidity, recipient);
         }
     }
 }
@@ -125,14 +127,14 @@ contract FreeLPTest is FullTest {
     FreeLP lp;
     FreeLPDataFetcher reader;
     PoolKeyIndex index;
-    FreeLP.Descriptor d;
+    FreeLPDataFetcher.Descriptor d;
 
     function setUp() public override {
         super.setUp();
         index = new PoolKeyIndex(core);
-        lp = new FreeLP(core, index);
+        lp = new FreeLP(core, index, new FreeLPMetadataRenderer());
         reader = new FreeLPDataFetcher(core);
-        d = FreeLP.Descriptor(
+        d = FreeLPDataFetcher.Descriptor(
             PoolKey(address(token0), address(token1), createConcentratedPoolConfig(1 << 60, 10, address(0))),
             -1000,
             1000
@@ -142,7 +144,8 @@ contract FreeLPTest is FullTest {
     }
 
     function create(uint128 amount) internal returns (uint256 id, uint128 liquidity) {
-        (id, liquidity,,) = lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 0, amount, amount, 1);
+        lp.maybeInitializePool(d.poolKey, 0);
+        (id, liquidity,,) = lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, amount, amount, 1);
     }
 
     function _cold() private {
@@ -154,21 +157,24 @@ contract FreeLPTest is FullTest {
     }
 
     function test_gas_firstPoolPosition() public {
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeCall(lp.maybeInitializePool, (d.poolKey, 0));
+        calls[1] = abi.encodeCall(lp.createPosition, (d.poolKey, d.tickLower, d.tickUpper, 1 ether, 1 ether, 1));
         _cold();
-        create(1 ether);
+        lp.multicall(calls);
         vm.snapshotGasLastCall("FreeLP", "create first pool position");
     }
 
     function test_gas_secondPoolPosition() public {
         create(1 ether);
         _cold();
-        create(1 ether);
+        lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 1 ether, 1 ether, 1);
         vm.snapshotGasLastCall("FreeLP", "create second pool position cold");
     }
 
     function test_gas_secondPoolPositionWarm() public {
         create(1 ether);
-        create(1 ether);
+        lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 1 ether, 1 ether, 1);
         vm.snapshotGasLastCall("FreeLP", "create second pool position warm");
     }
 
@@ -176,7 +182,7 @@ contract FreeLPTest is FullTest {
         core.initializePool(d.poolKey, 0);
         index.register(d.poolKey);
         _cold();
-        create(1 ether);
+        lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 1 ether, 1 ether, 1);
         vm.snapshotGasLastCall("FreeLP", "create first position existing pool");
     }
 
@@ -241,7 +247,7 @@ contract FreeLPTest is FullTest {
         (,, items) = fetcher.ownedPositions(lp, address(this));
         assertEq(items.length, 1);
         assertEq(items[0].id, second);
-        lp.withdraw(second, items[0].amounts.liquidity, address(this), 0, 0);
+        lp.withdraw(second, items[0].amounts.liquidity, address(this));
         (,, items) = fetcher.ownedPositions(lp, address(this));
         assertEq(items.length, 0);
         (,, items) = fetcher.ownedPositions(lp, address(123));
@@ -252,18 +258,18 @@ contract FreeLPTest is FullTest {
     function test_lifecycle() public {
         (uint256 id, uint128 liquidity) = create(1 ether);
         assertEq(lp.ownerOf(id), address(this));
-        FreeLP.Descriptor memory stored = reader.descriptor(lp, id);
+        FreeLPDataFetcher.Descriptor memory stored = reader.descriptor(lp, id);
         assertEq(stored.poolKey.token0, address(token0));
         assertEq(stored.tickLower, -1000);
         assertEq(reader.positionAmounts(lp, id).liquidity, liquidity);
         (uint128 added,,) = lp.addLiquidity(id, 1 ether, 1 ether, 1);
         uint256 paid0 = token0.balanceOf(address(core));
         uint256 paid1 = token1.balanceOf(address(core));
-        (uint128 a, uint128 b) = lp.withdraw(id, liquidity + added, address(this), 0, 0);
+        (uint128 a, uint128 b) = lp.withdraw(id, liquidity + added, address(this));
         assertApproxEqAbs(a, paid0, 2);
         assertApproxEqAbs(b, paid1, 2);
         assertEq(lp.balanceOf(address(this)), 0);
-        assertEq(lp.totalSupply(), 0);
+        assertEq(lp.nextId(), id + 1);
         vm.expectRevert();
         lp.tokenURI(id);
         (uint256 next,) = create(1 ether);
@@ -274,11 +280,11 @@ contract FreeLPTest is FullTest {
         (uint256 id, uint128 liquidity) = create(1 ether);
         lp.approve(address(123), id);
         bytes32 firstSlot = keccak256(abi.encode(id, uint256(1)));
-        lp.withdraw(id, liquidity, address(this), 0, 0);
+        lp.withdraw(id, liquidity, address(this));
         for (uint256 i; i < 2; ++i) {
             assertEq(vm.load(address(lp), bytes32(uint256(firstSlot) + i)), bytes32(0));
         }
-        assertEq(lp.totalSupply(), 0);
+        assertEq(lp.nextId(), id + 1);
         assertEq(lp.balanceOf(address(this)), 0);
         vm.expectRevert();
         lp.ownerOf(id);
@@ -288,19 +294,13 @@ contract FreeLPTest is FullTest {
         lp.addLiquidity(id, 1 ether, 1 ether, 1);
     }
 
-    function test_idExhaustionNeverReusesBurnedIds() public {
-        // FreeLP's counter occupies the low 64 bits of slot zero; Solady ERC721 uses separate hashed slots.
-        vm.store(address(lp), bytes32(0), bytes32(uint256(type(uint64).max - 1)));
-        (uint256 id, uint128 liquidity) = create(1000);
-        assertEq(id, type(uint64).max);
-        assertEq(lp.tokenByIndex(0), id);
-        assertEq(lp.tokenOfOwnerByIndex(address(this), 0), id);
-        vm.expectRevert(FreeLP.TokenIdsExhausted.selector);
-        create(1000);
-        lp.withdraw(id, liquidity, address(this), 0, 0);
-        vm.expectRevert(FreeLP.TokenIdsExhausted.selector);
-        create(1000);
-        assertEq(lp.totalSupply(), 0);
+    function test_sequentialIdsAcrossBurns() public {
+        (uint256 first, uint128 liquidity) = create(1000);
+        lp.withdraw(first, liquidity, address(this));
+        (uint256 second,) = create(1000);
+        assertEq(second, first + 1);
+        assertEq(lp.nextId(), second + 1);
+        assertEq(lp.tokenOfOwnerByIndex(address(this), 0), second);
     }
 
     function test_fourIdsPerStorageWord() public {
@@ -308,15 +308,12 @@ contract FreeLPTest is FullTest {
             create(1000);
         }
         uint256 expected = 1 | (uint256(2) << 64) | (uint256(3) << 128) | (uint256(4) << 192);
-        bytes32 globalStart = keccak256(abi.encode(uint256(3)));
         bytes32 ownerStart = keccak256(abi.encode(keccak256(abi.encode(address(this), uint256(2)))));
-        assertEq(uint256(vm.load(address(lp), globalStart)), expected);
         assertEq(uint256(vm.load(address(lp), ownerStart)), expected);
         lp.transferFrom(address(this), address(111), 4);
         lp.transferFrom(address(this), address(222), 5);
-        lp.withdraw(3, reader.positionAmounts(lp, 3).liquidity, address(this), 0, 0);
+        lp.withdraw(3, reader.positionAmounts(lp, 3).liquidity, address(this));
         _assertOwnership([address(this), address(111), address(222)]);
-        assertEq(lp.tokenByIndex(2), 9);
         assertEq(lp.tokenOfOwnerByIndex(address(this), 2), 7);
     }
 
@@ -340,14 +337,15 @@ contract FreeLPTest is FullTest {
         assertEq(index.tokenPoolIdCount(address(token0)), 1);
         assertEq(index.tokenPoolIdCount(address(token1)), 1);
         assertEq(index.extensionPoolIdCount(address(0)), 1);
-        lp.withdraw(first, liquidity, address(this), 0, 0);
+        lp.withdraw(first, liquidity, address(this));
         PoolKey[] memory keys = index.getPoolKeysByToken(address(token0));
         assertEq(abi.encode(keys[0]), abi.encode(d.poolKey));
         assertEq(reader.descriptor(lp, second).tickLower, -2000);
-        FreeLP other = new FreeLP(core, index);
+        FreeLP other = new FreeLP(core, index, lp.METADATA_RENDERER());
         token0.approve(address(other), type(uint256).max);
         token1.approve(address(other), type(uint256).max);
-        other.createPosition(d.poolKey, -1000, 1000, 0, 1 ether, 1 ether, 1);
+        other.maybeInitializePool(d.poolKey, 0);
+        other.createPosition(d.poolKey, -1000, 1000, 1 ether, 1 ether, 1);
         assertEq(index.poolIdCount(), 1);
         assertEq(abi.encode(reader.descriptor(other, 1).poolKey), abi.encode(d.poolKey));
     }
@@ -356,31 +354,33 @@ contract FreeLPTest is FullTest {
         d.poolKey.token0 = NATIVE_TOKEN_ADDRESS;
         d.tickLower = 1000;
         d.tickUpper = 2000;
-        bytes[] memory calls = new bytes[](4);
-        calls[0] = abi.encodeCall(lp.createPosition, (d.poolKey, 1000, 2000, 0, 1 ether, 0, 1));
-        calls[1] = calls[0];
-        calls[2] = abi.encodeCall(lp.addLiquidity, (1, 1 ether, 0, 1));
-        calls[3] = abi.encodeCall(lp.refundNativeToken, ());
+        bytes[] memory calls = new bytes[](5);
+        calls[0] = abi.encodeCall(lp.maybeInitializePool, (d.poolKey, 0));
+        calls[1] = abi.encodeCall(lp.createPosition, (d.poolKey, 1000, 2000, 1 ether, 0, 1));
+        calls[2] = calls[1];
+        calls[3] = abi.encodeCall(lp.addLiquidity, (1, 1 ether, 0, 1));
+        calls[4] = abi.encodeCall(lp.refundNativeToken, ());
         vm.deal(address(this), 4 ether);
         bytes[] memory results = lp.multicall{value: 4 ether}(calls);
-        (,, uint128 firstPaid,) = abi.decode(results[0], (uint256, uint128, uint128, uint128));
-        (,, uint128 secondPaid,) = abi.decode(results[1], (uint256, uint128, uint128, uint128));
-        (, uint128 addedPaid,) = abi.decode(results[2], (uint128, uint128, uint128));
+        (,, uint128 firstPaid,) = abi.decode(results[1], (uint256, uint128, uint128, uint128));
+        (,, uint128 secondPaid,) = abi.decode(results[2], (uint256, uint128, uint128, uint128));
+        (, uint128 addedPaid,) = abi.decode(results[3], (uint128, uint128, uint128));
         assertEq(address(this).balance, 4 ether - firstPaid - secondPaid - addedPaid);
         assertEq(address(lp).balance, 0);
-        assertEq(lp.totalSupply(), 2);
+        assertEq(lp.balanceOf(address(this)), 2);
         assertEq(index.poolIdCount(), 1);
     }
 
     function test_payableMulticallCannotSpendMsgValueTwice() public {
         d.poolKey.token0 = NATIVE_TOKEN_ADDRESS;
-        bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(lp.createPosition, (d.poolKey, 1000, 2000, 0, 1 ether, 0, 1));
-        calls[1] = calls[0];
+        bytes[] memory calls = new bytes[](3);
+        calls[0] = abi.encodeCall(lp.maybeInitializePool, (d.poolKey, 0));
+        calls[1] = abi.encodeCall(lp.createPosition, (d.poolKey, 1000, 2000, 1 ether, 0, 1));
+        calls[2] = calls[1];
         vm.deal(address(this), 1 ether);
         vm.expectRevert();
         lp.multicall{value: 1 ether}(calls);
-        assertEq(lp.totalSupply(), 0);
+        assertEq(lp.balanceOf(address(this)), 0);
         assertEq(index.poolIdCount(), 0);
         assertEq(address(this).balance, 1 ether);
     }
@@ -389,14 +389,15 @@ contract FreeLPTest is FullTest {
         d.poolKey.token0 = NATIVE_TOKEN_ADDRESS;
         d.tickLower = 1000;
         d.tickUpper = 2000;
-        (uint256 id, uint128 liquidity,,) = lp.createPosition{value: 1 ether}(d.poolKey, 1000, 2000, 0, 1 ether, 0, 1);
+        lp.maybeInitializePool(d.poolKey, 0);
+        (uint256 id, uint128 liquidity,,) = lp.createPosition{value: 1 ether}(d.poolKey, 1000, 2000, 1 ether, 0, 1);
         lp.refundNativeToken();
         bytes[] memory calls = new bytes[](3);
-        calls[0] = abi.encodeCall(lp.withdraw, (id, liquidity, address(lp), 0, 0));
-        calls[1] = abi.encodeCall(lp.createPosition, (d.poolKey, 1000, 2000, 0, 1 ether, 0, 1));
+        calls[0] = abi.encodeCall(lp.withdraw, (id, liquidity, address(lp)));
+        calls[1] = abi.encodeCall(lp.createPosition, (d.poolKey, 1000, 2000, 1 ether, 0, 1));
         calls[2] = abi.encodeCall(lp.refundNativeToken, ());
         lp.multicall{value: 10}(calls);
-        assertEq(lp.totalSupply(), 1);
+        assertEq(lp.nextId(), 3);
         assertEq(lp.ownerOf(2), address(this));
         assertEq(address(lp).balance, 0);
     }
@@ -405,11 +406,8 @@ contract FreeLPTest is FullTest {
         assertTrue(lp.supportsInterface(0x01ffc9a7));
         assertTrue(lp.supportsInterface(0x80ac58cd));
         assertTrue(lp.supportsInterface(0x5b5e139f));
-        assertTrue(lp.supportsInterface(0x780e9d63));
         assertFalse(lp.supportsInterface(0xffffffff));
-        assertEq(lp.totalSupply(), 0);
-        vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
-        lp.tokenByIndex(0);
+        assertEq(lp.nextId(), 1);
         vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
         lp.tokenOfOwnerByIndex(address(0), 0);
         vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
@@ -422,7 +420,7 @@ contract FreeLPTest is FullTest {
         (uint256 third,) = create(1000);
         lp.transferFrom(address(this), address(this), second);
         assertEq(lp.tokenOfOwnerByIndex(address(this), 1), second);
-        assertEq(lp.totalSupply(), 3);
+        assertEq(lp.nextId(), 4);
         address recipient = makeAddr("recipient");
         lp.transferFrom(address(this), recipient, second);
         assertEq(lp.balanceOf(address(this)), 2);
@@ -430,36 +428,28 @@ contract FreeLPTest is FullTest {
         assertEq(lp.tokenOfOwnerByIndex(address(this), 1), third);
         assertEq(lp.tokenOfOwnerByIndex(recipient, 0), second);
         assertEq(lp.balanceOf(recipient), 1);
-        assertEq(lp.tokenByIndex(1), second);
         vm.prank(recipient);
         lp.transferFrom(recipient, address(this), second);
-        lp.withdraw(second, liquidity, address(this), 0, 0);
-        assertEq(lp.totalSupply(), 2);
-        assertEq(lp.tokenByIndex(0), first);
-        assertEq(lp.tokenByIndex(1), third);
-        vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
-        lp.tokenByIndex(2);
+        lp.withdraw(second, liquidity, address(this));
         vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
         lp.tokenOfOwnerByIndex(address(this), 2);
         vm.expectRevert(FreeLP.EnumerationIndexOutOfBounds.selector);
         lp.tokenOfOwnerByIndex(recipient, 0);
         (uint256 fourth,) = create(1000);
         assertGt(fourth, third);
-        assertEq(lp.tokenByIndex(2), fourth);
+        assertEq(lp.nextId(), fourth + 1);
     }
 
     function test_authorizationAndSlippage() public {
         (uint256 id, uint128 liquidity) = create(1 ether);
         vm.prank(makeAddr("stranger"));
         vm.expectRevert(FreeLP.Unauthorized.selector);
-        lp.withdraw(id, liquidity, address(this), 0, 0);
-        vm.expectRevert(FreeLP.Slippage.selector);
-        lp.withdraw(id, liquidity, address(this), 2 ether, 0);
+        lp.withdraw(id, liquidity, address(this));
         assertEq(reader.positionAmounts(lp, id).liquidity, liquidity);
         address operator = makeAddr("operator");
         lp.approve(operator, id);
         vm.prank(operator);
-        lp.withdraw(id, liquidity, operator, 0, 0);
+        lp.withdraw(id, liquidity, operator);
         assertGt(token0.balanceOf(operator), 0);
     }
 
@@ -469,7 +459,7 @@ contract FreeLPTest is FullTest {
         router.swapAllowPartialFill(RouteNode(d.poolKey, SqrtRatio.wrap(0), 0), TokenAmount(address(token0), 1000));
         FreeLPDataFetcher.Amounts memory before = reader.positionAmounts(lp, id);
         assertGt(before.fees0, 0);
-        (uint128 a, uint128 b) = lp.withdraw(id, 0, address(this), 0, 0);
+        (uint128 a, uint128 b) = lp.withdraw(id, 0, address(this));
         assertEq(a, before.fees0);
         assertEq(b, before.fees1);
         assertEq(reader.positionAmounts(lp, id).fees0, 0);
@@ -478,23 +468,26 @@ contract FreeLPTest is FullTest {
     function test_nativeRefundAndWithdrawal() public {
         d.poolKey.token0 = NATIVE_TOKEN_ADDRESS;
         vm.deal(address(this), 10 ether);
+        lp.maybeInitializePool(d.poolKey, 0);
         (uint256 id, uint128 liquidity, uint128 paid,) =
-            lp.createPosition{value: 2 ether}(d.poolKey, d.tickLower, d.tickUpper, 0, 1 ether, 1 ether, 1);
+            lp.createPosition{value: 2 ether}(d.poolKey, d.tickLower, d.tickUpper, 1 ether, 1 ether, 1);
         lp.refundNativeToken();
         assertEq(address(this).balance, 10 ether - paid);
         assertEq(address(lp).balance, 0);
-        lp.withdraw(id, liquidity, address(this), 0, 0);
+        lp.withdraw(id, liquidity, address(this));
         assertApproxEqAbs(address(this).balance, 10 ether, 1);
     }
 
     function test_invalidDescriptorAndZeroLiquidity() public {
         d.tickUpper = d.tickLower;
+        lp.maybeInitializePool(d.poolKey, 0);
         vm.expectRevert(BoundsOrder.selector);
-        create(100);
+        lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 100, 100, 1);
         d.tickUpper = 1000;
         d.poolKey.config = createConcentratedPoolConfig(0, 10, address(0));
+        lp.maybeInitializePool(d.poolKey, 0);
         vm.expectRevert(FreeLP.Slippage.selector);
-        lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 0, 0, 0, 0);
+        lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 0, 0, 0);
     }
 
     function testFuzz_stableswapWithExtension(uint8 amplification, int32 center) public {
@@ -503,18 +496,18 @@ contract FreeLPTest is FullTest {
         address extension = address(createAndRegisterExtension());
         d.poolKey.config = createStableswapPoolConfig(type(uint64).max / 1000, amplification, center, extension);
         (d.tickLower, d.tickUpper) = d.poolKey.config.stableswapActiveLiquidityTickRange();
-        (uint256 id, uint128 liquidity,,) =
-            lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, center, 1 ether, 1 ether, 1);
+        lp.maybeInitializePool(d.poolKey, center);
+        (uint256 id, uint128 liquidity,,) = lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 1 ether, 1 ether, 1);
         assertEq(abi.encode(reader.descriptor(lp, id)), abi.encode(d));
         assertGt(reader.positionAmounts(lp, id).principal0 + reader.positionAmounts(lp, id).principal1, 0);
-        lp.withdraw(id, liquidity, address(this), 0, 0);
+        lp.withdraw(id, liquidity, address(this));
     }
 
     function test_concentratedWithExtension() public {
         d.poolKey.config = createConcentratedPoolConfig(123456789, 10, address(createAndRegisterExtension()));
         (uint256 id, uint128 liquidity) = create(1 ether);
         assertEq(abi.encode(reader.descriptor(lp, id)), abi.encode(d));
-        lp.withdraw(id, liquidity, address(this), 0, 0);
+        lp.withdraw(id, liquidity, address(this));
     }
 
     function test_stableswapFeesRemainOwedOutsideActiveRange() public {
@@ -528,15 +521,16 @@ contract FreeLPTest is FullTest {
         assertLe(tick, d.tickLower);
         FreeLPDataFetcher.Amounts memory amounts = reader.positionAmounts(lp, id);
         assertGt(amounts.fees0, 0);
-        (uint128 a, uint128 b) = lp.withdraw(id, 0, address(this), 0, 0);
+        (uint128 a, uint128 b) = lp.withdraw(id, 0, address(this));
         assertEq(a, amounts.fees0);
         assertEq(b, amounts.fees1);
     }
 
     function test_stableswapRejectsPartialRange() public {
         d.poolKey.config = createStableswapPoolConfig(0, 10, 0, address(0));
+        lp.maybeInitializePool(d.poolKey, 0);
         vm.expectRevert(StableswapMustBeFullRange.selector);
-        create(1000);
+        lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 1000, 1000, 1);
     }
 
     function test_metadataIsFullyOnChain() public {
@@ -557,8 +551,8 @@ contract FreeLPTest is FullTest {
         (uint256 id, uint128 liquidity) = create(1000);
         (uint256 second, uint128 secondLiquidity) = create(1000);
         bytes[] memory calls = new bytes[](2);
-        calls[0] = abi.encodeCall(lp.withdraw, (id, liquidity, address(this), 0, 0));
-        calls[1] = abi.encodeCall(lp.withdraw, (second, secondLiquidity, address(this), 0, 0));
+        calls[0] = abi.encodeCall(lp.withdraw, (id, liquidity, address(this)));
+        calls[1] = abi.encodeCall(lp.withdraw, (second, secondLiquidity, address(this)));
         lp.multicall(calls);
         assertEq(lp.balanceOf(address(this)), 0);
     }
@@ -575,7 +569,7 @@ contract FreeLPTest is FullTest {
         assertEq(lp.ownerOf(1), address(123));
         assertEq(lp.balanceOf(address(holder)), 0);
         assertEq(lp.tokenOfOwnerByIndex(address(123), 0), 1);
-        assertEq(lp.totalSupply(), 1);
+        assertEq(lp.nextId(), 2);
         assertGt(reader.positionAmounts(lp, 1).liquidity, 0);
         assertEq(address(lp).balance, 0);
     }
@@ -588,14 +582,14 @@ contract FreeLPTest is FullTest {
         vm.deal(address(this), 2 ether);
         holder.open{value: 2 ether}(d);
         assertEq(lp.balanceOf(address(holder)), 2);
-        assertEq(lp.totalSupply(), 2);
+        assertEq(lp.nextId(), 3);
         assertEq(lp.tokenOfOwnerByIndex(address(holder), 0), 1);
         assertEq(lp.tokenOfOwnerByIndex(address(holder), 1), 2);
         assertGt(reader.positionAmounts(lp, 1).liquidity, 0);
         assertGt(reader.positionAmounts(lp, 2).liquidity, 0);
         assertEq(address(lp).balance, 0);
         holder.close();
-        assertEq(lp.totalSupply(), 0);
+        assertEq(lp.nextId(), 3);
         assertApproxEqAbs(address(holder).balance, 2 ether, 4);
         assertEq(address(lp).balance, 0);
     }
@@ -626,7 +620,7 @@ contract FreeLPTest is FullTest {
         lp.addLiquidity(id, 1 ether, 1 ether, 1);
         assertEq(lp.ownerOf(id), address(this));
         assertEq(reader.positionAmounts(lp, id).liquidity, liquidity);
-        assertEq(lp.totalSupply(), 1);
+        assertEq(lp.nextId(), 2);
         assertEq(token0.balanceOf(address(this)), balance0);
         assertEq(token1.balanceOf(address(this)), balance1);
     }
@@ -640,8 +634,7 @@ contract FreeLPTest is FullTest {
         assertEq(lp.balanceOf(address(receiver)), 0);
         assertEq(lp.balanceOf(destination), 1);
         assertEq(lp.tokenOfOwnerByIndex(destination, 0), id);
-        assertEq(lp.totalSupply(), 1);
-        assertEq(lp.tokenByIndex(0), id);
+        assertEq(lp.nextId(), id + 1);
     }
 
     function testFuzz_ownershipEnumeration(uint256 seed, uint8 steps) public {
@@ -652,7 +645,16 @@ contract FreeLPTest is FullTest {
         }
         for (uint256 i; i < steps; i++) {
             seed = uint256(keccak256(abi.encode(seed, i)));
-            uint256 id = lp.tokenByIndex(seed % lp.totalSupply());
+            uint256 ordinal = seed % _ownedCount(holders);
+            uint256 id;
+            for (uint256 j; j < holders.length; ++j) {
+                uint256 count = lp.balanceOf(holders[j]);
+                if (ordinal < count) {
+                    id = lp.tokenOfOwnerByIndex(holders[j], ordinal);
+                    break;
+                }
+                ordinal -= count;
+            }
             address from = lp.ownerOf(id);
             address to = holders[(seed >> 128) % 3];
             vm.prank(from);
@@ -660,7 +662,7 @@ contract FreeLPTest is FullTest {
             if (seed % 3 == 0) {
                 uint128 liquidity = reader.positionAmounts(lp, id).liquidity;
                 vm.prank(to);
-                lp.withdraw(id, liquidity, to, 0, 0);
+                lp.withdraw(id, liquidity, to);
                 _assertOwnership(holders);
                 create(1000);
             }
@@ -681,14 +683,13 @@ contract FreeLPTest is FullTest {
                 seen++;
             }
         }
-        assertEq(seen, lp.totalSupply());
-        uint256 globalMask;
-        for (uint256 i; i < lp.totalSupply(); i++) {
-            uint256 id = lp.tokenByIndex(i);
-            assertEq(globalMask & (1 << id), 0);
-            globalMask |= 1 << id;
+        assertGt(seen, 0);
+    }
+
+    function _ownedCount(address[3] memory holders) private view returns (uint256 count) {
+        for (uint256 i; i < holders.length; ++i) {
+            count += lp.balanceOf(holders[i]);
         }
-        assertEq(globalMask, mask);
     }
 
     function testFuzz_portionWithdrawal(uint96 amount, uint16 fraction) public {
@@ -696,9 +697,9 @@ contract FreeLPTest is FullTest {
         fraction = uint16(bound(fraction, 1, 9999));
         (uint256 id, uint128 liquidity) = create(amount);
         uint128 portion = uint128(uint256(liquidity) * fraction / 10000);
-        lp.withdraw(id, portion, address(this), 0, 0);
+        lp.withdraw(id, portion, address(this));
         assertEq(reader.positionAmounts(lp, id).liquidity, liquidity - portion);
-        lp.withdraw(id, liquidity - portion, address(this), 0, 0);
+        lp.withdraw(id, liquidity - portion, address(this));
         vm.expectRevert();
         lp.ownerOf(id);
     }

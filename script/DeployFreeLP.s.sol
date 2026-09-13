@@ -19,7 +19,7 @@ contract DeployFreeLP is Script {
         (address index,) = deployIfNeeded(
             abi.encodePacked(type(PoolKeyIndex).creationCode, abi.encode(core)),
             SALT,
-            0x898956fc2Aed01D5F81F556FF5dcB10534285718,
+            0x827A68AC37AA3715c865F2E0704a63118496986f,
             "PoolKeyIndex"
         );
         (address renderer,) = deployIfNeeded(
@@ -31,13 +31,13 @@ contract DeployFreeLP is Script {
         deployIfNeeded(
             abi.encodePacked(type(FreeLP).creationCode, abi.encode(core, index, renderer)),
             SALT,
-            0xa03d8d3354453aB0056E190Ab0f0020f7CC8d76C,
+            0x0b1605F6ab7CC5A51846cbaCc2A73730C7770c4C,
             "FreeLP"
         );
         deployIfNeeded(
             abi.encodePacked(type(FreeLPDataFetcher).creationCode, abi.encode(core)),
             SALT,
-            0xE8E86fD702B1e0A18593d853Df9487D436ce17BC,
+            0xf4653c16A87828D3901E376eB3578fA50c5bbdD5,
             "FreeLPDataFetcher"
         );
         vm.stopBroadcast();

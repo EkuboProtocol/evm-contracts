@@ -14,20 +14,20 @@ contract FreeLPDeploymentTest is Test {
         address core = 0x00000000000014aA86C5d3c41765bb24e11bd701;
         address index =
             getCreate2Address(salt, keccak256(abi.encodePacked(type(PoolKeyIndex).creationCode, abi.encode(core))));
-        assertEq(index, 0x898956fc2Aed01D5F81F556FF5dcB10534285718);
+        assertEq(index, 0x827A68AC37AA3715c865F2E0704a63118496986f);
         address renderer = getCreate2Address(salt, keccak256(type(FreeLPMetadataRenderer).creationCode));
         assertEq(renderer, 0x3E3142aA2143bC05BA92986a9D4867C1409FB8E2);
         assertEq(
             getCreate2Address(
                 salt, keccak256(abi.encodePacked(type(FreeLP).creationCode, abi.encode(core, index, renderer)))
             ),
-            0xa03d8d3354453aB0056E190Ab0f0020f7CC8d76C
+            0x0b1605F6ab7CC5A51846cbaCc2A73730C7770c4C
         );
         assertEq(
             getCreate2Address(
                 salt, keccak256(abi.encodePacked(type(FreeLPDataFetcher).creationCode, abi.encode(core)))
             ),
-            0xE8E86fD702B1e0A18593d853Df9487D436ce17BC
+            0xf4653c16A87828D3901E376eB3578fA50c5bbdD5
         );
     }
 }

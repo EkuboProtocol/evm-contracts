@@ -4,7 +4,6 @@ pragma solidity =0.8.33;
 import {ERC721} from "solady/tokens/ERC721.sol";
 import {PayableMulticallable} from "./base/PayableMulticallable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {ICore} from "./interfaces/ICore.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
@@ -38,10 +37,10 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
     PoolKeyIndex public immutable POOL_KEY_INDEX;
     IFreeLPMetadataRenderer public immutable METADATA_RENDERER;
     /// @notice IDs below this high-water mark have been allocated; ownerOf rejects burned IDs.
-    uint256 public nextId = 1;
+    uint64 public nextId = 1;
     mapping(uint256 => PoolId) private _poolIds;
     mapping(uint256 => uint256) private _ownerIndexes;
-    mapping(address => uint256[]) private _owned;
+    mapping(address => uint64[]) private _owned;
 
     constructor(ICore core, PoolKeyIndex index, IFreeLPMetadataRenderer renderer) BaseLocker(core) {
         CORE = core;
@@ -116,11 +115,10 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
         uint128 maxAmount1,
         uint128 minLiquidity
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
-        key.validate();
         // register is idempotent and rejects uninitialized pools.
         POOL_KEY_INDEX.register(key);
         id = nextId++;
-        PositionId positionId = createPositionId(bytes24(SafeCastLib.toUint192(id)), lower, upper);
+        PositionId positionId = createPositionId(bytes24(uint192(id)), lower, upper);
         positionId.validate(key.config);
         emit PositionCreated(id, key.toPoolId(), lower, upper);
         (liquidity, amount0, amount1) = _deposit(id, key, positionId, maxAmount0, maxAmount1, minLiquidity, true);
@@ -163,6 +161,7 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
         uint128 minLiquidity,
         bool isNew
     ) private returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
+        if (minLiquidity == 0) revert Slippage();
         liquidity = maxLiquidity(
             CORE.poolState(key.toPoolId()).sqrtRatio(),
             tickToSqrtRatio(positionId.tickLower()),
@@ -170,7 +169,7 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
             maxAmount0,
             maxAmount1
         );
-        if (liquidity == 0 || liquidity < minLiquidity) revert Slippage();
+        if (liquidity < minLiquidity) revert Slippage();
         if (liquidity > uint128(type(int128).max)) revert InvalidValue();
         (amount0, amount1) = abi.decode(
             lock(abi.encode(true, isNew, msg.sender, id, key, positionId, liquidity, address(0))), (uint128, uint128)
@@ -241,29 +240,23 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
             amount0 += uint128(-update.delta0());
             amount1 += uint128(-update.delta1());
         }
-        _checkWithdrawal(id, key.toPoolId(), positionId, holder, closing);
+        // Core's before-hooks can reenter before its accounting changes. Only open NFTs need this check.
+        if (
+            !closing
+                && (ownerOf(id) != holder
+                    || CORE.poolPositions(key.toPoolId(), address(this), positionId).liquidity == 0)
+        ) {
+            revert InvalidValue();
+        }
         ACCOUNTANT.withdrawTwo(key.token0, key.token1, recipient, amount0, amount1);
         return abi.encode(amount0, amount1);
-    }
-
-    function _checkWithdrawal(uint256 id, PoolId poolId, PositionId positionId, address holder, bool closing)
-        private
-        view
-    {
-        uint128 remaining = CORE.poolPositions(poolId, address(this), positionId).liquidity;
-        if (closing) {
-            if (remaining != 0) revert InvalidValue();
-        } else {
-            // Reentrant partial withdrawals may not unexpectedly close or sell this NFT mid-operation.
-            if (remaining == 0 || ownerOf(id) != holder) revert InvalidValue();
-        }
     }
 
     function _afterTokenTransfer(address from, address to, uint256 id) internal override {
         if (from == to) return;
         if (from != address(0)) {
             uint256 index = _ownerIndexes[id];
-            uint256 last = _owned[from][_owned[from].length - 1];
+            uint64 last = _owned[from][_owned[from].length - 1];
             _owned[from][index] = last;
             _ownerIndexes[last] = index;
             _owned[from].pop();
@@ -271,7 +264,7 @@ contract FreeLP is ERC721, BaseLocker, PayableMulticallable {
         // ERC721 rejects public transfers to zero before this hook; only an internal burn reaches zero.
         if (to != address(0)) {
             _ownerIndexes[id] = _owned[to].length;
-            _owned[to].push(id);
+            _owned[to].push(uint64(id));
         }
     }
 }

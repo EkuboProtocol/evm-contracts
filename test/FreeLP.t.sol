@@ -307,14 +307,20 @@ contract FreeLPTest is FullTest {
         assertEq(lp.tokenOfOwnerByIndex(address(this), 0), second);
     }
 
-    function test_ownerIdsUseFullStorageWords() public {
+    function test_ownerIdsPackFourPerStorageWord() public {
         for (uint256 i; i < 9; i++) {
             create(1000);
         }
         bytes32 ownerStart = keccak256(abi.encode(keccak256(abi.encode(address(this), uint256(3)))));
-        for (uint256 i; i < 9; ++i) {
-            assertEq(uint256(vm.load(address(lp), bytes32(uint256(ownerStart) + i))), i + 1);
-        }
+        assertEq(
+            uint256(vm.load(address(lp), ownerStart)),
+            1 | (uint256(2) << 64) | (uint256(3) << 128) | (uint256(4) << 192)
+        );
+        assertEq(
+            uint256(vm.load(address(lp), bytes32(uint256(ownerStart) + 1))),
+            5 | (uint256(6) << 64) | (uint256(7) << 128) | (uint256(8) << 192)
+        );
+        assertEq(uint256(vm.load(address(lp), bytes32(uint256(ownerStart) + 2))), 9);
         lp.transferFrom(address(this), address(111), 4);
         lp.transferFrom(address(this), address(222), 5);
         lp.withdraw(3, reader.positionAmounts(lp, 3).liquidity, address(this));

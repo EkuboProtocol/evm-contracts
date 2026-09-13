@@ -1,6 +1,6 @@
 # FreeLP
 
-FreeLP is an ownerless LP manager with RPC-readable owner enumeration. Deploy it with Core, the shared `PoolKeyIndex`, and a stateless `FreeLPMetadataRenderer`. The renderer is immutable for each manager and uses no hosted assets or URI setter. Keeping rendering in its own contract leaves both runtimes below EIP-170: FreeLP is 16,683 bytes and the renderer is 14,751 bytes with Solidity 0.8.33, via IR, and 9,999,999 optimizer runs.
+FreeLP is an ownerless LP manager with RPC-readable owner enumeration. Deploy it with Core, the shared `PoolKeyIndex`, and a stateless `FreeLPMetadataRenderer`. The renderer is immutable for each manager and uses no hosted assets or URI setter. Keeping rendering in its own contract leaves both runtimes below EIP-170: FreeLP is 16,315 bytes and the renderer is 14,751 bytes with Solidity 0.8.33, via IR, and 9,999,999 optimizer runs.
 
 ## Deployment
 
@@ -9,20 +9,20 @@ FreeLP is an ownerless LP manager with RPC-readable owner enumeration. Deploy it
 | Contract | Address |
 | --- | --- |
 | Core | `0x00000000000014aA86C5d3c41765bb24e11bd701` |
-| PoolKeyIndex | `0x898956fc2Aed01D5F81F556FF5dcB10534285718` |
+| PoolKeyIndex | `0x827A68AC37AA3715c865F2E0704a63118496986f` |
 | FreeLPMetadataRenderer | `0x3E3142aA2143bC05BA92986a9D4867C1409FB8E2` |
-| FreeLP | `0xa03d8d3354453aB0056E190Ab0f0020f7CC8d76C` |
-| FreeLPDataFetcher | `0xE8E86fD702B1e0A18593d853Df9487D436ce17BC` |
+| FreeLP | `0x0b1605F6ab7CC5A51846cbaCc2A73730C7770c4C` |
+| FreeLPDataFetcher | `0xf4653c16A87828D3901E376eB3578fA50c5bbdD5` |
 
-The manager constructor is `FreeLP(core, index, renderer)`. It assigns immutable references without code-length probes; dependency deployment/configuration is the deployer's responsibility. These predictions replace the previous FreeLP/fetcher deployment predictions; existing NFTs remain in their original manager.
+The manager constructor is `FreeLP(core, index, renderer)`. It assigns immutable references without code-length probes; dependency deployment/configuration is the deployer's responsibility. These predictions replace the previous index/FreeLP/fetcher deployment predictions; existing NFTs remain in their original manager. The pair-index revision deploys a new registry, so previously registered keys must be registered there to appear in its discovery results.
 
 ## Position storage and discovery
 
-Pool IDs and owner enumeration indexes live in separate mappings; there is no `StoredPosition` struct. Signed lower and upper ticks occupy 64 bits of the ERC-721 owner slot's extra data. Transfers preserve those bounds. Token IDs, owner indexes, and `nextId` use uint256; each owned ID occupies one storage word. Solidity does pack uint64 dynamic arrays four per word, but this revision chooses simpler full-word storage over those savings. Core's position salt is 192 bits, so creation uses a checked conversion at that protocol boundary. There is no global live-token array, `totalSupply`, or `tokenByIndex`, and FreeLP does not advertise ERC721Enumerable. `nextId` starts at 1: IDs below it have been allocated, but burned IDs are holes and `ownerOf` rejects them.
+Pool IDs and owner enumeration indexes live in separate mappings; there is no `StoredPosition` struct. Signed lower and upper ticks occupy 64 bits of the ERC-721 owner slot's extra data. Transfers preserve those bounds. Public NFT IDs and owner indexes use uint256; `nextId` and owner-array entries use uint64, packing four owned IDs per storage word. The checked uint64 counter bounds allocated IDs, so widening to Core's 192-bit position salt requires no checked cast. There is no global live-token array, `totalSupply`, or `tokenByIndex`, and FreeLP does not advertise ERC721Enumerable. `nextId` starts at 1: IDs below it have been allocated, but burned IDs are holes and `ownerOf` rejects them.
 
-Pool keys are registered once in `PoolKeyIndex`. Registration also populates the registry's global, token, and extension lists. Burning the last NFT for a pool does not unregister its key. `register` is idempotent, so creation calls it directly without a separate external `isRegistered` lookup.
+Pool keys are registered once in `PoolKeyIndex`. Registration also populates the registry's global, token, exact-pair, and extension lists. Burning the last NFT for a pool does not unregister its key. `register` is idempotent, so creation calls it directly without a separate external `isRegistered` lookup. Core validates pool keys during initialization, and registration requires that exact pool ID to be initialized; FreeLP therefore does not repeat pool-key validation. Position-bound validation remains necessary and is retained.
 
-The interface can use the registry's count/indexed-ID getters for bounded discovery, then filter exact pairs and pass keys to FreeLPDataFetcher. Registry coverage includes registered pools, not every initialized pool in Core.
+For bounded exact-pair discovery, use `pairPoolIdCount(tokenA, tokenB)` and `pairPoolIds(tokenA, tokenB, index)`, then pass resolved keys to FreeLPDataFetcher. `getPoolIdsByPair` and `getPoolKeysByPair` return whole pair lists. All pair getters accept either token order, including native-token pairs. Registry coverage includes registered pools, not every initialized pool in Core.
 
 ## Writes and callback ordering
 
@@ -39,7 +39,9 @@ Compose initialization and creation in a payable `multicall`. `maybeInitializePo
 
 `PositionCreated(id, poolId, lower, upper)` records only the NFT-to-pool/bounds association stored by FreeLP. Standard ERC-721 events describe ownership. FreeLP emits no `LiquidityAdded` or `LiquidityRemoved` events: liquidity changes, fee amounts, and principal deltas already appear in Core and token transfer logs. On full withdrawal, the ERC-721 burn and all NFT bookkeeping finish before Core invokes extension callbacks or transfers tokens.
 
-Deposits enforce maximum token inputs and minimum liquidity. Withdrawals have no minimum-output/slippage arguments. Passing zero liquidity collects fees and preserves the position. A full withdrawal burns the NFT and clears its storage before any fee-collection or position-update callbacks. Failed withdrawals roll the burn back atomically. Partial withdrawals verify that callbacks did not unexpectedly close or transfer the NFT; deposit settlement still prevents funded orphan positions and liquidity outside the supported signed range.
+Both creation and liquidity additions require `minLiquidity > 0` and enforce maximum token inputs and minimum liquidity. Withdrawals have no minimum-output/slippage arguments. Passing zero liquidity collects fees and preserves the position. A full withdrawal burns the NFT and clears its storage before any fee-collection or position-update callbacks. Failed withdrawals roll the burn back atomically. Open-position withdrawals verify that callbacks did not unexpectedly close or transfer the NFT; deposit settlement still prevents funded orphan positions and liquidity outside the supported signed range.
+
+The withdrawal check applies only while the NFT remains open. Core runs its before-hooks before updating its accounting: an approved callback can transfer the NFT before the outer withdrawal reduces its liquidity, or perform a nested partial withdrawal that combines with the outer withdrawal to empty an unburned NFT. Removing the open-position guard makes both regression tests fail because these operations no longer revert. Full closes need no equivalent postcheck because the NFT has already been burned before callbacks.
 
 All write operations are payable. Native deposits spend the manager's shared call balance. Append `refundNativeToken()` to the same manager multicall to return excess ETH; do not make the refund a separate wallet-batch transaction. Native proceeds withdrawn to the manager can fund another deposit in that multicall.
 
@@ -67,14 +69,16 @@ Normal tests compare the fixtures read-only. Fixtures cover WETH/USDC, native/WE
 
 Measured with the CI-pinned Foundry 1.5.1 and solc 0.8.33. These are execution-frame measurements, excluding transaction intrinsic gas, from `snapshots/FreeLP.json`:
 
-| Create operation | Packed IDs (`1abea2b`) | Full-word IDs and storage-only events |
+| Create operation | Full-word IDs (`4fccdc6`) | Packed IDs and pair index |
 | --- | ---: | ---: |
-| First position in an existing registered pool | 455,082 | 452,209 |
-| Second position in the same pool, cold | 219,160 | 236,187 |
-| Second position in the same pool, warm | 179,160 | 198,187 |
-| New pool initialization and registration | 770,959 | 768,086 |
+| First position in an existing registered pool | 452,209 | 452,093 |
+| Second position in the same pool, cold | 236,187 | 216,171 |
+| Second position in the same pool, warm | 198,187 | 176,171 |
+| New pool initialization and registration | 768,086 | 812,649 |
 
-The last row measures the initialize/create multicall. Existing-pool cold measurements call `createPosition` directly after cooling the contracts, so an unmeasured initialization helper cannot accidentally warm the measured operation. Full-word owner arrays are simpler but lose packing's storage savings on subsequent mints; the comparison also includes the event simplification, not just the integer-width change. The renderer is a separate one-time deployment; token metadata calls are view work, not part of deposit accounting.
+The last row measures the initialize/create multicall. Existing-pool cold measurements call `createPosition` directly after cooling the contracts, so an unmeasured initialization helper cannot accidentally warm the measured operation. This revision's first-registration path costs 44,563 more gas overall, primarily for the pair list's new length and first entry; subsequent registrations of the same pool are idempotent. These end-to-end comparisons include the other contract changes too.
+
+`FreeLPOwnerPackingTest` isolates packing with an otherwise identical ERC-721 harness: a cold second mint to the same owner costs **56,463 gas packed versus 76,313 full-word**, saving **19,850 gas**. It verifies slot reuse directly. The renderer is a separate one-time deployment; token metadata calls are view work, not part of deposit accounting.
 
 ```sh
 forge test --offline --match-contract '^FreeLP.*Test$'
@@ -83,4 +87,4 @@ forge snapshot --offline --match-contract '^FreeLPTest$' --snap snapshots/FreeLP
 
 ## Frontend migration
 
-The next frontend artifact import must include the renderer and its immutable binding, use the new deployment addresses/constructor, prepend explicit initialization when needed, and remove obsolete withdrawal minimum-output fields. A frontend pinned to the prior ABI should keep using its prior manager until migrated.
+The next frontend artifact import must include the renderer and its immutable binding, use the new deployment addresses/constructor and pair getters, prepend explicit initialization when needed, supply positive deposit minimum liquidity, and remove obsolete withdrawal minimum-output fields. A frontend pinned to the prior ABI should keep using its prior manager until migrated.

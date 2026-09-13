@@ -5,7 +5,6 @@ import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC721} from "solady/tokens/ERC721.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FreeLP} from "../src/FreeLP.sol";
 import {FreeLPMetadataRenderer} from "../src/FreeLPMetadataRenderer.sol";
 import {FreeLPDataFetcher} from "../src/lens/FreeLPDataFetcher.sol";
@@ -30,6 +29,7 @@ contract ReviewCallbackProbe {
     uint256 public existingObservations;
     bool public attemptTransfer;
     bool public transferred;
+    uint128 public nestedWithdrawal;
     event Observed(uint256 id, bool exists, bool transferred);
 
     function configure(FreeLP manager, address owner, address recipient, bool attempt) external {
@@ -56,10 +56,19 @@ contract ReviewCallbackProbe {
 
     function beforeCollectFees(Locker, PoolKey memory, PositionId id) external {
         _observe(id);
+        if (nestedWithdrawal != 0) {
+            uint128 amount = nestedWithdrawal;
+            nestedWithdrawal = 0;
+            lp.withdraw(uint192(id.salt()), amount, holder);
+        }
     }
 
     function afterCollectFees(Locker, PoolKey memory, PositionId id, uint128, uint128) external {
         _observe(id);
+    }
+
+    function withdrawDuringNextFeeHook(uint128 amount) external {
+        nestedWithdrawal = amount;
     }
 
     function _observe(PositionId positionId) private {
@@ -304,8 +313,8 @@ contract FreeLPReviewTest is FullTest {
         assertEq(_emitterCount(vm.getRecordedLogs(), address(lp)), 0);
     }
 
-    function test_reviewTokenIdsAboveUint64SurviveTransfersAndBurns() public {
-        uint256 next = (uint256(1) << 80) + 123;
+    function test_reviewPackedTokenIdsAboveUint32SurviveTransfersAndBurns() public {
+        uint256 next = (uint256(1) << 40) + 123;
         vm.store(address(lp), bytes32(uint256(0)), bytes32(next));
         (uint256 id, uint128 liquidity) = _create(key);
         assertEq(id, next);
@@ -319,13 +328,29 @@ contract FreeLPReviewTest is FullTest {
         assertEq(lp.nextId(), next + 1);
     }
 
-    function test_reviewCoreSaltConversionCannotAliasAnEarlierId() public {
-        (uint256 original, uint128 liquidity) = _create(key);
-        vm.store(address(lp), bytes32(uint256(0)), bytes32((uint256(1) << 192) + original));
-        vm.expectRevert(SafeCastLib.Overflow.selector);
-        _create(key);
-        assertEq(reader.positionAmounts(lp, original).liquidity, liquidity);
-        assertEq(lp.ownerOf(original), address(this));
+    function test_reviewPositiveMinimumRequiredForCreateAndAdd() public {
+        vm.expectRevert(FreeLP.Slippage.selector);
+        lp.createPosition(key, -1000, 1000, 1 ether, 1 ether, 0);
+        assertEq(lp.nextId(), 1);
+        assertEq(lp.balanceOf(address(this)), 0);
+        assertFalse(index.isRegistered(key.toPoolId()));
+        (uint256 id, uint128 liquidity) = _create(key);
+        assertGt(liquidity, 0);
+        vm.expectRevert(FreeLP.Slippage.selector);
+        lp.addLiquidity(id, 1 ether, 1 ether, 0);
+        assertEq(reader.positionAmounts(lp, id).liquidity, liquidity);
+    }
+
+    function test_reviewPartialWithdrawalCannotBeEmptiedByBeforeFeeHook() public {
+        (ReviewCallbackProbe probe, PoolKey memory pool) = _probe();
+        (uint256 id, uint128 liquidity) = _create(pool);
+        uint128 outer = liquidity / 2;
+        probe.configure(lp, address(this), address(0xbeef), false);
+        probe.withdrawDuringNextFeeHook(liquidity - outer);
+        vm.expectRevert(FreeLP.InvalidValue.selector);
+        lp.withdraw(id, outer, address(this));
+        assertEq(lp.ownerOf(id), address(this));
+        assertEq(reader.positionAmounts(lp, id).liquidity, liquidity);
     }
 
     function test_reviewFailedMulticallRollsBackInitializationAndIdAllocation() public {

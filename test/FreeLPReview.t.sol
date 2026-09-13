@@ -5,6 +5,7 @@ import {FullTest} from "./FullTest.sol";
 import {TestToken} from "./TestToken.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC721} from "solady/tokens/ERC721.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FreeLP} from "../src/FreeLP.sol";
 import {FreeLPMetadataRenderer} from "../src/FreeLPMetadataRenderer.sol";
 import {FreeLPDataFetcher} from "../src/lens/FreeLPDataFetcher.sol";
@@ -146,15 +147,17 @@ contract FreeLPReviewTest is FullTest {
         assertEq(probe.existingObservations(), 0);
         assertFalse(probe.transferred());
         assertEq(lp.ownerOf(id), address(this));
-        uint256 created = _event(
-            logs, address(lp), keccak256("PositionCreated(uint256,address,(address,address,bytes32),int32,int32)")
-        );
+        uint256 created = _event(logs, address(lp), keccak256("PositionCreated(uint256,bytes32,int32,int32)"));
         uint256 observed = _event(logs, address(probe), keccak256("Observed(uint256,bool,bool)"));
-        uint256 added = _event(logs, address(lp), keccak256("LiquidityAdded(uint256,uint128,uint128,uint128)"));
         uint256 minted = _event(logs, address(lp), keccak256("Transfer(address,address,uint256)"));
         assertLt(created, observed);
-        assertLt(observed, added);
-        assertLt(added, minted);
+        assertLt(observed, minted);
+        assertEq(logs[created].topics[1], bytes32(id));
+        assertEq(logs[created].topics[2], PoolId.unwrap(pool.toPoolId()));
+        (int32 lower, int32 upper) = abi.decode(logs[created].data, (int32, int32));
+        assertEq(lower, -1000);
+        assertEq(upper, 1000);
+        assertEq(_emitterCount(logs, address(lp)), 2);
     }
 
     function _event(Vm.Log[] memory logs, address emitter, bytes32 topic) private pure returns (uint256) {
@@ -162,6 +165,12 @@ contract FreeLPReviewTest is FullTest {
             if (logs[i].emitter == emitter && logs[i].topics[0] == topic) return i;
         }
         revert("missing event");
+    }
+
+    function _emitterCount(Vm.Log[] memory logs, address emitter) private pure returns (uint256 count) {
+        for (uint256 i; i < logs.length; ++i) {
+            if (logs[i].emitter == emitter) ++count;
+        }
     }
 
     function test_reviewMintAfterTokenPaymentCallback() public {
@@ -184,7 +193,14 @@ contract FreeLPReviewTest is FullTest {
         (ReviewCallbackProbe probe, PoolKey memory pool) = _probe();
         (uint256 id, uint128 liquidity) = _create(pool);
         probe.configure(lp, address(this), address(0xbeef), true);
+        vm.recordLogs();
         lp.withdraw(id, liquidity, address(this));
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        uint256 burned = _event(logs, address(lp), keccak256("Transfer(address,address,uint256)"));
+        uint256 observed = _event(logs, address(probe), keccak256("Observed(uint256,bool,bool)"));
+        assertLt(burned, observed);
+        assertEq(logs[burned].topics[2], bytes32(0));
+        assertEq(_emitterCount(logs, address(lp)), 1);
         assertEq(probe.observations(), 4);
         assertEq(probe.existingObservations(), 0);
         assertFalse(probe.transferred());
@@ -273,6 +289,43 @@ contract FreeLPReviewTest is FullTest {
     function test_reviewManagerAndRendererFitRuntimeCodeLimit() public view {
         assertLe(address(lp).code.length, 24576);
         assertLe(address(lp.METADATA_RENDERER()).code.length, 24576);
+    }
+
+    function test_reviewFinancialUpdatesDoNotDuplicateCoreEvents() public {
+        (uint256 id, uint128 liquidity) = _create(key);
+        vm.recordLogs();
+        lp.addLiquidity(id, 1 ether, 1 ether, 1);
+        assertEq(_emitterCount(vm.getRecordedLogs(), address(lp)), 0);
+        vm.recordLogs();
+        lp.withdraw(id, 0, address(this));
+        assertEq(_emitterCount(vm.getRecordedLogs(), address(lp)), 0);
+        vm.recordLogs();
+        lp.withdraw(id, liquidity / 2, address(this));
+        assertEq(_emitterCount(vm.getRecordedLogs(), address(lp)), 0);
+    }
+
+    function test_reviewTokenIdsAboveUint64SurviveTransfersAndBurns() public {
+        uint256 next = (uint256(1) << 80) + 123;
+        vm.store(address(lp), bytes32(uint256(0)), bytes32(next));
+        (uint256 id, uint128 liquidity) = _create(key);
+        assertEq(id, next);
+        assertEq(lp.nextId(), next + 1);
+        assertEq(lp.tokenOfOwnerByIndex(address(this), 0), id);
+        lp.transferFrom(address(this), address(0xbeef), id);
+        assertEq(lp.tokenOfOwnerByIndex(address(0xbeef), 0), id);
+        vm.prank(address(0xbeef));
+        lp.withdraw(id, liquidity, address(0xbeef));
+        assertEq(lp.balanceOf(address(0xbeef)), 0);
+        assertEq(lp.nextId(), next + 1);
+    }
+
+    function test_reviewCoreSaltConversionCannotAliasAnEarlierId() public {
+        (uint256 original, uint128 liquidity) = _create(key);
+        vm.store(address(lp), bytes32(uint256(0)), bytes32((uint256(1) << 192) + original));
+        vm.expectRevert(SafeCastLib.Overflow.selector);
+        _create(key);
+        assertEq(reader.positionAmounts(lp, original).liquidity, liquidity);
+        assertEq(lp.ownerOf(original), address(this));
     }
 
     function test_reviewFailedMulticallRollsBackInitializationAndIdAllocation() public {

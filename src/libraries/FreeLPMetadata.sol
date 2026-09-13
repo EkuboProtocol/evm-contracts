@@ -93,44 +93,40 @@ library FreeLPMetadata {
         return string.concat(
             '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="640" viewBox="0 0 640 640">',
             '<rect width="640" height="640" fill="#fff"/>',
-            _heading(id, a, b),
+            _heading(id, b, a),
             _artwork(uint256(PoolId.unwrap(key.toPoolId())) % 180),
             '<g font-family="Arial,Helvetica,sans-serif" fill="#153f65"><text x="32" y="277" font-size="22">',
             key.config.isStableswap() ? "Stableswap" : "Concentrated liquidity",
             "</text></g>",
             _range(lower, upper, a, b),
-            '<g font-family="Arial,Helvetica,sans-serif" fill="#153f65" font-size="16"><text x="32" y="557">',
-            LibString.toHexString(key.token0),
-            '</text><text x="32" y="595">',
-            LibString.toHexString(key.token1),
-            "</text></g></svg>"
+            "</svg>"
         );
     }
 
-    function _heading(uint256 id, FreeLPTokenMetadata.Data memory a, FreeLPTokenMetadata.Data memory b)
+    function _heading(uint256 id, FreeLPTokenMetadata.Data memory quote, FreeLPTokenMetadata.Data memory base)
         private
         pure
         returns (string memory)
     {
         string memory pair = string.concat(
-            FreeLPTokenMetadata.shorten(a.symbol, 8), " / ", FreeLPTokenMetadata.shorten(b.symbol, 8)
+            FreeLPTokenMetadata.shorten(quote.symbol, 8), " / ", FreeLPTokenMetadata.shorten(base.symbol, 8)
         );
         return string.concat(
             '<g font-family="Arial,Helvetica,sans-serif" fill="#153f65">',
             '<text x="32" y="46" font-size="24">Free LP</text><text x="608" y="46" text-anchor="end" font-size="20">#',
-            LibString.toString(id),
+            FreeLPTokenMetadata.shorten(LibString.toString(id), 20),
             '</text><text x="32" y="105" font-size="',
             LibString.runeCount(pair) > 12 ? "28" : "44",
             '">',
             LibString.escapeHTML(pair),
             '</text><text x="32" y="147" font-size="22">',
-            LibString.escapeHTML(FreeLPTokenMetadata.shorten(a.name, 24)),
+            LibString.escapeHTML(FreeLPTokenMetadata.shorten(quote.name, 24)),
             '</text><text x="32" y="180" font-size="22">',
-            LibString.escapeHTML(FreeLPTokenMetadata.shorten(b.name, 24)),
+            LibString.escapeHTML(FreeLPTokenMetadata.shorten(base.name, 24)),
             '</text><text x="32" y="217" font-size="18">',
-            a.hasDecimals ? LibString.toString(a.decimals) : "Unknown",
+            quote.hasDecimals ? LibString.toString(quote.decimals) : "Unknown",
             " / ",
-            b.hasDecimals ? LibString.toString(b.decimals) : "unknown",
+            base.hasDecimals ? LibString.toString(base.decimals) : "unknown",
             " decimals</text></g>"
         );
     }
@@ -143,26 +139,21 @@ library FreeLPMetadata {
         bool prices = a.hasDecimals && b.hasDecimals;
         string memory unit = prices
             ? string.concat(FreeLPTokenMetadata.shorten(b.symbol, 8), " per ", FreeLPTokenMetadata.shorten(a.symbol, 8))
-            : "Decimals unavailable";
+            : "Token decimals unavailable";
         return string.concat(
             '<path d="M32 365H608" stroke="#2878a0"/><g font-family="Arial,Helvetica,sans-serif" fill="#153f65">',
-            '<text x="32" y="405" font-size="24">',
-            prices ? "Price range" : "Tick range",
-            "</text>",
-            '<text x="608" y="405" text-anchor="end" font-size="18">',
+            '<text x="32" y="409" font-size="24">Price range</text>',
+            '<text x="32" y="440" font-size="18">',
             LibString.escapeHTML(unit),
             "</text>",
-            '<text x="32" y="438" font-size="18">Minimum</text><text x="608" y="438" text-anchor="end" font-size="18">Maximum</text>',
-            '<text x="32" y="477" font-size="32">',
+            '<text x="32" y="492" font-size="18">Minimum</text>',
+            '<text x="608" y="505" text-anchor="end" font-size="44">',
             _bound(lower, a, b),
             "</text>",
-            '<text x="608" y="477" text-anchor="end" font-size="32">',
+            '<path d="M32 535H608" stroke="#cfe3e9"/>',
+            '<text x="32" y="575" font-size="18">Maximum</text>',
+            '<text x="608" y="588" text-anchor="end" font-size="44">',
             _bound(upper, a, b),
-            "</text>",
-            '<text x="32" y="514" font-size="14">Raw ticks: ',
-            LibString.toString(int256(lower)),
-            " to ",
-            LibString.toString(int256(upper)),
             "</text></g>"
         );
     }
@@ -172,7 +163,7 @@ library FreeLPMetadata {
         pure
         returns (string memory)
     {
-        if (!a.hasDecimals || !b.hasDecimals) return LibString.toString(int256(tick));
+        if (!a.hasDecimals || !b.hasDecimals) return unicode"—";
         return string.concat("~ ", FreeLPMetadataPrice.format(tick, a.decimals, b.decimals));
     }
 

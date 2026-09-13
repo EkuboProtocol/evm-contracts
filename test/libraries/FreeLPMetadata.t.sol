@@ -72,9 +72,15 @@ contract FreeLPMetadataTest is Test {
         _snapshot(svg, string.concat("snapshots/FreeLPMetadata", label, ".svg"));
         string memory uri = FreeLPMetadata.tokenURI(id, address(0x1234), key, lower, upper);
         string memory json = string(Base64.decode(LibString.slice(uri, 29)));
+        assertEq(vm.parseJsonString(json, ".name"), string.concat("Liquidity Position #", LibString.toString(id)));
         assertEq(string(Base64.decode(LibString.slice(vm.parseJsonString(json, ".image"), 26))), svg);
         assertEq(vm.parseJsonString(json, ".properties.tick_lower"), LibString.toString(int256(lower)));
         assertEq(vm.parseJsonString(json, ".properties.tick_upper"), LibString.toString(int256(upper)));
+        assertEq(vm.parseJsonString(json, ".properties.token0"), LibString.toHexString(key.token0));
+        assertEq(vm.parseJsonString(json, ".properties.token1"), LibString.toHexString(key.token1));
+        assertFalse(LibString.contains(svg, LibString.toHexString(key.token0)));
+        assertFalse(LibString.contains(svg, LibString.toHexString(key.token1)));
+        assertFalse(LibString.contains(svg, "Raw ticks"));
         _snapshot(json, string.concat("snapshots/FreeLPMetadata", label, ".json"));
     }
 
@@ -105,7 +111,7 @@ contract FreeLPMetadataTest is Test {
         _metadata(address(type(uint160).max), "MAX", "255-decimal token", 255);
         _case(
             "Extreme",
-            type(uint64).max,
+            type(uint256).max,
             PoolKey(
                 address(0x1111),
                 address(type(uint160).max),
@@ -122,10 +128,11 @@ contract FreeLPMetadataTest is Test {
         PoolKey memory key =
             PoolKey(address(weth), address(usdc), createConcentratedPoolConfig(1 << 60, 10, address(0)));
         string memory svg = FreeLPMetadata.tokenSvg(7, key, -20000000, -19800000);
-        assertTrue(LibString.contains(svg, "WETH / USDC"));
+        assertTrue(LibString.contains(svg, "USDC / WETH"));
         assertTrue(LibString.contains(svg, "Wrapped Ether"));
         assertTrue(LibString.contains(svg, "USD Coin"));
-        assertTrue(LibString.contains(svg, "18 / 6 decimals"));
+        assertTrue(LibString.contains(svg, "6 / 18 decimals"));
+        assertTrue(LibString.contains(svg, "USDC per WETH"));
         assertTrue(LibString.contains(svg, "2061.17"));
         assertTrue(LibString.contains(svg, "2517.52"));
         string memory json =
@@ -140,11 +147,13 @@ contract FreeLPMetadataTest is Test {
         PoolKey memory key =
             PoolKey(address(bytes32Token), address(broken), createConcentratedPoolConfig(1 << 60, 10, address(0)));
         string memory svg = FreeLPMetadata.tokenSvg(8, key, -1, 1);
-        assertTrue(LibString.contains(svg, "B32 / 0x"));
+        assertTrue(LibString.contains(svg, " / B32"));
         assertTrue(LibString.contains(svg, "Bytes32 token"));
         assertTrue(LibString.contains(svg, "Unknown token"));
-        assertTrue(LibString.contains(svg, "0 / unknown decimals"));
-        assertTrue(LibString.contains(svg, "Tick range"));
+        assertTrue(LibString.contains(svg, "Unknown / 0 decimals"));
+        assertTrue(LibString.contains(svg, "Token decimals unavailable"));
+        assertFalse(LibString.contains(svg, "Tick range"));
+        assertTrue(LibString.contains(svg, unicode">—</text>"));
     }
 
     function test_longNamesSnapshot() public {

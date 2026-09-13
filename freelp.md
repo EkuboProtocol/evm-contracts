@@ -1,6 +1,6 @@
 # FreeLP
 
-FreeLP is an ownerless LP manager with RPC-readable owner enumeration. Deploy it with Core, the shared `PoolKeyIndex`, and a stateless `FreeLPMetadataRenderer`. The renderer is immutable for each manager and uses no hosted assets or URI setter. Keeping rendering in its own contract leaves both runtimes below EIP-170: FreeLP is 17,305 bytes and the renderer is 15,206 bytes with Solidity 0.8.33, via IR, and 9,999,999 optimizer runs.
+FreeLP is an ownerless LP manager with RPC-readable owner enumeration. Deploy it with Core, the shared `PoolKeyIndex`, and a stateless `FreeLPMetadataRenderer`. The renderer is immutable for each manager and uses no hosted assets or URI setter. Keeping rendering in its own contract leaves both runtimes below EIP-170: FreeLP is 16,683 bytes and the renderer is 14,751 bytes with Solidity 0.8.33, via IR, and 9,999,999 optimizer runs.
 
 ## Deployment
 
@@ -10,15 +10,15 @@ FreeLP is an ownerless LP manager with RPC-readable owner enumeration. Deploy it
 | --- | --- |
 | Core | `0x00000000000014aA86C5d3c41765bb24e11bd701` |
 | PoolKeyIndex | `0x898956fc2Aed01D5F81F556FF5dcB10534285718` |
-| FreeLPMetadataRenderer | `0xAD70a7A70678C57FBB52a9aFF6a2E0884E226f86` |
-| FreeLP | `0x7F818932a0963199aFd8778c905972eeFDBF1EE5` |
-| FreeLPDataFetcher | `0xC1eDB9fab9C14C07938b4a0FA848B9F51eaC9FF7` |
+| FreeLPMetadataRenderer | `0x3E3142aA2143bC05BA92986a9D4867C1409FB8E2` |
+| FreeLP | `0xa03d8d3354453aB0056E190Ab0f0020f7CC8d76C` |
+| FreeLPDataFetcher | `0xE8E86fD702B1e0A18593d853Df9487D436ce17BC` |
 
-The manager constructor is `FreeLP(core, index, renderer)`. These predictions replace the previous FreeLP/fetcher deployment predictions; existing NFTs remain in their original manager.
+The manager constructor is `FreeLP(core, index, renderer)`. It assigns immutable references without code-length probes; dependency deployment/configuration is the deployer's responsibility. These predictions replace the previous FreeLP/fetcher deployment predictions; existing NFTs remain in their original manager.
 
 ## Position storage and discovery
 
-Each position stores its `PoolId` and owner enumeration index in two storage slots. Signed lower and upper ticks occupy 64 bits of the ERC-721 owner slot's extra data. Transfers preserve those bounds. Owner enumeration uses packed uint64 IDs, four per storage word. There is no global live-token array, `totalSupply`, or `tokenByIndex`, and FreeLP does not advertise ERC721Enumerable. `nextId` starts at 1: IDs below it have been allocated, but burned IDs are holes and `ownerOf` rejects them.
+Pool IDs and owner enumeration indexes live in separate mappings; there is no `StoredPosition` struct. Signed lower and upper ticks occupy 64 bits of the ERC-721 owner slot's extra data. Transfers preserve those bounds. Token IDs, owner indexes, and `nextId` use uint256; each owned ID occupies one storage word. Solidity does pack uint64 dynamic arrays four per word, but this revision chooses simpler full-word storage over those savings. Core's position salt is 192 bits, so creation uses a checked conversion at that protocol boundary. There is no global live-token array, `totalSupply`, or `tokenByIndex`, and FreeLP does not advertise ERC721Enumerable. `nextId` starts at 1: IDs below it have been allocated, but burned IDs are holes and `ownerOf` rejects them.
 
 Pool keys are registered once in `PoolKeyIndex`. Registration also populates the registry's global, token, and extension lists. Burning the last NFT for a pool does not unregister its key. `register` is idempotent, so creation calls it directly without a separate external `isRegistered` lookup.
 
@@ -37,6 +37,8 @@ withdraw(id, liquidity, recipient)
 
 Compose initialization and creation in a payable `multicall`. `maybeInitializePool` leaves existing prices unchanged. `createPosition` requires an initialized pool, emits `PositionCreated` before the deposit, and mints only after Core and token-payment callbacks have completed. During those callbacks, the new NFT cannot be transferred or sold.
 
+`PositionCreated(id, poolId, lower, upper)` records only the NFT-to-pool/bounds association stored by FreeLP. Standard ERC-721 events describe ownership. FreeLP emits no `LiquidityAdded` or `LiquidityRemoved` events: liquidity changes, fee amounts, and principal deltas already appear in Core and token transfer logs. On full withdrawal, the ERC-721 burn and all NFT bookkeeping finish before Core invokes extension callbacks or transfers tokens.
+
 Deposits enforce maximum token inputs and minimum liquidity. Withdrawals have no minimum-output/slippage arguments. Passing zero liquidity collects fees and preserves the position. A full withdrawal burns the NFT and clears its storage before any fee-collection or position-update callbacks. Failed withdrawals roll the burn back atomically. Partial withdrawals verify that callbacks did not unexpectedly close or transfer the NFT; deposit settlement still prevents funded orphan positions and liquidity outside the supported signed range.
 
 All write operations are payable. Native deposits spend the manager's shared call balance. Append `refundNativeToken()` to the same manager multicall to return excess ETH; do not make the refund a separate wallet-batch transaction. Native proceeds withdrawn to the manager can fund another deposit in that multicall.
@@ -49,7 +51,7 @@ The manager exposes `position(id)` and standard NFT ownership. Descriptor resolu
 
 `tokenURI` checks that the NFT exists, then calls the immutable on-chain renderer. Each ERC-20 name, symbol, and decimals getter is independent, capped at 30,000 gas and 320 return bytes. Standard dynamic strings and bytes32 metadata are supported. Malformed data, gas/return-data bombs, invalid UTF-8, and XML controls cannot break rendering. Symbols and names are bounded; visible labels are shortened at code-point boundaries. XML text and JSON strings are escaped separately.
 
-The SVG emphasizes the token pair, token names, decimals, and price bounds. Symbols use 44px text (28px for long pairs), names 22px, and price bounds 32px. The pool-derived ripple motif is 144px across. Exact token addresses and raw ticks remain visible, with full Core/config/chain identity in the JSON. Prices are approximate display-only values in token1 per token0, adjusted for decimals; unknown decimals produce raw tick bounds instead. Known native chains have native labels; unknown native currencies are explicitly labelled without invented decimals.
+The SVG emphasizes the token pair, token names, decimals, and price bounds. The heading shows token1 / token0, with names and decimals in the same display order. Symbols use 44px text (28px for long pairs), names 22px, and the minimum and maximum prices each have a full-width row with 44px values. The pool-derived ripple motif is 144px across. Exact token addresses and raw ticks are kept in JSON rather than printed on the SVG, alongside Core/config/chain identity. Prices are approximate display-only values in token1 per token0, adjusted for decimals; unknown decimals show unavailable price bounds instead of raw ticks. Known native chains have native labels; unknown native currencies are explicitly labelled without invented decimals.
 
 Token metadata is self-reported display information, not token-identity verification. No metadata getter participates in deposit or withdrawal accounting.
 
@@ -65,14 +67,14 @@ Normal tests compare the fixtures read-only. Fixtures cover WETH/USDC, native/WE
 
 Measured with the CI-pinned Foundry 1.5.1 and solc 0.8.33. These are execution-frame measurements, excluding transaction intrinsic gas, from `snapshots/FreeLP.json`:
 
-| Create operation | Before review (`e6da577`) | After review |
+| Create operation | Packed IDs (`1abea2b`) | Full-word IDs and storage-only events |
 | --- | ---: | ---: |
-| First position in an existing registered pool | 523,338 | 455,082 |
-| Second position in the same pool, cold | 230,516 | 219,160 |
-| Second position in the same pool, warm | 182,516 | 179,160 |
-| New pool initialization and registration | 833,669 | 770,959 |
+| First position in an existing registered pool | 455,082 | 452,209 |
+| Second position in the same pool, cold | 219,160 | 236,187 |
+| Second position in the same pool, warm | 179,160 | 198,187 |
+| New pool initialization and registration | 770,959 | 768,086 |
 
-The last row measures the new initialize/create multicall. Existing-pool cold measurements call `createPosition` directly after cooling the contracts, so an unmeasured initialization helper cannot accidentally warm the measured operation. The renderer is a separate one-time deployment; token metadata calls are view work, not part of deposit accounting.
+The last row measures the initialize/create multicall. Existing-pool cold measurements call `createPosition` directly after cooling the contracts, so an unmeasured initialization helper cannot accidentally warm the measured operation. Full-word owner arrays are simpler but lose packing's storage savings on subsequent mints; the comparison also includes the event simplification, not just the integer-width change. The renderer is a separate one-time deployment; token metadata calls are view work, not part of deposit accounting.
 
 ```sh
 forge test --offline --match-contract '^FreeLP.*Test$'

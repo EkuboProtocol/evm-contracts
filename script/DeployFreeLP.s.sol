@@ -25,19 +25,19 @@ contract DeployFreeLP is Script {
         (address renderer,) = deployIfNeeded(
             type(FreeLPMetadataRenderer).creationCode,
             SALT,
-            0xAD70a7A70678C57FBB52a9aFF6a2E0884E226f86,
+            0x3E3142aA2143bC05BA92986a9D4867C1409FB8E2,
             "FreeLPMetadataRenderer"
         );
         deployIfNeeded(
             abi.encodePacked(type(FreeLP).creationCode, abi.encode(core, index, renderer)),
             SALT,
-            0x7F818932a0963199aFd8778c905972eeFDBF1EE5,
+            0xa03d8d3354453aB0056E190Ab0f0020f7CC8d76C,
             "FreeLP"
         );
         deployIfNeeded(
             abi.encodePacked(type(FreeLPDataFetcher).creationCode, abi.encode(core)),
             SALT,
-            0xC1eDB9fab9C14C07938b4a0FA848B9F51eaC9FF7,
+            0xE8E86fD702B1e0A18593d853Df9487D436ce17BC,
             "FreeLPDataFetcher"
         );
         vm.stopBroadcast();

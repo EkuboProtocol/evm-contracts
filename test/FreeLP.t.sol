@@ -277,15 +277,19 @@ contract FreeLPTest is FullTest {
     }
 
     function test_fullWithdrawalClearsStorageAndApproval() public {
+        (uint256 first,) = create(1 ether);
         (uint256 id, uint128 liquidity) = create(1 ether);
         lp.approve(address(123), id);
-        bytes32 firstSlot = keccak256(abi.encode(id, uint256(1)));
+        bytes32 poolSlot = keccak256(abi.encode(id, uint256(1)));
+        bytes32 indexSlot = keccak256(abi.encode(id, uint256(2)));
+        assertEq(vm.load(address(lp), poolSlot), PoolId.unwrap(d.poolKey.toPoolId()));
+        assertEq(uint256(vm.load(address(lp), indexSlot)), 1);
         lp.withdraw(id, liquidity, address(this));
-        for (uint256 i; i < 2; ++i) {
-            assertEq(vm.load(address(lp), bytes32(uint256(firstSlot) + i)), bytes32(0));
-        }
+        assertEq(vm.load(address(lp), poolSlot), bytes32(0));
+        assertEq(vm.load(address(lp), indexSlot), bytes32(0));
         assertEq(lp.nextId(), id + 1);
-        assertEq(lp.balanceOf(address(this)), 0);
+        assertEq(lp.balanceOf(address(this)), 1);
+        assertEq(lp.tokenOfOwnerByIndex(address(this), 0), first);
         vm.expectRevert();
         lp.ownerOf(id);
         vm.expectRevert();
@@ -303,13 +307,14 @@ contract FreeLPTest is FullTest {
         assertEq(lp.tokenOfOwnerByIndex(address(this), 0), second);
     }
 
-    function test_fourIdsPerStorageWord() public {
+    function test_ownerIdsUseFullStorageWords() public {
         for (uint256 i; i < 9; i++) {
             create(1000);
         }
-        uint256 expected = 1 | (uint256(2) << 64) | (uint256(3) << 128) | (uint256(4) << 192);
-        bytes32 ownerStart = keccak256(abi.encode(keccak256(abi.encode(address(this), uint256(2)))));
-        assertEq(uint256(vm.load(address(lp), ownerStart)), expected);
+        bytes32 ownerStart = keccak256(abi.encode(keccak256(abi.encode(address(this), uint256(3)))));
+        for (uint256 i; i < 9; ++i) {
+            assertEq(uint256(vm.load(address(lp), bytes32(uint256(ownerStart) + i))), i + 1);
+        }
         lp.transferFrom(address(this), address(111), 4);
         lp.transferFrom(address(this), address(222), 5);
         lp.withdraw(3, reader.positionAmounts(lp, 3).liquidity, address(this));
@@ -543,7 +548,8 @@ contract FreeLPTest is FullTest {
         assertTrue(LibString.startsWith(image, "data:image/svg+xml;base64,"));
         string memory svg = string(Base64.decode(LibString.slice(image, 26)));
         assertTrue(LibString.contains(svg, "<svg"));
-        assertTrue(LibString.contains(svg, LibString.toHexString(address(token0))));
+        assertFalse(LibString.contains(svg, LibString.toHexString(address(token0))));
+        assertEq(vm.parseJsonString(json, ".properties.token0"), LibString.toHexString(address(token0)));
         assertLt(address(lp).code.length, 24576);
     }
 

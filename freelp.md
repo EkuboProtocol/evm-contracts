@@ -26,6 +26,8 @@ forge script script/DeployFreeLPBootstrap.s.sol --offline --ffi --rpc-url https:
 
 Without `--broadcast` the command is a dry run that logs the fetched, registered, already-registered, and skipped-uninitialized counts. To broadcast, add `--broadcast` with the deployer's wallet configuration (for example `--ledger` or `--private-key`). Keys whose pool is not initialized in Core are skipped rather than reverting the batch, already-registered keys are counted and skipped, and the remainder is registered in one `registerMultiple` call, so reruns are safe. `FreeLPBootstrapTest` exercises deployment, API page parsing, and registration with fixtures.
 
+The bootstrap ran on 2026-09-14 for chains 1, 8453, 42161, and 4663 from `0x00000C771F6176268D5A9846E0956C3eF58597A1`; the broadcast records live under `broadcast/DeployFreeLPBootstrap.s.sol/<chainid>/`. Ethereum and Robinhood Chain received the four contract deployments plus 35 and 34 registrations; Base and Arbitrum already had the contracts and received 5 and 3 registrations.
+
 ## Position storage and discovery
 
 Pool IDs and owner enumeration indexes live in separate mappings; there is no `StoredPosition` struct. Signed lower and upper ticks occupy 64 bits of the ERC-721 owner slot's extra data. Transfers preserve those bounds. Public NFT IDs and owner indexes use uint256; `nextId` and owner-array entries use uint64, packing four owned IDs per storage word. The checked uint64 counter bounds allocated IDs, so widening to Core's 192-bit position salt requires no checked cast. There is no global live-token array, `totalSupply`, or `tokenByIndex`, and FreeLP does not advertise ERC721Enumerable. `nextId` starts at 1: IDs below it have been allocated, but burned IDs are holes and `ownerOf` rejects them.

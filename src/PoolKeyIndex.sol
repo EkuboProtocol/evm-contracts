@@ -8,7 +8,7 @@ import {PoolId} from "./types/poolId.sol";
 import {PoolKey} from "./types/poolKey.sol";
 
 /// @title Pool Key Index
-/// @notice Optional registry for discovering initialized pool keys by pool id, token, or extension
+/// @notice Optional registry for discovering initialized pool keys by pool id, token, pair, or extension
 contract PoolKeyIndex is UsesCore {
     using CoreLib for *;
 
@@ -23,6 +23,9 @@ contract PoolKeyIndex is UsesCore {
 
     /// @notice Registered pool ids that use an extension
     mapping(address extension => PoolId[] poolIds) public extensionPoolIds;
+
+    /// @dev Stored in canonical token order; pair getters accept either order.
+    mapping(address token0 => mapping(address token1 => PoolId[] poolIds)) private _pairPoolIds;
 
     constructor(ICore core) UsesCore(core) {}
 
@@ -40,6 +43,7 @@ contract PoolKeyIndex is UsesCore {
             tokenPoolIds[poolKey.token0].push(poolId);
             tokenPoolIds[poolKey.token1].push(poolId);
             extensionPoolIds[poolKey.config.extension()].push(poolId);
+            _pairPoolIds[poolKey.token0][poolKey.token1].push(poolId);
         }
     }
 
@@ -101,6 +105,29 @@ contract PoolKeyIndex is UsesCore {
     /// @notice Returns registered pool keys that use an extension
     function getPoolKeysByExtension(address extension) external view returns (PoolKey[] memory poolKeys) {
         poolKeys = _poolKeys(extensionPoolIds[extension]);
+    }
+
+    /// @notice Number of registered pools for an exact pair, in either token order.
+    function pairPoolIdCount(address tokenA, address tokenB) external view returns (uint256) {
+        return _pairPools(tokenA, tokenB).length;
+    }
+
+    /// @notice A registered pair pool ID by index, for bounded RPC pagination.
+    function pairPoolIds(address tokenA, address tokenB, uint256 index) external view returns (PoolId) {
+        return _pairPools(tokenA, tokenB)[index];
+    }
+
+    function getPoolIdsByPair(address tokenA, address tokenB) external view returns (PoolId[] memory) {
+        return _pairPools(tokenA, tokenB);
+    }
+
+    function getPoolKeysByPair(address tokenA, address tokenB) external view returns (PoolKey[] memory) {
+        return _poolKeys(_pairPools(tokenA, tokenB));
+    }
+
+    function _pairPools(address tokenA, address tokenB) private view returns (PoolId[] storage) {
+        if (tokenA > tokenB) (tokenA, tokenB) = (tokenB, tokenA);
+        return _pairPoolIds[tokenA][tokenB];
     }
 
     function _poolKeys(PoolId[] storage ids) internal view returns (PoolKey[] memory poolKeys) {

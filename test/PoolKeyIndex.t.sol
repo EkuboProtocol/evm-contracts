@@ -67,6 +67,8 @@ contract PoolKeyIndexTest is FullTest {
         assertEq(index.tokenPoolIdCount(poolKey.token0), 1);
         assertEq(index.tokenPoolIdCount(poolKey.token1), 1);
         assertEq(index.extensionPoolIdCount(address(0)), 1);
+        assertEq(index.pairPoolIdCount(poolKey.token0, poolKey.token1), 1);
+        assertEq(index.pairPoolIdCount(poolKey.token1, poolKey.token0), 1);
     }
 
     function test_registerMultiple_registersPoolKeys() public {
@@ -102,6 +104,7 @@ contract PoolKeyIndexTest is FullTest {
         assertEq(index.tokenPoolIdCount(poolKey0.token0), 2);
         assertEq(index.tokenPoolIdCount(poolKey0.token1), 2);
         assertEq(index.extensionPoolIdCount(address(0)), 2);
+        assertEq(index.pairPoolIdCount(poolKey0.token0, poolKey0.token1), 2);
     }
 
     function test_getPoolKeysByToken() public {
@@ -159,6 +162,39 @@ contract PoolKeyIndexTest is FullTest {
         PoolKey[] memory nativeTokenPoolKeys = index.getPoolKeysByToken(NATIVE_TOKEN_ADDRESS);
         assertEq(nativeTokenPoolKeys.length, 1);
         assertPoolKeyEq(nativeTokenPoolKeys[0], poolKey);
+    }
+
+    function test_pairQueriesOnlyReturnTheExactPairInEitherOrder() public {
+        PoolKey memory first = createPool(0, 0, 100);
+        PoolKey memory second = createPool(0, 1, 200);
+        PoolKey memory unrelated = createETHPool(0, 0, 100);
+        index.register(first);
+        index.register(second);
+        index.register(unrelated);
+        PoolKey[] memory forward = index.getPoolKeysByPair(first.token0, first.token1);
+        PoolKey[] memory reverse = index.getPoolKeysByPair(first.token1, first.token0);
+        assertEq(forward.length, 2);
+        assertEq(abi.encode(forward), abi.encode(reverse));
+        assertPoolKeyEq(forward[0], first);
+        assertPoolKeyEq(forward[1], second);
+        PoolId[] memory ids = index.getPoolIdsByPair(first.token1, first.token0);
+        assertEq(ids.length, 2);
+        for (uint256 i; i < ids.length; ++i) {
+            assertEq(PoolId.unwrap(index.pairPoolIds(first.token0, first.token1, i)), PoolId.unwrap(ids[i]));
+            assertEq(PoolId.unwrap(ids[i]), PoolId.unwrap(forward[i].toPoolId()));
+        }
+    }
+
+    function test_nativePairAndEmptyPairs() public {
+        PoolKey memory pool = createETHPool(0, 0, 100);
+        index.register(pool);
+        index.register(pool);
+        assertEq(index.pairPoolIdCount(pool.token1, address(0)), 1);
+        assertPoolKeyEq(index.getPoolKeysByPair(address(0), pool.token1)[0], pool);
+        assertEq(index.getPoolKeysByPair(address(0), address(token0)).length, 0);
+        assertEq(index.pairPoolIdCount(pool.token1, pool.token1), 0);
+        vm.expectRevert();
+        index.pairPoolIds(address(0), pool.token1, 1);
     }
 
     function assertPoolKeyEq(PoolKey memory actual, PoolKey memory expected) internal pure {

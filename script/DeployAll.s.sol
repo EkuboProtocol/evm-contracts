@@ -151,7 +151,7 @@ contract DeployAll is Script {
         deployIfNeeded(
             abi.encodePacked(type(PoolKeyIndex).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            0x898956fc2Aed01D5F81F556FF5dcB10534285718,
+            0x827A68AC37AA3715c865F2E0704a63118496986f,
             "PoolKeyIndex"
         );
         deployIfNeeded(

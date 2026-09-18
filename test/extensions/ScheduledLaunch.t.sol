@@ -4,6 +4,9 @@ pragma solidity =0.8.33;
 import {FullTest} from "../FullTest.sol";
 import {TestToken} from "../TestToken.sol";
 import {ScheduledLaunch, scheduledLaunchCallPoints} from "../../src/extensions/ScheduledLaunch.sol";
+import {TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
+import {OrderKey} from "../../src/types/orderKey.sol";
+import {createOrderConfig} from "../../src/types/orderConfig.sol";
 import {LockedLaunchLiquidity} from "../../src/LockedLaunchLiquidity.sol";
 import {MintableERC20} from "../../src/MintableERC20.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
@@ -119,12 +122,37 @@ contract OtherLP is BaseLocker {
     }
 }
 
+contract TwammTrader is BaseLocker {
+    using FlashAccountantLib for *;
+
+    constructor(ICore core) BaseLocker(core) {}
+
+    function placeOrder(TWAMM twammX, bytes32 salt, OrderKey memory key, int112 delta, address payer)
+        external
+        returns (int256 amountDelta)
+    {
+        return abi.decode(lock(abi.encode(twammX, salt, key, delta, payer)), (int256));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (TWAMM twammX, bytes32 salt, OrderKey memory key, int112 delta, address payer) =
+            abi.decode(data, (TWAMM, bytes32, OrderKey, int112, address));
+        int256 amountDelta =
+            abi.decode(ACCOUNTANT.forward(address(twammX), abi.encode(uint256(0), salt, key, delta)), (int256));
+        address sell = key.config.isToken1() ? key.token1 : key.token0;
+        if (amountDelta > 0) ACCOUNTANT.payFrom(payer, sell, uint256(amountDelta));
+        else if (amountDelta < 0) ACCOUNTANT.withdraw(sell, payer, uint128(uint256(-amountDelta)));
+        return abi.encode(amountDelta);
+    }
+}
+
 contract ScheduledLaunchTest is FullTest {
     using CoreLib for *;
 
     ScheduledLaunch extension;
     LockedLaunchLiquidity vault;
     LaunchActor actor;
+    TWAMM twamm;
     address constant LOW_QUOTE = address(0x10000);
     address constant HIGH_QUOTE = address(type(uint160).max);
     uint128 constant SUPPLY = 1_000_000e18;
@@ -137,7 +165,10 @@ contract ScheduledLaunchTest is FullTest {
         super.setUp();
         vm.warp(1);
         address target = address(uint160(scheduledLaunchCallPoints().toUint8()) << 152);
-        deployCodeTo("ScheduledLaunch.sol", abi.encode(core), target);
+        address twammTarget = address(uint160(twammCallPoints().toUint8()) << 152);
+        deployCodeTo("TWAMM.sol", abi.encode(core), twammTarget);
+        twamm = TWAMM(twammTarget);
+        deployCodeTo("ScheduledLaunch.sol", abi.encode(core, twammTarget), target);
         extension = ScheduledLaunch(target);
         vault = extension.LIQUIDITY();
         actor = new LaunchActor(core);
@@ -238,7 +269,7 @@ contract ScheduledLaunchTest is FullTest {
         assertEq(extension.released(key.toPoolId()), uint128(uint256(SUPPLY) * elapsed / (END - START)));
         PoolKey memory terminal = extension.terminalPool(key);
         assertEq(terminal.config.fee(), FINAL_FEE);
-        assertEq(terminal.config.extension(), address(0));
+        assertEq(terminal.config.extension(), address(twamm));
         assertTrue(terminal.config.isFullRange());
         vm.expectRevert(Ownable.Unauthorized.selector);
         MintableERC20(launch.token).mint(address(this), 1);
@@ -539,18 +570,57 @@ contract ScheduledLaunchTest is FullTest {
         assertEq(MintableERC20(key.token1).balanceOf(address(777)), before1);
     }
 
-    function test_deployWithMinedHookPrefix() public {
-        bytes32 initHash = keccak256(abi.encodePacked(type(ScheduledLaunch).creationCode, abi.encode(core)));
+    function testFuzz_migrationWithLiveTwammOrders(bool tokenIs0) public {
+        ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
+        config.quoteAmount = SUPPLY;
+        PoolKey memory key = actor.create(extension, config);
+        _finish(key);
+        uint128 lockedBefore = _locked(key);
+        assertGt(lockedBefore, 0);
+        PoolKey memory terminal = extension.terminalPool(key);
+        // Sell the quote token through TWAMM while migration runs.
+        TwammTrader trader = new TwammTrader(core);
+        address quote = tokenIs0 ? key.token1 : key.token0;
+        TestToken(quote).approve(address(trader), type(uint256).max);
+        vm.warp(1280);
+        OrderKey memory order = OrderKey({
+            token0: terminal.token0,
+            token1: terminal.token1,
+            config: createOrderConfig({_fee: FINAL_FEE, _isToken1: tokenIs0, _startTime: 1280, _endTime: 1792})
+        });
+        assertGt(trader.placeOrder(twamm, bytes32(uint256(1)), order, int112(1e30), address(this)), 0);
+        // Fund single-sided so migration must rebalance against live virtual flow.
+        actor.fund(vault, key.toPoolId(), tokenIs0 ? 0 : 1000e18, tokenIs0 ? 1000e18 : 0);
+        vm.warp(1400);
+        vault.migrate(key.toPoolId());
+        // Virtual execution moved the canonical price and migration still locked more.
+        assertTrue(core.poolState(terminal.toPoolId()).tick() != 0);
+        assertGt(_locked(key), lockedBefore);
+    }
+
+    function _mineSalt(bytes32 initHash) internal view returns (bytes32) {
         uint256 salt;
         uint8 prefix = scheduledLaunchCallPoints().toUint8();
         while (true) {
             address predicted = address(
                 uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), address(this), bytes32(salt), initHash))))
             );
-            if (uint8(uint160(predicted) >> 152) == prefix) break;
+            if (uint8(uint160(predicted) >> 152) == prefix) return bytes32(salt);
             salt++;
         }
-        ScheduledLaunch deployed = new ScheduledLaunch{salt: bytes32(salt)}(core);
+    }
+
+    function test_constructorRevertsForZeroTwamm() public {
+        bytes32 initHash = keccak256(abi.encodePacked(type(ScheduledLaunch).creationCode, abi.encode(core, address(0))));
+        bytes32 salt = _mineSalt(initHash);
+        vm.expectRevert(ScheduledLaunch.InvalidTwamm.selector);
+        new ScheduledLaunch{salt: salt}(core, address(0));
+    }
+
+    function test_deployWithMinedHookPrefix() public {
+        bytes32 initHash = keccak256(abi.encodePacked(type(ScheduledLaunch).creationCode, abi.encode(core, twamm)));
+        bytes32 salt = _mineSalt(initHash);
+        ScheduledLaunch deployed = new ScheduledLaunch{salt: salt}(core, address(twamm));
         assertTrue(core.isExtensionRegistered(address(deployed)));
         assertEq(deployed.LIQUIDITY().EXTENSION(), address(deployed));
         assertLe(address(deployed).code.length, 24_576);

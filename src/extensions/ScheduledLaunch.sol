@@ -46,6 +46,9 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
 
     LockedLaunchLiquidity public immutable LIQUIDITY;
 
+    /// @notice TWAMM extension of the full-range terminal pool that locked principal migrates into.
+    address public immutable TWAMM;
+
     /// @dev Ticks express raw quote units per launch token, independent of address ordering.
     struct LaunchConfig {
         address owner;
@@ -93,12 +96,15 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
     error InvalidAction();
     error OwnerOnly();
     error InvalidRecipient();
+    error InvalidTwamm();
 
     event LaunchCreated(PoolId indexed poolId, address indexed token, address indexed owner, LaunchConfig config);
     event LaunchAdvanced(PoolId indexed poolId, uint128 deployed, bool complete);
     event CreatorFeesClaimed(PoolId indexed poolId, address indexed recipient, uint128 amount0, uint128 amount1);
 
-    constructor(ICore core) BaseExtension(core) BaseForwardee(core) BaseLocker(core) {
+    constructor(ICore core, address twamm) BaseExtension(core) BaseForwardee(core) BaseLocker(core) {
+        if (twamm == address(0)) revert InvalidTwamm();
+        TWAMM = twamm;
         LIQUIDITY = new LockedLaunchLiquidity(core, address(this));
     }
 
@@ -150,7 +156,7 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
     function terminalPool(PoolKey memory key) public view returns (PoolKey memory) {
         Launch storage launch = _launches[key.toPoolId()];
         if (launch.owner == address(0)) revert UnknownLaunch();
-        return PoolKey(key.token0, key.token1, createFullRangePoolConfig(launch.finalFee, address(0)));
+        return PoolKey(key.token0, key.token1, createFullRangePoolConfig(launch.finalFee, TWAMM));
     }
 
     /// @notice Anyone may advance a launch, including completing it without a trade.

@@ -3,7 +3,7 @@
 `ScheduledLaunch` creates a fixed-supply token, releases its inventory linearly over
 an auction interval, and charges a declining creator fee on external launch swaps.
 At the end, principal moves to `LockedLaunchLiquidity`, which balances it against any
-existing liquidity and deposits into a **no-extension full-range pool**. That pool's
+existing liquidity and deposits into a **TWAMM-enabled full-range pool**. That pool's
 fixed fee equals the launch schedule's final fee.
 
 Principal is permanently locked. The creator can claim launch trading fees and fees
@@ -111,9 +111,13 @@ at launch creation.
 ## Full-range migration
 
 The destination key uses the same token pair,
-`createFullRangePoolConfig(finalFee, address(0))`: the unamplified, full-range
-stableswap configuration, with XYK price movement and no initialized-tick traversal.
+`createFullRangePoolConfig(finalFee, TWAMM)`: the unamplified, full-range
+stableswap configuration, with XYK price movement, no initialized-tick traversal,
+and the TWAMM extension enabled. `TWAMM` is immutable per extension deployment.
 Each launch receives its own full-range position owned by the liquidity contract.
+Migration swaps and position updates on the terminal pool execute pending TWAMM
+virtual orders first, through Core's nested-lock support; with no open orders this
+is a no-op beyond virtual-order bookkeeping.
 
 **Existing liquidity:** use its current liquidity and square-root price to solve the
 fee-adjusted XYK balancing trade. For token0 input `x`, liquidity `L`, and square-root
@@ -126,10 +130,12 @@ token1Out = L * (s - s')
 ```
 
 The solver uses Core's actual rounding for these equations and the finite full-range
-endpoints. It bisects the input amount until both remaining assets support equal
-deposit liquidity, checks adjacent integer candidates, and compares against no swap.
-There are at most 127 input-search iterations; cost does not depend on tick history.
-The solver includes the position's own internal-fee rebate when predicting remaining
+endpoints. It computes the equal-deposit input in closed form — the balance
+condition reduces to a quadratic in the swap input, solved with scaled integer
+arithmetic — and bisects for the exact balance flip over the narrowed range up to
+that root, falling back to the full input range when the root is degenerate or the
+flip lands on the narrowed edge. Cost does not depend on tick history. The solver
+includes the position's own internal-fee rebate when predicting remaining
 balances. Compact-price precision and integer rounding can still leave small reserves.
 It caps swap output, deposits, and arithmetic at Core's amount/liquidity limits.
 
@@ -163,8 +169,9 @@ migration retries from turning principal into creator income.
 `LockedLaunchLiquidity.claimFees(launchPoolId, recipient)` is owner-only. It collects
 only that launch's position fees, plus any external-trade fees saved before a
 rebalance. Position liquidity and principal reserves are untouched. Other LPs retain
-their own fee claims. The terminal pool's fixed fee persists after migration; no
-extension stays in its swap path.
+their own fee claims. The terminal pool's fixed fee persists after migration; the
+TWAMM extension stays in its swap path, so canonical liquidity doubles as
+time-distributed execution venue.
 
 Use `getLaunch`, `released`, `feeAt`, and `terminalPool` on the extension. Use
 `getTerminal` and `positionId` on the liquidity contract. Query Core saved balances
@@ -178,12 +185,13 @@ claim events accompany Core's normal pool, swap, and position events.
 
 `script/DeployScheduledLaunch.s.sol` mines the extension's required address prefix
 and deploys it with its immutable liquidity contract. Configure `CORE_ADDRESS`,
-optional starting `SALT`, and optional expected `SCHEDULED_LAUNCH_ADDRESS`. Use
-`forge script --offline`; broadcasting is a separate action. No existing deployed
-contract source is modified.
+`TWAMM_ADDRESS`, optional starting `SALT`, and optional expected
+`SCHEDULED_LAUNCH_ADDRESS`. Use `forge script --offline`; broadcasting is a
+separate action. No existing deployed contract source is modified.
 
 Tests cover fee decay and fee-inclusive fills, internal-fee exemption, atomic
 creation, ownership, both token orders, native quote assets, source and destination
 accounting, existing/empty terminal pools, no-counterpart retries, price bounds,
 locked principal, per-position fees, internal-fee recycling, chunked migration,
-CREATE2 deployment and size limits, and the balancing solver against brute force.
+live TWAMM orders during migration, TWAMM deployment wiring, CREATE2 deployment
+and size limits, and the balancing solver against brute force.

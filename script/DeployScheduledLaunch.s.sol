@@ -10,11 +10,12 @@ import {deployExtension} from "./DeployAll.s.sol";
 contract DeployScheduledLaunch is Script {
     function run() public returns (ScheduledLaunch extension) {
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", address(0x00000000000014aA86C5d3c41765bb24e11bd701))));
+        address twamm = vm.envAddress("TWAMM_ADDRESS");
         bytes32 startingSalt = vm.envOr("SALT", bytes32(0));
         address expected = vm.envOr("SCHEDULED_LAUNCH_ADDRESS", address(0));
         vm.startBroadcast();
         (address deployed,) = deployExtension(
-            abi.encodePacked(type(ScheduledLaunch).creationCode, abi.encode(core)),
+            abi.encodePacked(type(ScheduledLaunch).creationCode, abi.encode(core, twamm)),
             startingSalt,
             scheduledLaunchCallPoints(),
             expected,

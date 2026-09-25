@@ -12,6 +12,7 @@ import {
     AUCTION_UPDATE_BID,
     IContinuousAuction
 } from "../interfaces/extensions/IContinuousAuction.sol";
+import {ContinuousAuctionLib} from "../libraries/ContinuousAuctionLib.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
 import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
@@ -209,7 +210,7 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         _accrue(poolId, state.liquidity());
         if (block.timestamp >= type(uint48).max) revert InvalidBid();
         uint48 start = uint48(block.timestamp + 1);
-        bytes32 bidder = keccak256(abi.encode(locker, salt));
+        bytes32 bidder = ContinuousAuctionLib.bidderId(locker, salt);
         Auction storage auction = auctions[poolId];
 
         uint256 cost;
@@ -411,7 +412,7 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         view
         returns (uint128 amount0, uint128 amount1)
     {
-        (amount0, amount1) = _savedFees(key, _feeSalt(key.toPoolId(), keccak256(abi.encode(locker, salt))));
+        (amount0, amount1) = _savedFees(key, _feeSalt(key.toPoolId(), ContinuousAuctionLib.bidderId(locker, salt)));
     }
 
     /// @dev Moves the bidder's saved fees to the forwarding locker, which withdraws them.
@@ -420,7 +421,7 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         returns (uint128 amount0, uint128 amount1)
     {
         PoolId poolId = key.toPoolId();
-        bytes32 feeSalt = _feeSalt(poolId, keccak256(abi.encode(locker, salt)));
+        bytes32 feeSalt = _feeSalt(poolId, ContinuousAuctionLib.bidderId(locker, salt));
         (amount0, amount1) = _savedFees(key, feeSalt);
         if (amount0 != 0 || amount1 != 0) {
             CORE.updateSavedBalances(
@@ -433,7 +434,7 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     /// LIQUIDITY PROVIDER RENT
 
     function _liquidity(PoolId poolId, address owner, PositionId positionId) private view returns (uint128) {
-        return uint128(uint256(CORE.sload(CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId))) >> 128);
+        return ContinuousAuctionLib.positionLiquidity(CORE, poolId, owner, positionId);
     }
 
     function _inside(PoolKey memory key, PositionId positionId, int32 tick) private view returns (uint256 value) {

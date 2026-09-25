@@ -105,8 +105,6 @@ contract ContinuousAuctionTest is FullTest {
     uint96 constant RATE = 1e12;
     uint32 constant FEE = 42949672; // 1% as a 0.32 fixed-point fraction
     uint64 constant FEE64 = uint64(FEE) << 32;
-    uint32 constant NOTICE = 100;
-    uint16 constant INCREMENT = 1000;
 
     function setUp() public override {
         super.setUp();
@@ -129,7 +127,7 @@ contract ContinuousAuctionTest is FullTest {
 
     function _deploy(address token, uint160 salt) private returns (ContinuousAuction a) {
         address target = address((uint160(continuousAuctionCallPoints().toUint8()) << 152) | salt);
-        deployCodeTo("ContinuousAuction.sol:ContinuousAuction", abi.encode(core, token, NOTICE, INCREMENT), target);
+        deployCodeTo("ContinuousAuction.sol:ContinuousAuction", abi.encode(core, token), target);
         return ContinuousAuction(target);
     }
 
@@ -160,12 +158,12 @@ contract ContinuousAuctionTest is FullTest {
     }
 
     function _minimumOutbid(uint96 rate) private pure returns (uint96) {
-        return rate + uint96(FixedPointMathLib.fullMulDivUp(rate, INCREMENT, 10000));
+        return rate + 1;
     }
 
     /// POOL CREATION
 
-    function test_anyoneCreatesPoolsDirectlyAndTermsAreImmutables() public {
+    function test_anyoneCreatesPoolsDirectlyAndThereAreNoTerms() public {
         PoolKey memory k = key;
         k.config = createConcentratedPoolConfig(1, 64, address(auction));
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
@@ -180,8 +178,6 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(fee, 0);
         assertEq(nextFee, 0);
         assertEq(lastSettled, 0);
-        assertEq(auction.noticePeriod(), NOTICE);
-        assertEq(auction.minIncrementBps(), INCREMENT);
         k.config = createConcentratedPoolConfig(0, 256, address(auction));
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
         auction.bid{value: 1e20}(k, RATE, 512, alice, FEE); // Bids require an initialized pool.
@@ -301,26 +297,26 @@ contract ContinuousAuctionTest is FullTest {
 
     /// BIDDING RULES
 
-    function test_incrementNoticeAndSelfRaise() public {
+    function test_bidValidationAndStrictOutbid() public {
         vm.deal(address(this), 1e30);
         vm.expectRevert(ContinuousAuction.InvalidBid.selector);
         auction.bid{value: 1e20}(key, 0, 512, alice, FEE);
         vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.bid{value: 1e20}(key, RATE, 100 + NOTICE, alice, FEE);
+        auction.bid{value: 1e20}(key, RATE, 101, alice, FEE); // A bid must last at least one second.
         vm.expectRevert(ContinuousAuction.InvalidBid.selector);
         auction.bid{value: 1e20}(key, RATE, 512, address(0), FEE);
         vm.expectRevert(ContinuousAuction.IncorrectFunding.selector);
         auction.bid{value: 1}(key, RATE, 512, alice, FEE);
         _bid(alice, RATE, 512, alice);
         vm.expectRevert(ContinuousAuction.BidTooLow.selector);
-        auction.bid{value: 1e20}(key, _minimumOutbid(RATE) - 1, 512, bob, FEE);
+        auction.bid{value: 1e20}(key, RATE, 512, bob, FEE); // Equal rates do not displace.
         vm.deal(alice, 1e20);
         vm.prank(alice);
         vm.expectRevert(ContinuousAuction.BidTooLow.selector);
         auction.bid{value: 1e20}(key, RATE, 512, alice, FEE);
-        _bid(alice, RATE + 1, 512, alice); // The scheduled bidder raises without the increment.
+        _bid(alice, RATE + 1, 512, alice); // The scheduled bidder may raise its own rate.
         assertEq(auction.refundable(alice), uint256(RATE) * (512 - 101));
-        _bid(bob, _minimumOutbid(RATE + 1), 512, bob);
+        _bid(bob, RATE + 2, 512, bob);
         _time(101);
         assertEq(auction.executorAt(poolId), bob);
         _time(512);
@@ -371,7 +367,7 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(auction.holder(poolId).bidder, address(0));
     }
 
-    function test_extendAndShortenWithNotice() public {
+    function test_extendAndShortenIncludingImmediateExit() public {
         _bid(alice, RATE, 400, alice);
         vm.prank(bob);
         vm.expectRevert(ContinuousAuction.NotHolder.selector);
@@ -392,21 +388,25 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(auction.holder(poolId).end, 800);
         vm.prank(alice);
         vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.shorten(key, 300 + NOTICE - 1);
+        auction.shorten(key, 299);
         vm.prank(alice);
         vm.expectRevert(ContinuousAuction.InvalidBid.selector);
         auction.shorten(key, 800);
         vm.prank(alice);
-        auction.shorten(key, 300 + NOTICE);
+        auction.shorten(key, 400);
         assertEq(auction.refundable(alice), 5 + uint256(RATE) * (800 - 400));
         _time(399);
         assertEq(auction.executorAt(poolId), alice);
+        vm.prank(alice);
+        auction.shorten(key, 399); // Immediate exit: rent through now is settled and the pool closes.
+        assertEq(auction.executorAt(poolId), address(0));
+        assertEq(auction.refundable(alice), 5 + uint256(RATE) * (800 - 399));
         _time(400);
         assertEq(auction.executorAt(poolId), address(0));
         vm.prank(alice);
         vm.expectRevert(ContinuousAuction.NotHolder.selector);
         auction.extend(key, 900);
-        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * (400 - 101), 3);
+        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * (399 - 101), 3);
     }
 
     function test_displacedIncumbentCannotExtendOrShorten() public {
@@ -698,8 +698,8 @@ contract ContinuousAuctionTest is FullTest {
                 }
                 total += funding;
                 ends[h] = end;
-            } else if (choice == 1 && rates[now_] != 0 && now_ + NOTICE < ends[h]) {
-                uint256 end = now_ + NOTICE + (seed >> 24) % (ends[h] - now_ - NOTICE);
+            } else if (choice == 1 && rates[now_] != 0 && now_ < ends[h]) {
+                uint256 end = now_ + (seed >> 24) % (ends[h] - now_);
                 vm.prank(address(uint160(1000 + h)));
                 auction.shorten(key, uint64(end));
                 for (uint256 t = end; t < ends[h]; ++t) {
@@ -709,7 +709,7 @@ contract ContinuousAuctionTest is FullTest {
                 ends[h] = end;
             } else {
                 uint96 rate = rates[now_ + 1] == 0 ? RATE : _minimumOutbid(uint96(rates[now_ + 1]));
-                uint256 end = now_ + 1 + NOTICE + (seed >> 24) % 1500;
+                uint256 end = now_ + 2 + (seed >> 24) % 1600;
                 address bidder = address(uint160(1000 + i));
                 total += uint256(rate) * (end - now_ - 1);
                 _bid(bidder, rate, uint64(end), bidder);
@@ -773,7 +773,7 @@ contract ContinuousAuctionTest is FullTest {
                 hasLiquidity = !hasLiquidity;
             }
             uint96 rate = rates[now_ + 1] == 0 ? RATE : _minimumOutbid(uint96(rates[now_ + 1]));
-            uint256 end = now_ + 1 + NOTICE + (seed >> 24) % 1500;
+            uint256 end = now_ + 2 + (seed >> 24) % 1600;
             address bidder = address(uint160(1000 + i));
             total += uint256(rate) * (end - now_ - 1);
             _bid(bidder, rate, uint64(end), bidder);

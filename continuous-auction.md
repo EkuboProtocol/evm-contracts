@@ -12,23 +12,16 @@ standard, non-rebasing ERC20s. Incoming ERC20 funding is checked against the
 received balance, so transfer-tax deposits are rejected. One deployment serves
 one bid token; deploy again for another.
 
-## Pools and terms
+## Pools
 
 Any pool whose key names this extension with a zero Core fee can be initialized
 directly through Core by anyone. Concentrated pools need a power-of-four tick
-spacing; full-range and stableswap configurations are supported as well. There
-are no per-pool terms. The extension's two terms are immutable per deployment:
-
-- `noticePeriod` is the minimum funded tenure of a bid and the minimum remaining
-  tenure after a holder shortens its bid. It is the holder's exit notice, the
-  bond a short-lived bid must post, and the cost of challenging a holder that
-  has moved the price away from the market (see Economics).
-- `minIncrementBps` is the minimum rate increase, in basis points, that another
-  bidder must offer over the scheduled bid.
-
-There is no reserve rate. Providers set the floor themselves by withdrawing when
-rent does not cover what the holder's trading costs them, and an unrented pool
-does not swap, so they are never exposed without being paid.
+spacing; full-range and stableswap configurations are supported as well. The
+extension has no terms, per pool or per deployment: its only parameters are Core
+and the bid token. There is no reserve rate, no minimum bid increment, and no
+notice period. Providers set the floor themselves by withdrawing when rent does
+not cover what the holder's trading costs them, and an unrented pool does not
+swap, so they are never exposed without being paid.
 
 ## Bids
 
@@ -44,17 +37,16 @@ withdrawRefund(address recipient)
   be fully funded: `rate * (end - start)`. Native bids may overpay; the excess
   is credited to the bidder's refund balance, which tolerates inclusion delay.
   ERC20 bids pull the exact amount.
-- `end - start` must be at least `noticePeriod` and at most `2**32 - 1` seconds.
-- The bid must exceed the rate scheduled at its start by `minIncrementBps`. The
-  scheduled bidder may raise its own rate by any amount. An expiring incumbent
+- `end - start` must be at least one second and at most `2**32 - 1` seconds.
+- The bid must exceed the rate scheduled at its start. An expiring incumbent
   need not be outbid.
 - The incumbent keeps the current second. The displaced part of its funding is
   credited as a refund; nothing is rescheduled later. A bid placed in the same
   second as another pending bid replaces it and refunds it entirely.
 - `extend` adds funded tenure at the same rate. `shorten` relinquishes tenure
-  and credits the refund, but the bid must keep at least `noticePeriod` seconds
-  from now. That is the only voluntary exit; there is no rate reduction. Neither
-  is available to a bidder whose bid has already been displaced.
+  and credits the refund; shortening to now is an immediate exit. There is no
+  rate reduction: exit and bid again. Neither is available to a bidder whose bid
+  has already been displaced.
 - `fee` is the fee the bid will charge non-holder swaps once it activates, a
   0.32 fixed-point fraction: the upper 32 bits of Core's fee format. There is no
   cap. `setFee` changes it: immediately for the live holder, at activation for
@@ -149,29 +141,26 @@ The design choices below each close a way for that revenue to leak:
   rent returns to itself. Doing so fills every position it moved through at
   above-market prices, so the pool then holds a mispricing worth roughly the
   traversed range width times the capital in it. Any bidder can claim it by
-  outbidding the holder by the increment, waiting one second, and moving the
-  price back with its first swap; its cost is one notice period of rent, which
-  goes to the providers the parker was starving, and the parker is left holding
+  outbidding the holder, waiting one second, and moving the
+  price back with its first swap; its cost is one second of rent, which goes to
+  the providers the parker was starving, and the parker is left holding
   inventory bought above market. To make that challenge unprofitable the parker
-  must keep `rate * noticePeriod * (1 + increment)` above the bounty, which it
-  can only do by locking capital of about the bounty's size in a rolling bid.
-  Providers can also withdraw while parked and keep the premium. And while
-  parked the holder earns nothing else: no outsider swaps at a prohibitive fee,
-  so there is no fee revenue, and no arbitrage flow reaches the pool, so the
-  locked capital and the rent only buy exposure to providers who have no reason
-  to stay. The notice period prices the defence: longer notice makes challenges
-  dearer and control changes rarer, shorter notice makes parking indefensible.
+  would have to make one second of rent exceed the bounty, which no rational
+  bidder does. Providers can also withdraw while parked and keep the premium.
+  And while parked the holder earns nothing else: no outsider swaps at a
+  prohibitive fee, so there is no fee revenue, and no arbitrage flow reaches the
+  pool, so the rent only buys exposure to providers who have no reason to stay.
 - **No reserve rate.** A lone bidder can rent the pool for almost nothing, but
   providers are not obliged to stay: rent below what the holder's trading costs
   them is a signal to withdraw, and a thin pool is worth little to rent. A
   creator-chosen reserve could only add a way for the pool to sit unrented.
-- **A minimum increment and a notice period** make control changes costly. A
-  bid must beat the incumbent by the increment, and every bid posts at least a
-  notice period of rent. Flipping control every block therefore ratchets the
-  rate and burns the bond; refunds cover only displaced tenure.
-- **Notice-period exit** replaces a hard commitment. A holder whose valuation
-  falls shortens its bid and pays until the notice elapses, rather than pricing
-  an unbounded lockup into every bid.
+- **No increment, no notice.** Both would only deter behaviour that is
+  irrational anyway: a bidder that flips control pays full rent for every
+  second it holds and gains nothing, and rational competitors jump to their
+  valuation rather than creep. Their absence keeps takeovers and challenges as
+  cheap as the one-second activation allows, which is what makes parking
+  indefensible, and lets a holder whose valuation falls leave at once instead
+  of pricing a lockup into every bid.
 
 What the mechanism does not do: it does not guarantee retail flow, which
 reaches the pool only through lockers that forward to the extension; it does not
@@ -183,8 +172,7 @@ risk between the bid token and the pool's tokens.
 ## Deployment and reproducibility
 
 Use `script/DeployContinuousAuction.s.sol` with explicit `CORE_ADDRESS`,
-`BID_TOKEN`, `OWNER_ADDRESS`, `NOTICE_PERIOD` (seconds), `MIN_INCREMENT_BPS`,
-and a bytes32 `SALT`.
+`BID_TOKEN`, `OWNER_ADDRESS`, and a bytes32 `SALT`.
 `BID_TOKEN=0x0000000000000000000000000000000000000000` selects native rent. The
 script uses the repository's canonical CREATE2 deployer and mines the required
 extension address prefix (`0x51`). Optional `AUCTION_ADDRESS` and

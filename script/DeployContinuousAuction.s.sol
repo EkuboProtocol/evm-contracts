@@ -13,14 +13,11 @@ contract DeployContinuousAuction is Script {
         ICore core = ICore(payable(vm.envAddress("CORE_ADDRESS")));
         address token = vm.envAddress("BID_TOKEN");
         address owner = vm.envAddress("OWNER_ADDRESS");
-        uint32 noticePeriod = uint32(vm.envUint("NOTICE_PERIOD"));
-        uint16 minIncrementBps = uint16(vm.envUint("MIN_INCREMENT_BPS"));
         bytes32 salt = vm.envBytes32("SALT");
         address expectedAuction = vm.envOr("AUCTION_ADDRESS", address(0));
         address expectedPositions = vm.envOr("AUCTION_POSITIONS_ADDRESS", address(0));
         vm.startBroadcast();
-        (auction, positions) =
-            _deploy(core, token, owner, noticePeriod, minIncrementBps, salt, expectedAuction, expectedPositions);
+        (auction, positions) = _deploy(core, token, owner, salt, expectedAuction, expectedPositions);
         vm.stopBroadcast();
     }
 
@@ -28,8 +25,6 @@ contract DeployContinuousAuction is Script {
         ICore core,
         address token,
         address owner,
-        uint32 noticePeriod,
-        uint16 minIncrementBps,
         bytes32 salt,
         address expectedAuction,
         address expectedPositions
@@ -37,12 +32,8 @@ contract DeployContinuousAuction is Script {
         require(address(core).code.length != 0, "CORE_ADDRESS has no code");
         require(token == address(0) || token.code.length != 0, "BID_TOKEN has no code");
         require(owner != address(0), "OWNER_ADDRESS is zero");
-        require(noticePeriod <= 30 days, "NOTICE_PERIOD too long");
-        require(minIncrementBps <= 10000, "MIN_INCREMENT_BPS above 100%");
         (address extension,) = deployExtension(
-            abi.encodePacked(
-                type(ContinuousAuction).creationCode, abi.encode(core, token, noticePeriod, minIncrementBps)
-            ),
+            abi.encodePacked(type(ContinuousAuction).creationCode, abi.encode(core, token)),
             salt,
             continuousAuctionCallPoints(),
             expectedAuction,

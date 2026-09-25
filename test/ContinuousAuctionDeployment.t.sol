@@ -16,7 +16,7 @@ contract AuctionDeploymentHarness is DeployContinuousAuction {
         external
         returns (ContinuousAuction auction, AuctionPositions positions)
     {
-        return _deploy(core, token, owner, 3600, 500, salt, address(0), address(0));
+        return _deploy(core, token, owner, salt, address(0), address(0));
     }
 }
 
@@ -58,8 +58,6 @@ contract ContinuousAuctionDeploymentTest is FullTest {
         (ContinuousAuction auction, AuctionPositions manager) = deployer.deploy(core, address(0), owner, salt);
         assertEq(uint8(uint160(address(auction)) >> 152), continuousAuctionCallPoints().toUint8());
         assertEq(auction.bidToken(), address(0));
-        assertEq(auction.noticePeriod(), 3600);
-        assertEq(auction.minIncrementBps(), 500);
         assertEq(address(manager.auction()), address(auction));
         assertEq(manager.owner(), owner);
         assertLe(address(auction).code.length, 24576);

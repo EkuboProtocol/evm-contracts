@@ -66,8 +66,8 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         Bid current;
         // Only nonempty within the second it was placed; promoted by the next settlement.
         Bid next;
-        // Fees are 0.32 fixed-point fractions: the upper 32 bits of Core's 0.64 fee format.
-        uint32 maxFee;
+        bool initialized;
+        // A 0.32 fixed-point fraction: the upper 32 bits of Core's 0.64 fee format.
         uint32 fee;
         uint96 minRate;
         uint32 noticePeriod;
@@ -89,7 +89,6 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
     mapping(PoolId => mapping(address => mapping(PositionId => PositionRent))) public positionRent;
 
     error InvalidPool();
-    error InvalidTerms();
     error InvalidBid();
     error BidTooLow();
     error IncorrectFunding();
@@ -98,7 +97,7 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
     error SwapMustHappenThroughForward();
 
     event PoolCreated(
-        PoolId indexed poolId, PoolKey key, uint32 maxFee, uint96 minRate, uint32 noticePeriod, uint16 minIncrementBps
+        PoolId indexed poolId, PoolKey key, uint32 fee, uint96 minRate, uint32 noticePeriod, uint16 minIncrementBps
     );
     event FeeUpdated(PoolId indexed poolId, address indexed bidder, uint32 fee);
     event BidPlaced(
@@ -135,38 +134,37 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
     /// POOL CREATION
 
     /// @notice Initializes a pool with immutable auction terms. Pools of this extension can only be created here.
-    /// @param maxFee Cap on the fee the holder may charge non-holder swaps, as a 0.32 fixed-point fraction. It is
-    /// the widest price band within which a holder can hold the price away from the market without being
-    /// arbitraged, so it bounds how far a holder can relocate the price away from other providers' ranges.
-    /// The fee starts at the cap; each holder may lower or raise it up to the cap with setFee.
+    /// @param fee Initial fee charged to non-holder swaps, as a 0.32 fixed-point fraction. The fee is pool
+    /// state that each holder may change with setFee; there is no cap. A holder that uses a high fee to hold
+    /// the price away from other providers' ranges creates a mispricing any bidder can claim by outbidding it
+    /// for one notice period, so the notice period is what prices that defence.
     /// @param minRate Reserve rent in bid-token base units per second.
     /// @param noticePeriod Minimum funded tenure of a bid and minimum remaining tenure after shortening.
     /// @param minIncrementBps Minimum rate increase over the scheduled bid, in basis points.
     function createPool(
         PoolKey calldata key,
         int32 tick,
-        uint32 maxFee,
+        uint32 fee,
         uint96 minRate,
         uint32 noticePeriod,
         uint16 minIncrementBps
     ) external nonReentrant returns (SqrtRatio sqrtRatio) {
         _validate(key);
-        if (maxFee == 0) revert InvalidTerms();
         PoolId poolId = key.toPoolId();
         Auction storage auction = auctions[poolId];
-        if (auction.maxFee != 0) revert InvalidPool();
-        auction.maxFee = maxFee;
-        auction.fee = maxFee;
+        if (auction.initialized) revert InvalidPool();
+        auction.initialized = true;
+        auction.fee = fee;
         auction.minRate = minRate;
         auction.noticePeriod = noticePeriod;
         auction.minIncrementBps = minIncrementBps;
         auction.lastSettled = uint48(block.timestamp);
         sqrtRatio = CORE.initializePool(key, tick);
-        emit PoolCreated(poolId, key, maxFee, minRate, noticePeriod, minIncrementBps);
+        emit PoolCreated(poolId, key, fee, minRate, noticePeriod, minIncrementBps);
     }
 
     function beforeInitializePool(address caller, PoolKey memory key, int32) external view override onlyCore {
-        if (caller != address(this) || auctions[key.toPoolId()].maxFee == 0) revert InvalidPool();
+        if (caller != address(this) || !auctions[key.toPoolId()].initialized) revert InvalidPool();
     }
 
     function beforeSwap(Locker, PoolKey memory, SwapParameters) external pure override {
@@ -184,7 +182,7 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         _validate(key);
         PoolId poolId = key.toPoolId();
         Auction storage auction = auctions[poolId];
-        if (auction.maxFee == 0) revert InvalidPool();
+        if (!auction.initialized) revert InvalidPool();
         _accrue(poolId, CORE.poolState(poolId).liquidity());
         if (block.timestamp >= type(uint48).max) revert InvalidBid();
         uint48 start = uint48(block.timestamp + 1);
@@ -248,7 +246,7 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         emit BidEndUpdated(poolId, msg.sender, uint48(end));
     }
 
-    /// @notice Sets the fee charged to non-holder swaps, up to the pool's cap. Only the scheduled bidder may call.
+    /// @notice Sets the fee charged to non-holder swaps. Only the scheduled bidder may call.
     /// @dev The fee is pool state: it persists until the next change, including across holders.
     function setFee(PoolKey calldata key, uint32 fee) external nonReentrant {
         _validate(key);
@@ -256,7 +254,6 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         Auction storage auction = auctions[poolId];
         _accrue(poolId, CORE.poolState(poolId).liquidity());
         _ownBid(auction);
-        if (fee > auction.maxFee) revert InvalidTerms();
         auction.fee = fee;
         emit FeeUpdated(poolId, msg.sender, fee);
     }

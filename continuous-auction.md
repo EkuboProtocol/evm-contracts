@@ -18,23 +18,21 @@ Pools must be created through the extension. Direct `Core.initializePool` calls
 revert.
 
 ```solidity
-createPool(PoolKey key, int32 tick, uint32 maxFee, uint96 minRate, uint32 noticePeriod, uint16 minIncrementBps)
+createPool(PoolKey key, int32 tick, uint32 fee, uint96 minRate, uint32 noticePeriod, uint16 minIncrementBps)
 ```
 
 - The key must name this extension and a zero Core fee. Concentrated pools need
   a power-of-four tick spacing; full-range and stableswap configurations are
   supported as well.
-- `maxFee` caps the fee the holder may charge non-holder swaps. Fees are 0.32
-  fixed-point fractions, the upper 32 bits of Core's fee format, and the cap
-  must be nonzero. The cap is also the widest price band inside which a holder
-  can hold the price away from the market without being arbitraged, so it
-  should be chosen with providers' range widths in mind. The fee itself is pool
-  state: it starts at the cap and the holder sets it with `setFee`.
+- `fee` is the initial fee charged to non-holder swaps, a 0.32 fixed-point
+  fraction: the upper 32 bits of Core's fee format. The fee is pool state that
+  each holder may change with `setFee`, without a cap.
 - `minRate` is the reserve rent in bid-token base units per second. No bid
   below it is accepted.
 - `noticePeriod` is the minimum funded tenure of a bid and the minimum remaining
-  tenure after a holder shortens its bid. It is the holder's exit notice and the
-  bond a short-lived bid must post.
+  tenure after a holder shortens its bid. It is the holder's exit notice, the
+  bond a short-lived bid must post, and the cost of challenging a holder that
+  has moved the price away from the market (see Economics).
 - `minIncrementBps` is the minimum rate increase, in basis points, that another
   bidder must offer over the scheduled bid.
 
@@ -65,9 +63,9 @@ withdrawRefund(address recipient)
   and credits the refund, but the bid must keep at least `noticePeriod` seconds
   from now. That is the only voluntary exit; there is no rate reduction. Neither
   is available to a bidder whose bid has already been displaced.
-- `setFee` sets the non-holder swap fee, up to `maxFee`, and is available to the
-  scheduled bidder, pending or live. The fee persists in pool state across
-  holders until changed, so a new holder should set it after bidding.
+- `setFee` sets the non-holder swap fee and is available to the scheduled
+  bidder, pending or live. The fee persists in pool state across holders until
+  changed, so a new holder should set it after bidding.
 - `executor` is the authorized **Core locker contract**. It must authenticate
   its callers. Naming a permissionless router grants that router's users
   fee-free access.
@@ -91,9 +89,9 @@ The authorized locker calls `Core.forward(address(extension))` with trailing
 
 Because anyone can arbitrage a rented pool for the price of the fee, the price
 stays within the fee band of the market whenever arbitrageurs are active. The
-holder chooses the fee, so it chooses how tight that band is, but never wider
-than `maxFee`. A holder can only hold the price outside another position's
-range if that range ends inside the cap's band.
+holder chooses the fee and therefore how tight that band is. A holder that sets
+a prohibitive fee makes the pool exclusive in practice; what that costs it is
+described under Economics.
 
 ## Rent
 
@@ -150,15 +148,26 @@ swappers, which is why this can pay more than a fixed creator-chosen fee.
 
 The design choices below each close a way for that revenue to leak:
 
-- **Fee-paying outsider swaps** deny the holder control over the reward
-  recipients. Without them a holder could park the price in its own dust range,
-  collect its own rent, and still trade against everyone else. With them, any
-  parked price further than the fee from the market is arbitraged back and the
-  holder is paid only the fee. The holder sets the fee because it earns it and
-  wants it low enough to attract routed flow; the creator's cap exists because
-  a holder that could raise the fee without limit could park at will. Providers
-  should keep their ranges at least a cap-wide band beyond the market on each
-  side.
+- **Fee-paying outsider swaps** let the holder monetize routed flow and keep
+  the price within the fee band of the market. The holder sets the fee because
+  it earns it and wants it low enough to attract that flow.
+- **Parking is a bounty, not a strategy.** A holder could set a prohibitive fee,
+  deposit dust away from every other position, and move the price there so all
+  rent returns to itself. Doing so fills every position it moved through at
+  above-market prices, so the pool then holds a mispricing worth roughly the
+  traversed range width times the capital in it. Any bidder can claim it by
+  outbidding the holder by the increment, waiting one second, and moving the
+  price back with its first swap; its cost is one notice period of rent, which
+  goes to the providers the parker was starving, and the parker is left holding
+  inventory bought above market. To make that challenge unprofitable the parker
+  must keep `rate * noticePeriod * (1 + increment)` above the bounty, which it
+  can only do by locking capital of about the bounty's size in a rolling bid.
+  Providers can also withdraw while parked and keep the premium. And while
+  parked the holder earns nothing else: no outsider swaps at a prohibitive fee,
+  so there is no fee revenue, and no arbitrage flow reaches the pool, so the
+  locked capital and the rent only buy exposure to providers who have no reason
+  to stay. The notice period prices the defence: longer notice makes challenges
+  dearer and control changes rarer, shorter notice makes parking indefensible.
 - **A reserve rate** keeps a lone bidder from taking fee-free access for
   nothing. Below the reserve the pool is simply unrented, and unrented pools do
   not swap, so providers bear no arbitrage loss they are not paid for.
@@ -172,8 +181,9 @@ The design choices below each close a way for that revenue to leak:
 
 What the mechanism does not do: it does not guarantee retail flow, which
 reaches the pool only through lockers that forward to the extension; it does not
-protect positions narrower than the capped fee band from price relocation; and it does
-not compensate providers while the pool is unrented. Bidders bear the exchange
+pay providers whose liquidity is inactive, whatever the cause, so out-of-range
+providers should withdraw rather than wait; and it does not compensate providers
+while the pool is unrented. Bidders bear the exchange
 risk between the bid token and the pool's tokens.
 
 ## Deployment and reproducibility

@@ -180,8 +180,6 @@ contract ContinuousAuctionTest is FullTest {
         k.config = createConcentratedPoolConfig(0, 64, address(auction));
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
         core.initializePool(k, 0);
-        vm.expectRevert(ContinuousAuction.InvalidTerms.selector);
-        auction.createPool(k, 0, 0, RATE, NOTICE, INCREMENT);
         k.config = createConcentratedPoolConfig(1, 64, address(auction));
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
         auction.createPool(k, 0, FEE, RATE, NOTICE, INCREMENT);
@@ -190,8 +188,8 @@ contract ContinuousAuctionTest is FullTest {
         auction.createPool(k, 0, FEE, RATE, NOTICE, INCREMENT);
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
         auction.createPool(key, 0, FEE, RATE, NOTICE, INCREMENT);
-        (,, uint32 maxFee, uint32 fee, uint96 minRate, uint32 notice, uint16 increment,,) = auction.auctions(poolId);
-        assertEq(maxFee, FEE);
+        (,, bool initialized, uint32 fee, uint96 minRate, uint32 notice, uint16 increment,,) = auction.auctions(poolId);
+        assertTrue(initialized);
         assertEq(fee, FEE);
         assertEq(minRate, RATE);
         assertEq(notice, NOTICE);
@@ -266,14 +264,11 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(fee0 + fee1, 0);
     }
 
-    function test_holderSetsFeeUpToCapAndItPersists() public {
+    function test_holderSetsFeeAndItPersists() public {
         vm.prank(alice);
         vm.expectRevert(ContinuousAuction.NotHolder.selector);
         auction.setFee(key, FEE / 2);
         _bid(alice, RATE, 512, address(executor));
-        vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.InvalidTerms.selector);
-        auction.setFee(key, FEE + 1);
         vm.prank(alice);
         auction.setFee(key, FEE / 2); // The pending bidder may already set the fee.
         (,,, uint32 fee,,,,,) = auction.auctions(poolId);
@@ -299,10 +294,11 @@ contract ContinuousAuctionTest is FullTest {
         (,,, fee,,,,,) = auction.auctions(poolId);
         assertEq(fee, 0); // The fee is pool state and persists until the new holder changes it.
         vm.prank(bob);
-        auction.setFee(key, FEE);
-        executor.swap(key, _params(1e17, true, 100), false);
+        auction.setFee(key, type(uint32).max); // No cap: a near-total fee makes the pool exclusive in practice.
+        PoolBalanceUpdate exclusive = executor.swap(key, _params(1e17, true, 100), false);
         (uint128 bob0,) = auction.swapFeesOwed(poolId, bob);
         assertGt(bob0, 0);
+        assertLt(uint128(-exclusive.delta0()) * 1e6, bob0); // The swapper keeps about 2**-32 of the output.
     }
 
     /// BIDDING RULES

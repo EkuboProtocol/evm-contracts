@@ -10,13 +10,14 @@ import {Locker} from "../src/types/locker.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {ContinuousAuction, continuousAuctionCallPoints} from "../src/extensions/ContinuousAuction.sol";
 import {AuctionPositions} from "../src/AuctionPositions.sol";
+import {AuctionPeriphery} from "../src/AuctionPeriphery.sol";
 
 contract AuctionDeploymentHarness is DeployContinuousAuction {
     function deploy(ICore core, address token, address owner, bytes32 salt)
         external
-        returns (ContinuousAuction auction, AuctionPositions positions)
+        returns (ContinuousAuction auction, AuctionPositions positions, AuctionPeriphery periphery)
     {
-        return _deploy(core, token, owner, salt, address(0), address(0));
+        return _deploy(core, token, owner, salt, address(0), address(0), address(0));
     }
 }
 
@@ -55,19 +56,26 @@ contract ContinuousAuctionDeploymentTest is FullTest {
         vm.etch(DETERMINISTIC_DEPLOYER, address(factory).code);
         AuctionDeploymentHarness deployer = new AuctionDeploymentHarness();
         bytes32 salt = keccak256("ContinuousAuction launch");
-        (ContinuousAuction auction, AuctionPositions manager) = deployer.deploy(core, address(0), owner, salt);
+        (ContinuousAuction auction, AuctionPositions manager, AuctionPeriphery periphery) =
+            deployer.deploy(core, address(0), owner, salt);
         assertEq(uint8(uint160(address(auction)) >> 152), continuousAuctionCallPoints().toUint8());
         assertEq(auction.bidToken(), address(0));
         assertEq(address(manager.auction()), address(auction));
         assertEq(manager.owner(), owner);
+        assertEq(address(periphery.auction()), address(auction));
         assertLe(address(auction).code.length, 24576);
         assertLe(address(manager).code.length, 24576);
+        assertLe(address(periphery).code.length, 24576);
         PoolKey memory key = createPool(0, 0, 16, address(auction));
-        (uint256 id, uint128 liquidity) = createPosition(key, -1600, 1600, 1e18, 1e18);
-        positions.collectFees(id, key, -1600, 1600);
-        positions.withdraw(id, key, -1600, 1600, liquidity);
-        (ContinuousAuction again, AuctionPositions againManager) = deployer.deploy(core, address(0), owner, salt);
+        token0.approve(address(manager), 1e18);
+        token1.approve(address(manager), 1e18);
+        (uint256 id, uint128 liquidity,,) = manager.mintAndDeposit(key, -1600, 1600, 1e18, 1e18, 0);
+        manager.collectRent(id, key, -1600, 1600);
+        manager.withdraw(id, key, -1600, 1600, liquidity);
+        (ContinuousAuction again, AuctionPositions againManager, AuctionPeriphery againPeriphery) =
+            deployer.deploy(core, address(0), owner, salt);
         assertEq(address(again), address(auction));
         assertEq(address(againManager), address(manager));
+        assertEq(address(againPeriphery), address(periphery));
     }
 }

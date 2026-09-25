@@ -4,12 +4,18 @@ pragma solidity =0.8.33;
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {ICore} from "../interfaces/ICore.sol";
-import {IFlashAccountant} from "../interfaces/IFlashAccountant.sol";
+import {
+    AUCTION_COLLECT_RENT,
+    AUCTION_COLLECT_SWAP_FEES,
+    AUCTION_FUNDS_SAVED_BALANCE_ID,
+    AUCTION_SAVED_BALANCE_PAIR_TOKEN,
+    AUCTION_UPDATE_BID,
+    IContinuousAuction
+} from "../interfaces/extensions/IContinuousAuction.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {CoreStorageLayout} from "../libraries/CoreStorageLayout.sol";
 import {ExposedStorageLib} from "../libraries/ExposedStorageLib.sol";
-import {FlashAccountantLib} from "../libraries/FlashAccountantLib.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {computeFee, amountBeforeFee} from "../math/fee.sol";
 import {addLiquidityDelta} from "../math/liquidity.sol";
 import {isPowerOfFour} from "../math/isPowerOfFour.sol";
@@ -20,11 +26,9 @@ import {PoolId} from "../types/poolId.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {PositionId} from "../types/positionId.sol";
-import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ReentrancyGuardTransient} from "solady/utils/ReentrancyGuardTransient.sol";
 
 function continuousAuctionCallPoints() pure returns (CallPoints memory) {
@@ -42,34 +46,34 @@ function continuousAuctionCallPoints() pure returns (CallPoints memory) {
 
 /// @notice Continuous first-price auction of privileged swap access to pools whose liquidity providers are paid
 /// rent in a single immutable bid token.
-/// @dev The holder's named executor swaps fee-free. While a pool is rented, any other locker may swap through
-/// forward and pays the holder's fee to the holder. Rent accrues per second to liquidity active over time. Bids
-/// are fully funded, start at timestamp+1, must exceed the scheduled rate, and can be extended or shortened at
-/// any time. Without an active bid the pool does not swap. Rent charged while no liquidity is active is never
-/// refunded. Any pool naming this extension with a zero Core fee may be initialized directly through Core. The
-/// extension has no terms: the only parameters are the bid token and Core.
-contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTransient {
+/// @dev Everything happens through Core forward calls and is keyed by the forwarding locker. The holder's named
+/// executor swaps fee-free; any other locker may swap while the pool is rented and pays the holder's fee. Rent
+/// accrues per second to liquidity active over time. A bid is set with one operation that replaces the locker's
+/// scheduled bid from the next second on; its funding is a Core saved balance of this extension, so the locker
+/// pays or withdraws the difference in the same lock. Without a live bid the pool does not swap. Rent charged
+/// while no liquidity is active is never refunded. Any pool naming this extension with a zero Core fee may be
+/// initialized directly through Core. The extension has no terms: its parameters are Core and the bid token.
+contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, ReentrancyGuardTransient {
     using CoreLib for *;
     using ExposedStorageLib for *;
 
     address public immutable bidToken;
 
     struct Bid {
-        address bidder;
+        // keccak256(abi.encode(locker, salt)); never zero for a real bid.
+        bytes32 bidder;
         uint96 rate;
         address executor;
         uint48 start;
         uint48 end;
+        // A 0.32 fixed-point fraction: the upper 32 bits of Core's 0.64 fee format.
+        uint32 fee;
     }
 
     struct Auction {
         Bid current;
         // Only nonempty within the second it was placed; promoted by the next settlement.
         Bid next;
-        // Fees charged to non-holder swaps, as 0.32 fixed-point fractions: the upper 32 bits of Core's 0.64 fee
-        // format. `fee` applies to the live holder; `nextFee` is the pending bid's and is promoted with it.
-        uint32 fee;
-        uint32 nextFee;
         uint48 lastSettled;
         uint256 growth;
     }
@@ -80,44 +84,41 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
     }
 
     mapping(PoolId => Auction) public auctions;
-    mapping(address => uint256) public refundable;
+    /// @notice Bid-token credit of a bidder from displaced tenure, netted into its next bid update.
+    mapping(bytes32 => uint256) public refundable;
     mapping(PoolId => uint256) public unallocatedRent;
-    mapping(PoolId => mapping(address => uint256)) private _swapFees;
     mapping(PoolId => mapping(int32 => uint256)) public growthOutside;
     mapping(PoolId => mapping(address => mapping(PositionId => PositionRent))) public positionRent;
 
+    error InvalidBidToken();
     error InvalidPool();
     error InvalidBid();
     error BidTooLow();
-    error IncorrectFunding();
-    error NotHolder();
     error PoolClosed();
     error SwapMustHappenThroughForward();
 
-    event FeeUpdated(PoolId indexed poolId, address indexed bidder, uint32 fee);
-    event BidPlaced(
+    event BidUpdated(
         PoolId indexed poolId,
-        address indexed bidder,
-        address executor,
+        address indexed locker,
+        bytes32 salt,
         uint96 rate,
         uint48 start,
         uint48 end,
-        uint32 fee
+        address executor,
+        uint32 fee,
+        int256 delta
     );
-    event BidEndUpdated(PoolId indexed poolId, address indexed bidder, uint48 end);
-    event RefundCredited(address indexed bidder, uint256 amount);
-    event RefundWithdrawn(address indexed bidder, address indexed recipient, uint256 amount);
+    event RefundCredited(bytes32 indexed bidder, uint256 amount);
     event RentAccrued(PoolId indexed poolId, uint256 amount);
     event RentUnallocated(PoolId indexed poolId, uint256 amount);
-    event RentCollected(
-        PoolId indexed poolId, address indexed owner, PositionId positionId, address recipient, uint256 amount
-    );
-    event SwapFeeCharged(PoolId indexed poolId, address indexed bidder, uint128 amount0, uint128 amount1);
-    event SwapFeesWithdrawn(
-        PoolId indexed poolId, address indexed bidder, address recipient, uint128 amount0, uint128 amount1
+    event RentCollected(PoolId indexed poolId, address indexed owner, PositionId positionId, uint256 amount);
+    event SwapFeeCharged(PoolId indexed poolId, bytes32 indexed bidder, uint128 amount0, uint128 amount1);
+    event SwapFeesCollected(
+        PoolId indexed poolId, address indexed locker, bytes32 salt, uint128 amount0, uint128 amount1
     );
 
     constructor(ICore core, address _bidToken) BaseExtension(core) BaseForwardee(core) {
+        if (_bidToken >= AUCTION_SAVED_BALANCE_PAIR_TOKEN) revert InvalidBidToken();
         bidToken = _bidToken;
     }
 
@@ -140,148 +141,136 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         revert SwapMustHappenThroughForward();
     }
 
+    /// FORWARD INTERFACE
+
+    /// @dev Dispatches on the first word. Call types are hashes, so they never collide with a swap payload's
+    /// token0 address.
+    function handleForwardData(Locker original, bytes memory data)
+        internal
+        override
+        nonReentrant
+        returns (bytes memory result)
+    {
+        uint256 callType;
+        assembly ("memory-safe") {
+            callType := mload(add(data, 0x20))
+        }
+        address locker = original.addr();
+
+        if (callType == AUCTION_UPDATE_BID) {
+            (, PoolKey memory key, bytes32 salt, uint96 rate, uint64 end, address executor, uint32 fee) =
+                abi.decode(data, (uint256, PoolKey, bytes32, uint96, uint64, address, uint32));
+            result = abi.encode(_updateBid(key, locker, salt, rate, end, executor, fee));
+        } else if (callType == AUCTION_COLLECT_RENT) {
+            (, PoolKey memory key, PositionId positionId) = abi.decode(data, (uint256, PoolKey, PositionId));
+            result = abi.encode(_collectRent(key, locker, positionId));
+        } else if (callType == AUCTION_COLLECT_SWAP_FEES) {
+            (, PoolKey memory key, bytes32 salt) = abi.decode(data, (uint256, PoolKey, bytes32));
+            (uint128 amount0, uint128 amount1) = _collectSwapFees(key, locker, salt);
+            result = abi.encode(amount0, amount1);
+        } else {
+            (PoolKey memory key, SwapParameters params) = _decodeSwap(data);
+            (PoolBalanceUpdate update, PoolState after_) = _swap(key, locker, params);
+            result = abi.encode(update, after_);
+        }
+    }
+
+    /// @dev Decodes the fixed-size swap payload without copying its pool key, keeping abi.decode's checks.
+    function _decodeSwap(bytes memory data) private pure returns (PoolKey memory poolKey, SwapParameters params) {
+        assembly ("memory-safe") {
+            if lt(mload(data), 0x80) { revert(0, 0) }
+            poolKey := add(data, 0x20)
+            if or(shr(160, mload(poolKey)), shr(160, mload(add(poolKey, 0x20)))) { revert(0, 0) }
+            params := mload(add(poolKey, 0x60))
+        }
+    }
+
     /// BIDDING
 
-    /// @notice Buys the interval [timestamp+1, end) at rate base units per second, displacing the scheduled bid.
-    /// @dev Executor is the authorized Core locker, NOT tx.origin. It must authenticate its own callers.
-    /// Full native funding or ERC20 allowance is required; native excess becomes refundable credit.
-    /// A displaced bid is refunded for the displaced interval. The fee takes effect when the bid activates.
-    function bid(PoolKey calldata key, uint96 rate, uint64 end, address executor, uint32 fee)
-        external
-        payable
-        nonReentrant
-    {
+    /// @notice Sets the locker's bid for [timestamp+1, end): rate base units per second, the authorized executor,
+    /// and the fee charged to other swappers. Rate zero removes the locker's scheduled bid.
+    /// @dev The locker's previous schedule is credited back and any outstanding credit is netted, so the returned
+    /// delta is the net bid-token amount the locker owes (positive) or may withdraw (negative). Another locker's
+    /// scheduled bid is displaced only by a strictly higher rate and is credited for its displaced tenure. The
+    /// executor is a Core locker, NOT tx.origin, and must authenticate its own callers.
+    function _updateBid(
+        PoolKey memory key,
+        address locker,
+        bytes32 salt,
+        uint96 rate,
+        uint64 end,
+        address executor,
+        uint32 fee
+    ) private returns (int256 delta) {
         _validate(key);
         PoolId poolId = key.toPoolId();
-        Auction storage auction = auctions[poolId];
         PoolState state = CORE.poolState(poolId);
         if (!state.isInitialized()) revert InvalidPool();
         _accrue(poolId, state.liquidity());
         if (block.timestamp >= type(uint48).max) revert InvalidBid();
         uint48 start = uint48(block.timestamp + 1);
-        if (rate == 0 || executor == address(0)) revert InvalidBid();
-        _checkEnd(end, start);
+        bytes32 bidder = keccak256(abi.encode(locker, salt));
+        Auction storage auction = auctions[poolId];
+
+        uint256 cost;
+        if (rate != 0) {
+            if (executor == address(0)) revert InvalidBid();
+            _checkEnd(end, start);
+            cost = uint256(rate) * (end - start);
+        }
 
         // The scheduled bid at activation is a same-second pending bid, else the incumbent if it outlasts start.
-        Bid storage scheduled = auction.next.bidder != address(0) ? auction.next : auction.current;
-        if (scheduled.end > start && rate <= scheduled.rate) revert BidTooLow();
+        Bid storage scheduled = auction.next.bidder != bytes32(0) ? auction.next : auction.current;
+        bool live = scheduled.end > start;
+        bool own = live && scheduled.bidder == bidder;
+        if (rate != 0 && live && !own && rate <= scheduled.rate) revert BidTooLow();
 
-        _fund(uint256(rate) * (end - start));
+        uint256 credit = refundable[bidder];
+        if (credit != 0) delete refundable[bidder];
 
-        Bid storage next = auction.next;
-        if (next.bidder != address(0)) {
-            _credit(next.bidder, uint256(next.rate) * (next.end - next.start));
+        if (rate != 0 || own) {
+            Bid storage next = auction.next;
+            if (next.bidder != bytes32(0)) {
+                credit += _credit(next.bidder, bidder, uint256(next.rate) * (next.end - next.start));
+                delete auction.next;
+            }
+            Bid storage current = auction.current;
+            if (current.end > start) {
+                credit += _credit(current.bidder, bidder, uint256(current.rate) * (current.end - start));
+                current.end = start;
+            }
+            if (rate != 0) auction.next = Bid(bidder, rate, executor, start, uint48(end), fee);
         }
-        Bid storage current = auction.current;
-        if (current.end > start) {
-            _credit(current.bidder, uint256(current.rate) * (current.end - start));
-            current.end = start;
+
+        delta = int256(cost) - int256(credit);
+        if (delta != 0) {
+            CORE.updateSavedBalances(
+                bidToken, AUCTION_SAVED_BALANCE_PAIR_TOKEN, AUCTION_FUNDS_SAVED_BALANCE_ID, delta, 0
+            );
         }
-        auction.next = Bid(msg.sender, rate, executor, start, uint48(end));
-        auction.nextFee = fee;
-        emit BidPlaced(poolId, msg.sender, executor, rate, start, uint48(end), fee);
+        emit BidUpdated(poolId, locker, salt, rate, start, uint48(end), executor, fee, delta);
     }
 
-    /// @notice Extends the caller's scheduled bid to a later end at the same rate, funding the added interval.
-    function extend(PoolKey calldata key, uint64 end) external payable nonReentrant {
-        _validate(key);
-        PoolId poolId = key.toPoolId();
-        Auction storage auction = auctions[poolId];
-        _accrue(poolId, CORE.poolState(poolId).liquidity());
-        Bid storage own = _ownBid(auction);
-        if (end <= own.end) revert InvalidBid();
-        uint48 from = own.start > block.timestamp ? own.start : uint48(block.timestamp);
-        _checkEnd(end, from);
-        _fund(uint256(own.rate) * (end - own.end));
-        own.end = uint48(end);
-        emit BidEndUpdated(poolId, msg.sender, uint48(end));
-    }
-
-    /// @notice Shortens the caller's scheduled bid to any end from now on; ending it now is an immediate exit.
-    /// @dev Rent for the relinquished interval becomes refundable credit.
-    function shorten(PoolKey calldata key, uint64 end) external nonReentrant {
-        _validate(key);
-        PoolId poolId = key.toPoolId();
-        Auction storage auction = auctions[poolId];
-        _accrue(poolId, CORE.poolState(poolId).liquidity());
-        Bid storage own = _ownBid(auction);
-        uint256 floor = own.start > block.timestamp ? own.start : block.timestamp;
-        if (end >= own.end || end < floor) revert InvalidBid();
-        _credit(msg.sender, uint256(own.rate) * (own.end - end));
-        own.end = uint48(end);
-        emit BidEndUpdated(poolId, msg.sender, uint48(end));
-    }
-
-    /// @notice Sets the fee charged to non-holder swaps. The live holder changes it immediately; a pending
-    /// bidder changes the fee its bid will activate with.
-    function setFee(PoolKey calldata key, uint32 fee) external nonReentrant {
-        _validate(key);
-        PoolId poolId = key.toPoolId();
-        Auction storage auction = auctions[poolId];
-        _accrue(poolId, CORE.poolState(poolId).liquidity());
-        if (auction.next.bidder == msg.sender) {
-            auction.nextFee = fee;
-        } else {
-            _ownBid(auction);
-            auction.fee = fee;
+    /// @dev Returns the amount when it belongs to the acting bidder, else records it as that bidder's credit.
+    function _credit(bytes32 owner, bytes32 acting, uint256 amount) private returns (uint256 netted) {
+        if (owner == acting) return amount;
+        if (amount != 0) {
+            refundable[owner] += amount;
+            emit RefundCredited(owner, amount);
         }
-        emit FeeUpdated(poolId, msg.sender, fee);
     }
 
-    /// @dev Rent between settlements must fit uint128 for the Q128 growth update. Every bid or extension
-    /// settles first, the pending bid overlaps the incumbent for one second, and rates fit uint96, so bounding
-    /// the remaining tenure below 2**32 seconds keeps the rent of any settlement window below 2**128.
+    /// @dev Rent between settlements must fit uint128 for the Q128 growth update. Every bid update settles
+    /// first, the pending bid overlaps the incumbent for one second, and rates fit uint96, so bounding the
+    /// tenure below 2**32 seconds keeps the rent of any settlement window below 2**128.
     function _checkEnd(uint64 end, uint48 from) private pure {
         if (end <= from || end - from > type(uint32).max) revert InvalidBid();
-    }
-
-    /// @dev The caller's own scheduled bid: its same-second pending bid, else the undisplaced live incumbent.
-    function _ownBid(Auction storage auction) private view returns (Bid storage own) {
-        own = auction.next;
-        if (own.bidder == msg.sender) return own;
-        own = auction.current;
-        if (own.bidder != msg.sender || auction.next.bidder != address(0) || own.end <= block.timestamp) {
-            revert NotHolder();
-        }
-    }
-
-    function _fund(uint256 funding) private {
-        if (bidToken == NATIVE_TOKEN_ADDRESS) {
-            if (msg.value < funding) revert IncorrectFunding();
-            _credit(msg.sender, msg.value - funding);
-        } else {
-            if (msg.value != 0) revert IncorrectFunding();
-            uint256 balance = SafeTransferLib.balanceOf(bidToken, address(this));
-            SafeTransferLib.safeTransferFrom(bidToken, msg.sender, address(this), funding);
-            if (SafeTransferLib.balanceOf(bidToken, address(this)) - balance != funding) revert IncorrectFunding();
-        }
-    }
-
-    function _credit(address bidder, uint256 amount) private {
-        if (amount != 0) {
-            refundable[bidder] += amount;
-            emit RefundCredited(bidder, amount);
-        }
-    }
-
-    /// @notice Withdraws displaced or relinquished funding and excess native payments owned by the caller.
-    function withdrawRefund(address recipient) external nonReentrant returns (uint256 amount) {
-        amount = refundable[msg.sender];
-        delete refundable[msg.sender];
-        _pay(recipient, amount);
-        emit RefundWithdrawn(msg.sender, recipient, amount);
-    }
-
-    function _pay(address recipient, uint256 amount) private {
-        if (amount == 0) return;
-        if (bidToken == NATIVE_TOKEN_ADDRESS) SafeTransferLib.safeTransferETH(recipient, amount);
-        else SafeTransferLib.safeTransfer(bidToken, recipient, amount);
     }
 
     /// @dev The bid holding the pool now, if any. Before settlement a pending bid may already be live.
     function _activeBid(Auction storage auction) private view returns (Bid storage active, bool live) {
         active = auction.next;
-        if (active.bidder == address(0) || active.start > block.timestamp) active = auction.current;
+        if (active.bidder == bytes32(0) || active.start > block.timestamp) active = auction.current;
         live = active.start <= block.timestamp && block.timestamp < active.end;
     }
 
@@ -318,11 +307,10 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         uint48 from = auction.lastSettled;
         if (from == now_) return;
         uint256 rent = _rentBetween(auction.current, from, now_);
-        if (auction.next.bidder != address(0)) {
+        if (auction.next.bidder != bytes32(0)) {
             // The pending bid was placed at `from`, so it is live now and the incumbent ended at its start.
             rent += _rentBetween(auction.next, from, now_);
             auction.current = auction.next;
-            auction.fee = auction.nextFee;
             delete auction.next;
         }
         auction.lastSettled = now_;
@@ -344,13 +332,10 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
 
     /// SWAPS
 
-    function handleForwardData(Locker original, bytes memory data)
-        internal
-        override
-        nonReentrant
-        returns (bytes memory result)
+    function _swap(PoolKey memory key, address locker, SwapParameters params)
+        private
+        returns (PoolBalanceUpdate update, PoolState after_)
     {
-        (PoolKey memory key, SwapParameters params) = abi.decode(data, (PoolKey, SwapParameters));
         _validate(key);
         PoolId poolId = key.toPoolId();
         Auction storage auction = auctions[poolId];
@@ -358,22 +343,21 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         _accrue(poolId, before_.liquidity());
         (Bid storage active, bool live) = _activeBid(auction);
         if (!live) revert PoolClosed();
-        (PoolBalanceUpdate update, PoolState after_) = CORE.swap(0, key, params);
-        if (original.addr() != active.executor) {
-            update = _chargeSwapFee(key, poolId, active.bidder, params, update, uint64(auction.fee) << 32);
+        (update, after_) = CORE.swap(0, key, params);
+        if (locker != active.executor) {
+            update = _chargeSwapFee(key, poolId, active.bidder, params, update, uint64(active.fee) << 32);
         }
         if (key.config.isConcentrated()) {
             _cross(poolId, before_.tick(), after_.tick(), key.config.concentratedTickSpacing(), params.skipAhead());
         }
-        result = abi.encode(update, after_);
     }
 
     /// @dev Charges the holder's fee on the swapper's output, or on its input for exact-output swaps, and saves
-    /// it for the holder in Core under the pool's salt.
+    /// it for the holder in Core under the bidder's salt.
     function _chargeSwapFee(
         PoolKey memory key,
         PoolId poolId,
-        address bidder,
+        bytes32 bidder,
         SwapParameters params,
         PoolBalanceUpdate update,
         uint64 fee
@@ -402,57 +386,48 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
             }
         }
         if (fee0 != 0 || fee1 != 0) {
-            _swapFees[poolId][bidder] += (uint256(fee0) << 128) | fee1;
             CORE.updateSavedBalances(
-                key.token0, key.token1, PoolId.unwrap(poolId), int256(uint256(fee0)), int256(uint256(fee1))
+                key.token0, key.token1, _feeSalt(poolId, bidder), int256(uint256(fee0)), int256(uint256(fee1))
             );
             emit SwapFeeCharged(poolId, bidder, fee0, fee1);
         }
         return createPoolBalanceUpdate(delta0, delta1);
     }
 
-    /// @notice Swap fees owed to a bidder for a pool, in the pool's tokens.
-    function swapFeesOwed(PoolId poolId, address bidder) external view returns (uint128 amount0, uint128 amount1) {
-        uint256 packed = _swapFees[poolId][bidder];
+    function _feeSalt(PoolId poolId, bytes32 bidder) private pure returns (bytes32) {
+        return keccak256(abi.encode(poolId, bidder));
+    }
+
+    function _savedFees(PoolKey memory key, bytes32 salt) private view returns (uint128 amount0, uint128 amount1) {
+        uint256 packed =
+            uint256(CORE.sload(CoreStorageLayout.savedBalancesSlot(address(this), key.token0, key.token1, salt)));
         amount0 = uint128(packed >> 128);
         amount1 = uint128(packed);
     }
 
-    /// @notice Withdraws the caller's swap fees for the pool to recipient.
-    function withdrawSwapFees(PoolKey calldata key, address recipient)
+    /// @notice Swap fees owed to a bidder for a pool, in the pool's tokens.
+    function swapFeesOwed(PoolKey calldata key, address locker, bytes32 salt)
         external
-        nonReentrant
+        view
+        returns (uint128 amount0, uint128 amount1)
+    {
+        (amount0, amount1) = _savedFees(key, _feeSalt(key.toPoolId(), keccak256(abi.encode(locker, salt))));
+    }
+
+    /// @dev Moves the bidder's saved fees to the forwarding locker, which withdraws them.
+    function _collectSwapFees(PoolKey memory key, address locker, bytes32 salt)
+        private
         returns (uint128 amount0, uint128 amount1)
     {
         PoolId poolId = key.toPoolId();
-        uint256 packed = _swapFees[poolId][msg.sender];
-        if (packed == 0) return (0, 0);
-        delete _swapFees[poolId][msg.sender];
-        amount0 = uint128(packed >> 128);
-        amount1 = uint128(packed);
-        (bool success, bytes memory result) = address(CORE)
-            .call(
-                abi.encodePacked(
-                    IFlashAccountant.lock.selector,
-                    abi.encode(key.token0, key.token1, poolId, amount0, amount1, recipient)
-                )
+        bytes32 feeSalt = _feeSalt(poolId, keccak256(abi.encode(locker, salt)));
+        (amount0, amount1) = _savedFees(key, feeSalt);
+        if (amount0 != 0 || amount1 != 0) {
+            CORE.updateSavedBalances(
+                key.token0, key.token1, feeSalt, -int256(uint256(amount0)), -int256(uint256(amount1))
             );
-        if (!success) {
-            assembly ("memory-safe") {
-                revert(add(result, 32), mload(result))
-            }
         }
-        emit SwapFeesWithdrawn(poolId, msg.sender, recipient, amount0, amount1);
-    }
-
-    /// @dev Core lock callback used only by withdrawSwapFees.
-    function locked_6416899205(uint256) external onlyCore {
-        (address token0, address token1, PoolId poolId, uint128 amount0, uint128 amount1, address recipient) =
-            abi.decode(msg.data[36:], (address, address, PoolId, uint128, uint128, address));
-        CORE.updateSavedBalances(
-            token0, token1, PoolId.unwrap(poolId), -int256(uint256(amount0)), -int256(uint256(amount1))
-        );
-        FlashAccountantLib.withdrawTwo(CORE, token0, token1, recipient, amount0, amount1);
+        emit SwapFeesCollected(poolId, locker, salt, amount0, amount1);
     }
 
     /// LIQUIDITY PROVIDER RENT
@@ -512,22 +487,22 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         }
     }
 
-    /// @notice Collects rent for a Core position owned by msg.sender, including after full withdrawal.
-    function collectRent(PoolKey calldata key, PositionId positionId, address recipient)
-        external
-        nonReentrant
-        returns (uint256 amount)
-    {
+    /// @dev Moves the position's earned rent to the forwarding locker, which withdraws the bid token.
+    function _collectRent(PoolKey memory key, address owner, PositionId positionId) private returns (uint256 amount) {
         _validate(key);
         PoolId poolId = key.toPoolId();
         PoolState state = CORE.poolState(poolId);
         _accrue(poolId, state.liquidity());
-        _checkpoint(key, msg.sender, positionId, state.tick(), _liquidity(poolId, msg.sender, positionId));
-        PositionRent storage rent = positionRent[poolId][msg.sender][positionId];
+        _checkpoint(key, owner, positionId, state.tick(), _liquidity(poolId, owner, positionId));
+        PositionRent storage rent = positionRent[poolId][owner][positionId];
         amount = rent.owed;
-        rent.owed = 0;
-        _pay(recipient, amount);
-        emit RentCollected(poolId, msg.sender, positionId, recipient, amount);
+        if (amount != 0) {
+            rent.owed = 0;
+            CORE.updateSavedBalances(
+                bidToken, AUCTION_SAVED_BALANCE_PAIR_TOKEN, AUCTION_FUNDS_SAVED_BALANCE_ID, -int256(amount), 0
+            );
+        }
+        emit RentCollected(poolId, owner, positionId, amount);
     }
 
     /// @notice Claimable rent using already-accrued state. Call accrue first to include elapsed rent.

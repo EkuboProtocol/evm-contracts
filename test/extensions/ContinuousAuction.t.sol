@@ -5,9 +5,17 @@ import {FullTest} from "../FullTest.sol";
 import {TestToken} from "../TestToken.sol";
 import {ContinuousAuction, continuousAuctionCallPoints} from "../../src/extensions/ContinuousAuction.sol";
 import {AuctionPositions} from "../../src/AuctionPositions.sol";
+import {AuctionPeriphery} from "../../src/AuctionPeriphery.sol";
+import {
+    AUCTION_FUNDS_SAVED_BALANCE_ID,
+    AUCTION_SAVED_BALANCE_PAIR_TOKEN
+} from "../../src/interfaces/extensions/IContinuousAuction.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
+import {ContinuousAuctionLib} from "../../src/libraries/ContinuousAuctionLib.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
+import {CoreStorageLayout} from "../../src/libraries/CoreStorageLayout.sol";
+import {ExposedStorageLib} from "../../src/libraries/ExposedStorageLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolId} from "../../src/types/poolId.sol";
@@ -21,6 +29,7 @@ import {computeFee} from "../../src/math/fee.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+/// @dev A Core locker that swaps through the auction and settles with its owner's tokens.
 contract AuctionExecutor is BaseLocker {
     using CoreLib for *;
     using FlashAccountantLib for *;
@@ -46,37 +55,13 @@ contract AuctionExecutor is BaseLocker {
         if (direct) {
             (update,) = core.swap(0, key, params);
         } else {
-            (bool ok, bytes memory result) = address(core)
-                .call(
-                    abi.encodePacked(bytes4(keccak256("forward(address)")), abi.encode(address(auction), key, params))
-                );
-            if (!ok) {
-                assembly ("memory-safe") {
-                    revert(add(result, 32), mload(result))
-                }
-            }
-            (update,) = abi.decode(result, (PoolBalanceUpdate, PoolState));
+            (update,) = ContinuousAuctionLib.swap(core, address(auction), key, params);
         }
         if (update.delta0() > 0) ACCOUNTANT.payFrom(owner, key.token0, uint128(update.delta0()));
         else if (update.delta0() < 0) ACCOUNTANT.withdraw(key.token0, owner, uint128(-update.delta0()));
         if (update.delta1() > 0) ACCOUNTANT.payFrom(owner, key.token1, uint128(update.delta1()));
         else if (update.delta1() < 0) ACCOUNTANT.withdraw(key.token1, owner, uint128(-update.delta1()));
         return abi.encode(update);
-    }
-}
-
-contract AuctionReenterReceiver {
-    address public target;
-    bytes public payload;
-    bool public reentered;
-
-    function configure(address target_, bytes memory payload_) external {
-        target = target_;
-        payload = payload_;
-    }
-
-    receive() external payable {
-        (reentered,) = target.call(payload);
     }
 }
 
@@ -90,9 +75,11 @@ contract TaxedAuctionToken is TestToken {
 
 contract ContinuousAuctionTest is FullTest {
     using CoreLib for *;
+    using ExposedStorageLib for *;
 
     ContinuousAuction auction;
-    AuctionPositions auctionPositions;
+    AuctionPositions manager;
+    AuctionPeriphery periphery;
     AuctionExecutor executor;
     AuctionExecutor outsider;
     PoolKey key;
@@ -105,6 +92,7 @@ contract ContinuousAuctionTest is FullTest {
     uint96 constant RATE = 1e12;
     uint32 constant FEE = 42949672; // 1% as a 0.32 fixed-point fraction
     uint64 constant FEE64 = uint64(FEE) << 32;
+    bytes32 constant SALT = bytes32(0);
 
     function setUp() public override {
         super.setUp();
@@ -112,17 +100,19 @@ contract ContinuousAuctionTest is FullTest {
         vm.roll(10);
         vm.deal(address(this), 1e30);
         auction = _deploy(address(0), 0);
-        auctionPositions = new AuctionPositions(core, auction, owner);
-        positions = auctionPositions;
+        manager = new AuctionPositions(core, auction, owner);
+        periphery = new AuctionPeriphery(core, auction);
         executor = new AuctionExecutor(core, auction);
         outsider = new AuctionExecutor(core, auction);
         token0.approve(address(executor), type(uint256).max);
         token1.approve(address(executor), type(uint256).max);
         token0.approve(address(outsider), type(uint256).max);
         token1.approve(address(outsider), type(uint256).max);
+        token0.approve(address(manager), type(uint256).max);
+        token1.approve(address(manager), type(uint256).max);
         key = createPool(0, 0, 16, address(auction));
         poolId = key.toPoolId();
-        (nft, liquidity) = createPosition(key, -1600, 1600, 1e18, 1e18);
+        (nft, liquidity) = _createPosition(key, -1600, 1600, 1e18, 1e18);
     }
 
     function _deploy(address token, uint160 salt) private returns (ContinuousAuction a) {
@@ -131,15 +121,50 @@ contract ContinuousAuctionTest is FullTest {
         return ContinuousAuction(target);
     }
 
-    function _bid(address bidder, uint96 rate, uint64 end, address exec) private {
-        _bid(key, bidder, rate, end, exec);
+    function _createPosition(PoolKey memory k, int32 lower, int32 upper, uint128 amount0, uint128 amount1)
+        private
+        returns (uint256 id, uint128 liq)
+    {
+        (id, liq,,) = manager.mintAndDeposit(k, lower, upper, amount0, amount1, 0);
     }
 
+    function _id(address user) private view returns (bytes32) {
+        return periphery.bidderId(user, SALT);
+    }
+
+    /// @dev Places or replaces `bidder`'s bid, funding exactly the net amount the extension charges.
     function _bid(PoolKey memory k, address bidder, uint96 rate, uint64 end, address exec) private {
         uint256 funding = uint256(rate) * (end - block.timestamp - 1);
         vm.deal(bidder, bidder.balance + funding);
         vm.prank(bidder);
-        auction.bid{value: funding}(k, rate, end, exec, FEE);
+        periphery.updateBid{value: funding}(k, SALT, rate, end, exec, FEE, bidder);
+        vm.prank(bidder);
+        periphery.refundNativeToken();
+    }
+
+    function _bid(address bidder, uint96 rate, uint64 end, address exec) private {
+        _bid(key, bidder, rate, end, exec);
+    }
+
+    /// @dev Removes `bidder`'s scheduled bid, if any, and withdraws its credit. Returns the amount withdrawn.
+    function _remove(address bidder) private returns (uint256 refund) {
+        vm.prank(bidder);
+        int256 delta = periphery.updateBid(key, SALT, 0, 0, address(0), 0, bidder);
+        refund = uint256(-delta);
+    }
+
+    function _fees(address user) private view returns (uint128 amount0, uint128 amount1) {
+        return auction.swapFeesOwed(key, address(periphery), periphery.bidderSalt(user, SALT));
+    }
+
+    function _funds() private view returns (uint256) {
+        return uint256(
+            core.sload(
+            CoreStorageLayout.savedBalancesSlot(
+            address(auction), address(0), AUCTION_SAVED_BALANCE_PAIR_TOKEN, AUCTION_FUNDS_SAVED_BALANCE_ID
+        )
+        )
+        ) >> 128;
     }
 
     function _time(uint256 time) private {
@@ -148,7 +173,7 @@ contract ContinuousAuctionTest is FullTest {
     }
 
     function _claim(uint256 id, int32 lower, int32 upper) private returns (uint256) {
-        return auctionPositions.collectRent(id, key, lower, upper, address(this));
+        return manager.collectRent(id, key, lower, upper, address(this));
     }
 
     function _params(int128 amount, bool isToken1, int32 limit) private pure returns (SwapParameters) {
@@ -157,11 +182,7 @@ contract ContinuousAuctionTest is FullTest {
         });
     }
 
-    function _minimumOutbid(uint96 rate) private pure returns (uint96) {
-        return rate + 1;
-    }
-
-    /// POOL CREATION
+    /// POOLS
 
     function test_anyoneCreatesPoolsDirectlyAndThereAreNoTerms() public {
         PoolKey memory k = key;
@@ -174,13 +195,13 @@ contract ContinuousAuctionTest is FullTest {
         k.config = createConcentratedPoolConfig(0, 64, address(auction));
         vm.prank(alice);
         core.initializePool(k, 0);
-        (,, uint32 fee, uint32 nextFee, uint48 lastSettled,) = auction.auctions(k.toPoolId());
-        assertEq(fee, 0);
-        assertEq(nextFee, 0);
+        (,, uint48 lastSettled,) = auction.auctions(k.toPoolId());
         assertEq(lastSettled, 0);
         k.config = createConcentratedPoolConfig(0, 256, address(auction));
+        vm.deal(alice, 1e20);
+        vm.prank(alice);
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
-        auction.bid{value: 1e20}(k, RATE, 512, alice, FEE); // Bids require an initialized pool.
+        periphery.updateBid{value: 1e20}(k, SALT, RATE, 512, alice, FEE, alice); // Bids need an initialized pool.
     }
 
     /// ACCESS
@@ -200,16 +221,15 @@ contract ContinuousAuctionTest is FullTest {
         vm.expectRevert(ContinuousAuction.SwapMustHappenThroughForward.selector);
         executor.swap(key, params, true);
         outsider.swap(key, params, false);
-        (, uint128 fee1) = auction.swapFeesOwed(poolId, alice);
-        assertEq(fee1, 0);
-        (uint128 fee0,) = auction.swapFeesOwed(poolId, alice);
+        (uint128 fee0, uint128 fee1) = _fees(alice);
         assertGt(fee0, 0);
-        _bid(bob, _minimumOutbid(RATE), 256, address(outsider));
+        assertEq(fee1, 0);
+        _bid(bob, RATE + 1, 256, address(outsider));
         executor.swap(key, params, false); // Incumbent retains the current second.
         _time(102);
         assertEq(auction.executorAt(poolId), address(outsider));
         PoolBalanceUpdate charged = executor.swap(key, params, false); // The old executor now pays the fee.
-        (uint128 after0,) = auction.swapFeesOwed(poolId, bob);
+        (uint128 after0,) = _fees(bob);
         assertEq(after0, computeFee(uint128(-charged.delta0()) + after0, FEE64));
         _time(256);
         vm.expectRevert(ContinuousAuction.PoolClosed.selector);
@@ -222,7 +242,7 @@ contract ContinuousAuctionTest is FullTest {
         _time(101);
         PoolBalanceUpdate charged = outsider.swap(key, _params(-1000, false, 100), false);
         assertEq(charged.delta0(), -1000);
-        (, uint128 fee1) = auction.swapFeesOwed(poolId, alice);
+        (, uint128 fee1) = _fees(alice);
         assertGt(fee1, 0);
         assertEq(
             uint128(charged.delta1()),
@@ -230,67 +250,58 @@ contract ContinuousAuctionTest is FullTest {
         );
     }
 
-    function test_holderWithdrawsSwapFees() public {
+    function test_holderCollectsSwapFeesThroughPeriphery() public {
         _bid(alice, RATE, 512, address(executor));
         _time(101);
         outsider.swap(key, _params(1e17, true, 100), false);
         outsider.swap(key, _params(1e17, false, -100), false);
-        (uint128 fee0, uint128 fee1) = auction.swapFeesOwed(poolId, alice);
+        (uint128 fee0, uint128 fee1) = _fees(alice);
         assertGt(fee0, 0);
         assertGt(fee1, 0);
         vm.prank(bob);
-        (uint128 none0, uint128 none1) = auction.withdrawSwapFees(key, bob);
+        (uint128 none0, uint128 none1) = periphery.collectSwapFees(key, SALT, bob);
         assertEq(none0 + none1, 0);
         vm.prank(alice);
-        (uint128 paid0, uint128 paid1) = auction.withdrawSwapFees(key, carol);
+        (uint128 paid0, uint128 paid1) = periphery.collectSwapFees(key, SALT, carol);
         assertEq(paid0, fee0);
         assertEq(paid1, fee1);
         assertEq(token0.balanceOf(carol), fee0);
         assertEq(token1.balanceOf(carol), fee1);
-        (fee0, fee1) = auction.swapFeesOwed(poolId, alice);
+        (fee0, fee1) = _fees(alice);
         assertEq(fee0 + fee1, 0);
     }
 
     function test_feeTravelsWithTheBidAndOnlyTheLiveHolderChangesItNow() public {
-        vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.NotHolder.selector);
-        auction.setFee(key, FEE / 2);
         _bid(alice, RATE, 512, address(executor));
         _time(101);
         PoolBalanceUpdate charged = outsider.swap(key, _params(1e17, true, 100), false);
-        (uint128 fee0,) = auction.swapFeesOwed(poolId, alice);
+        (uint128 fee0,) = _fees(alice);
         assertEq(fee0, computeFee(uint128(-charged.delta0()) + fee0, FEE64));
+        // Replacing the own bid with a zero fee takes effect next second.
         vm.prank(alice);
-        auction.setFee(key, 0);
+        periphery.updateBid(key, SALT, RATE, 512, address(executor), 0, alice);
         outsider.swap(key, _params(1e17, false, -100), false);
-        (uint128 after0, uint128 after1) = auction.swapFeesOwed(poolId, alice);
-        assertEq(after0, fee0);
-        assertEq(after1, 0);
-        // A pending bidder's fee does not touch the incumbent's last second.
-        vm.deal(bob, 1e20);
-        vm.prank(bob);
-        auction.bid{value: 1e20}(key, RATE * 2, 512, bob, FEE);
-        vm.prank(bob);
-        auction.setFee(key, FEE / 2);
-        (,, uint32 fee, uint32 nextFee,,) = auction.auctions(poolId);
-        assertEq(fee, 0);
-        assertEq(nextFee, FEE / 2);
-        outsider.swap(key, _params(1e17, true, 100), false);
-        (uint128 still0,) = auction.swapFeesOwed(poolId, alice);
+        (uint128 still0, uint128 still1) = _fees(alice);
         assertEq(still0, fee0);
-        vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.NotHolder.selector); // Displaced incumbents lose control of the fee.
-        auction.setFee(key, FEE);
+        assertGt(still1, 0);
         _time(102);
+        outsider.swap(key, _params(1e17, true, 100), false);
+        (uint128 free0,) = _fees(alice);
+        assertEq(free0, fee0);
+        // A pending bidder's fee applies at activation, not during the incumbent's last second.
+        _bid(bob, RATE * 2, 512, bob);
+        outsider.swap(key, _params(1e17, false, -100), false);
+        (, uint128 alice1) = _fees(alice);
+        assertEq(alice1, still1);
+        _time(103);
         charged = executor.swap(key, _params(1e17, false, -100), false);
-        (,, fee,,,) = auction.auctions(poolId);
-        assertEq(fee, FEE / 2);
-        (, uint128 bob1) = auction.swapFeesOwed(poolId, bob);
-        assertEq(bob1, computeFee(uint128(-charged.delta1()) + bob1, uint64(FEE / 2) << 32));
+        (, uint128 bob1) = _fees(bob);
+        assertEq(bob1, computeFee(uint128(-charged.delta1()) + bob1, FEE64));
         vm.prank(bob);
-        auction.setFee(key, type(uint32).max); // No cap: a near-total fee makes the pool exclusive in practice.
+        periphery.updateBid(key, SALT, RATE * 2, 512, bob, type(uint32).max, bob); // No cap.
+        _time(104);
         PoolBalanceUpdate exclusive = executor.swap(key, _params(1e17, true, 100), false);
-        (uint128 bob0,) = auction.swapFeesOwed(poolId, bob);
+        (uint128 bob0,) = _fees(bob);
         assertGt(bob0, 0);
         assertLt(uint128(-exclusive.delta0()) * 1e6, bob0); // The swapper keeps about 2**-32 of the output.
     }
@@ -298,41 +309,42 @@ contract ContinuousAuctionTest is FullTest {
     /// BIDDING RULES
 
     function test_bidValidationAndStrictOutbid() public {
-        vm.deal(address(this), 1e30);
-        vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.bid{value: 1e20}(key, 0, 512, alice, FEE);
-        vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.bid{value: 1e20}(key, RATE, 101, alice, FEE); // A bid must last at least one second.
-        vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.bid{value: 1e20}(key, RATE, 512, address(0), FEE);
-        vm.expectRevert(ContinuousAuction.IncorrectFunding.selector);
-        auction.bid{value: 1}(key, RATE, 512, alice, FEE);
-        _bid(alice, RATE, 512, alice);
-        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
-        auction.bid{value: 1e20}(key, RATE, 512, bob, FEE); // Equal rates do not displace.
         vm.deal(alice, 1e20);
+        vm.deal(bob, 1e20);
         vm.prank(alice);
+        vm.expectRevert(ContinuousAuction.InvalidBid.selector);
+        periphery.updateBid{value: 1e20}(key, SALT, RATE, 101, alice, FEE, alice); // At least one second.
+        vm.prank(alice);
+        vm.expectRevert(ContinuousAuction.InvalidBid.selector);
+        periphery.updateBid{value: 1e20}(key, SALT, RATE, 512, address(0), FEE, alice);
+        vm.prank(alice);
+        vm.expectRevert();
+        periphery.updateBid{value: 1}(key, SALT, RATE, 512, alice, FEE, alice); // Underfunded lock reverts.
+        _bid(alice, RATE, 512, alice);
+        vm.prank(bob);
         vm.expectRevert(ContinuousAuction.BidTooLow.selector);
-        auction.bid{value: 1e20}(key, RATE, 512, alice, FEE);
-        _bid(alice, RATE + 1, 512, alice); // The scheduled bidder may raise its own rate.
-        assertEq(auction.refundable(alice), uint256(RATE) * (512 - 101));
-        _bid(bob, RATE + 2, 512, bob);
+        periphery.updateBid{value: 1e20}(key, SALT, RATE, 512, bob, FEE, bob); // Equal rates do not displace.
+        _bid(alice, RATE + 1, 512, alice); // The scheduled bidder replaces its own bid at any rate.
+        assertEq(auction.refundable(_id(alice)), 0);
+        _bid(alice, RATE - 1, 512, alice); // Including a lower one.
+        _bid(bob, RATE, 512, bob);
         _time(101);
         assertEq(auction.executorAt(poolId), bob);
         _time(512);
+        vm.prank(alice);
         vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.bid{value: 1e20}(key, RATE, 513 + uint64(type(uint32).max) + 1, alice, FEE);
+        periphery.updateBid{value: 1e20}(key, SALT, RATE, 513 + uint64(type(uint32).max) + 1, alice, FEE, alice);
         _bid(carol, 1, 1024, carol); // An expired incumbent need not be outbid, and there is no reserve.
         _time(513);
         assertEq(auction.executorAt(poolId), carol);
     }
 
-    function test_displacementRefundsRemainderAndTransfersAccess() public {
+    function test_displacementCreditsRemainderAndTransfersAccess() public {
         _bid(alice, RATE, 1024, alice);
         _time(200);
         _bid(bob, RATE * 2, 512, bob);
         assertEq(auction.executorAt(poolId), alice);
-        assertEq(auction.refundable(alice), uint256(RATE) * (1024 - 201));
+        assertEq(auction.refundable(_id(alice)), uint256(RATE) * (1024 - 201));
         _time(201);
         assertEq(auction.executorAt(poolId), bob);
         _time(600);
@@ -340,96 +352,104 @@ contract ContinuousAuctionTest is FullTest {
         uint256 expected = uint256(RATE) * (201 - 101) + uint256(RATE) * 2 * (512 - 201);
         uint256 paid = _claim(nft, -1600, 1600);
         assertApproxEqAbs(paid, expected, 2);
-        vm.prank(alice);
-        uint256 refund = auction.withdrawRefund(alice);
+        uint256 refund = _remove(alice);
         assertEq(refund, uint256(RATE) * (1024 - 201));
         assertEq(alice.balance, refund);
-        assertEq(address(auction).balance, expected - paid);
+        assertEq(_funds(), expected - paid);
     }
 
-    function test_sameSecondPendingBidIsFullyRefundedWhenReplaced() public {
+    function test_sameSecondPendingBidIsFullyCreditedWhenReplaced() public {
         _bid(alice, RATE, 1024, alice);
         _time(150);
         _bid(bob, RATE * 2, 768, bob);
         _bid(carol, RATE * 3, 256, carol);
-        assertEq(auction.refundable(alice), uint256(RATE) * (1024 - 151));
-        assertEq(auction.refundable(bob), uint256(RATE) * 2 * (768 - 151));
+        assertEq(auction.refundable(_id(alice)), uint256(RATE) * (1024 - 151));
+        assertEq(auction.refundable(_id(bob)), uint256(RATE) * 2 * (768 - 151));
         assertEq(auction.executorAt(poolId), alice);
         _time(151);
         assertEq(auction.executorAt(poolId), carol);
         ContinuousAuction.Bid memory h = auction.holder(poolId);
-        assertEq(h.bidder, carol);
+        assertEq(h.bidder, _id(carol));
         assertEq(h.start, 151);
         assertEq(h.end, 256);
         _time(256);
         uint256 expected = uint256(RATE) * (151 - 101) + uint256(RATE) * 3 * (256 - 151);
         assertApproxEqAbs(_claim(nft, -1600, 1600), expected, 2);
-        assertEq(auction.holder(poolId).bidder, address(0));
+        assertEq(auction.holder(poolId).bidder, bytes32(0));
     }
 
-    function test_extendAndShortenIncludingImmediateExit() public {
-        _bid(alice, RATE, 400, alice);
-        vm.prank(bob);
-        vm.expectRevert(ContinuousAuction.NotHolder.selector);
-        auction.extend{value: 0}(key, 800);
-        vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.extend(key, 400);
-        vm.deal(alice, 1);
-        vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.IncorrectFunding.selector);
-        auction.extend{value: 1}(key, 800);
-        vm.deal(alice, uint256(RATE) * 400 + 5);
-        vm.prank(alice);
-        auction.extend{value: uint256(RATE) * 400 + 5}(key, 800);
-        assertEq(auction.refundable(alice), 5);
-        assertEq(auction.holder(poolId).bidder, address(0)); // Not live until the next second.
-        _time(300);
-        assertEq(auction.holder(poolId).end, 800);
-        vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.shorten(key, 299);
-        vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.shorten(key, 800);
-        vm.prank(alice);
-        auction.shorten(key, 400);
-        assertEq(auction.refundable(alice), 5 + uint256(RATE) * (800 - 400));
-        _time(399);
-        assertEq(auction.executorAt(poolId), alice);
-        vm.prank(alice);
-        auction.shorten(key, 399); // Immediate exit: rent through now is settled and the pool closes.
-        assertEq(auction.executorAt(poolId), address(0));
-        assertEq(auction.refundable(alice), 5 + uint256(RATE) * (800 - 399));
-        _time(400);
-        assertEq(auction.executorAt(poolId), address(0));
-        vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.NotHolder.selector);
-        auction.extend(key, 900);
-        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * (399 - 101), 3);
-    }
-
-    function test_displacedIncumbentCannotExtendOrShorten() public {
+    function test_creditIsNettedIntoTheNextBid() public {
         _bid(alice, RATE, 1024, alice);
         _time(200);
         _bid(bob, RATE * 2, 512, bob);
+        uint256 credit = auction.refundable(_id(alice));
+        _time(300);
+        uint256 funding = uint256(RATE) * 3 * (2048 - 301);
+        vm.deal(alice, funding);
         vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.NotHolder.selector);
-        auction.extend(key, 2048);
+        int256 delta = periphery.updateBid{value: funding}(key, SALT, RATE * 3, 2048, alice, FEE, alice);
+        assertEq(uint256(delta), funding - credit);
+        assertEq(auction.refundable(_id(alice)), 0);
         vm.prank(alice);
-        vm.expectRevert(ContinuousAuction.NotHolder.selector);
-        auction.shorten(key, 300);
-        vm.deal(bob, uint256(RATE) * 2 * 100);
+        periphery.refundNativeToken();
+        assertEq(alice.balance, credit);
+    }
+
+    function test_replaceOwnBidExtendsShortensAndExitsImmediately() public {
+        _bid(alice, RATE, 400, alice);
         vm.prank(bob);
-        auction.extend{value: uint256(RATE) * 2 * 100}(key, 612); // The pending bidder may extend.
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, RATE, 800, bob, FEE, bob);
+        // Extend: the own pending bid is replaced; the delta is the added tenure.
+        vm.deal(alice, uint256(RATE) * 400 + 5);
+        vm.prank(alice);
+        int256 delta = periphery.updateBid{value: uint256(RATE) * 400 + 5}(key, SALT, RATE, 800, alice, FEE, alice);
+        assertEq(delta, int256(uint256(RATE) * 400));
+        vm.prank(alice);
+        periphery.refundNativeToken();
+        assertEq(alice.balance, 5);
+        assertEq(auction.holder(poolId).bidder, bytes32(0)); // Not live until the next second.
+        _time(300);
+        assertEq(auction.holder(poolId).end, 800);
+        // Shorten: the live bid ends at the next second and the new schedule is paid net.
+        vm.prank(alice);
+        delta = periphery.updateBid(key, SALT, RATE, 400, alice, FEE, alice);
+        assertEq(delta, -int256(uint256(RATE) * (800 - 400)));
+        assertEq(alice.balance, 5 + uint256(RATE) * 400);
+        _time(399);
+        assertEq(auction.executorAt(poolId), alice);
+        // Exit: rate zero removes the schedule from the next second and withdraws the remainder.
+        uint256 refund = _remove(alice);
+        assertEq(refund, uint256(RATE) * (400 - 400));
+        assertEq(auction.executorAt(poolId), alice); // Still holds the current second.
+        _time(400);
+        assertEq(auction.executorAt(poolId), address(0));
+        _bid(alice, RATE, 2048, alice);
+        _time(500);
+        refund = _remove(alice);
+        assertEq(refund, uint256(RATE) * (2048 - 501));
+        _time(501);
+        assertEq(auction.executorAt(poolId), address(0));
+        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * (400 - 101) + uint256(RATE) * (501 - 401), 3);
+    }
+
+    function test_displacedIncumbentCannotTouchItsFormerSchedule() public {
+        _bid(alice, RATE, 1024, alice);
+        _time(200);
+        _bid(bob, RATE * 2, 512, bob);
+        uint256 credit = auction.refundable(_id(alice));
+        uint256 refund = _remove(alice); // Nothing scheduled to remove; the credit is withdrawn.
+        assertEq(refund, credit);
+        assertEq(auction.executorAt(poolId), alice); // The current second is unaffected.
         _time(201);
-        assertEq(auction.holder(poolId).end, 612);
+        assertEq(auction.executorAt(poolId), bob);
+        assertEq(auction.holder(poolId).end, 512);
     }
 
     /// RENT ALLOCATION
 
     function test_parkedPriceIsArbitragedBackByOutsiders() public {
-        (uint256 dust, uint128 dustLiquidity) = createPosition(key, 3200, 3216, 1e15, 0);
+        (uint256 dust, uint128 dustLiquidity) = _createPosition(key, 3200, 3216, 1e15, 0);
         _bid(alice, RATE, 1024, address(executor));
         _time(101);
         // The holder parks the price in its own dust range above every other position.
@@ -439,11 +459,11 @@ contract ContinuousAuctionTest is FullTest {
         _time(201);
         assertEq(_claim(nft, -1600, 1600), 0);
         assertApproxEqAbs(_claim(dust, 3200, 3216), uint256(RATE) * 100, 1);
-        // Anyone can swap the price back at the pool fee, so the parked price only survives inside the fee band.
+        // Anyone can swap the price back at the holder's fee, so the parked price only survives inside the band.
         outsider.swap(key, _params(5e18, false, 0), false);
         assertEq(core.poolState(poolId).tick(), 0);
         assertEq(core.poolState(poolId).liquidity(), liquidity);
-        (, uint128 fee1) = auction.swapFeesOwed(poolId, alice);
+        (, uint128 fee1) = _fees(alice);
         assertGt(fee1, 0);
         _time(301);
         assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 100, 1);
@@ -451,7 +471,7 @@ contract ContinuousAuctionTest is FullTest {
     }
 
     function test_holderLiquidityInRangeSharesRentProRata() public {
-        (uint256 own, uint128 ownLiquidity) = createPosition(key, -1600, 1600, 3e18, 3e18);
+        (uint256 own, uint128 ownLiquidity) = _createPosition(key, -1600, 1600, 3e18, 3e18);
         _bid(alice, RATE, 512, alice);
         _time(201);
         uint256 total = uint256(RATE) * 100;
@@ -463,14 +483,14 @@ contract ContinuousAuctionTest is FullTest {
         PoolKey memory stable =
             createPool(address(token0), address(token1), 0, createStableswapPoolConfig(0, 20, 0, address(auction)));
         (int32 lower, int32 upper) = stable.config.stableswapActiveLiquidityTickRange();
-        (uint256 id, uint128 stableLiquidity) = createPosition(stable, lower, upper, 1e18, 1e18);
+        (uint256 id, uint128 stableLiquidity) = _createPosition(stable, lower, upper, 1e18, 1e18);
         _bid(stable, alice, RATE, 512, address(executor));
         _time(101);
         executor.swap(stable, _params(3e18, true, upper + 5000), false);
         assertGe(core.poolState(stable.toPoolId()).tick(), upper);
         assertEq(core.poolState(stable.toPoolId()).liquidity(), stableLiquidity);
         _time(201);
-        uint256 paid = auctionPositions.collectRent(id, stable, lower, upper, address(this));
+        uint256 paid = manager.collectRent(id, stable, lower, upper, address(this));
         assertApproxEqAbs(paid, uint256(RATE) * 100, 1);
         assertEq(auction.unallocatedRent(stable.toPoolId()), 0);
     }
@@ -478,29 +498,34 @@ contract ContinuousAuctionTest is FullTest {
     function test_fullRangePoolWithErc20BidToken() public {
         TestToken asset = new TestToken(address(this));
         ContinuousAuction erc = _deploy(address(asset), 1);
-        AuctionPositions manager = new AuctionPositions(core, erc, owner);
-        positions = manager;
+        AuctionPositions ercManager = new AuctionPositions(core, erc, owner);
+        AuctionPeriphery ercPeriphery = new AuctionPeriphery(core, erc);
         PoolKey memory full = createFullRangePool(0, 0, address(erc));
-        (uint256 id,) = createPosition(full, MIN_TICK, MAX_TICK, 1e18, 1e18);
-        asset.approve(address(erc), type(uint256).max);
-        erc.bid(full, RATE, 512, alice, FEE);
+        token0.approve(address(ercManager), 1e18);
+        token1.approve(address(ercManager), 1e18);
+        (uint256 id,,,) = ercManager.mintAndDeposit(full, MIN_TICK, MAX_TICK, 1e18, 1e18, 0);
+        asset.approve(address(ercPeriphery), type(uint256).max);
+        ercPeriphery.updateBid(full, SALT, RATE, 512, alice, FEE, address(this));
+        assertEq(asset.balanceOf(address(core)), uint256(RATE) * (512 - 101));
         _time(201);
         uint256 balance = asset.balanceOf(bob);
-        uint256 paid = manager.collectRent(id, full, MIN_TICK, MAX_TICK, bob);
+        uint256 paid = ercManager.collectRent(id, full, MIN_TICK, MAX_TICK, bob);
         assertApproxEqAbs(paid, uint256(RATE) * 100, 1);
         assertEq(asset.balanceOf(bob) - balance, paid);
-        vm.expectRevert(ContinuousAuction.IncorrectFunding.selector);
-        erc.bid{value: 1}(full, RATE * 2, 512, bob, FEE);
+        uint256 before = asset.balanceOf(address(this));
+        int256 delta = ercPeriphery.updateBid(full, SALT, 0, 0, address(0), 0, address(this));
+        assertEq(uint256(-delta), uint256(RATE) * (512 - 202));
+        assertEq(asset.balanceOf(address(this)) - before, uint256(-delta));
     }
 
-    function test_taxedFundingRevertsAtomically() public {
+    function test_taxedFundingReverts() public {
         TaxedAuctionToken asset = new TaxedAuctionToken(address(this));
         ContinuousAuction erc = _deploy(address(asset), 2);
+        AuctionPeriphery ercPeriphery = new AuctionPeriphery(core, erc);
         PoolKey memory full = createFullRangePool(0, 0, address(erc));
-        asset.approve(address(erc), type(uint256).max);
-        vm.expectRevert(ContinuousAuction.IncorrectFunding.selector);
-        erc.bid(full, RATE, 512, alice, FEE);
-        assertEq(asset.balanceOf(address(erc)), 0);
+        asset.approve(address(ercPeriphery), type(uint256).max);
+        vm.expectRevert();
+        ercPeriphery.updateBid(full, SALT, RATE, 512, alice, FEE, address(this));
         _time(101);
         assertEq(erc.executorAt(full.toPoolId()), address(0));
     }
@@ -508,33 +533,49 @@ contract ContinuousAuctionTest is FullTest {
     function test_rentOwnerAuthorizationTransferAndFullWithdrawal() public {
         _bid(alice, RATE, 512, alice);
         _time(200);
-        positions.withdraw(nft, key, -1600, 1600, liquidity);
+        manager.withdraw(nft, key, -1600, 1600, liquidity);
         _time(300);
         vm.prank(bob);
         vm.expectRevert();
-        auctionPositions.collectRent(nft, key, -1600, 1600, bob);
-        positions.transferFrom(address(this), bob, nft);
+        manager.collectRent(nft, key, -1600, 1600, bob);
+        manager.transferFrom(address(this), bob, nft);
         vm.prank(bob);
-        uint256 paid = auctionPositions.collectRent(nft, key, -1600, 1600, bob);
+        uint256 paid = manager.collectRent(nft, key, -1600, 1600, bob);
         assertApproxEqAbs(paid, uint256(RATE) * 99, 1);
         assertEq(bob.balance, paid);
-        assertEq(auction.refundable(alice), 0);
+        assertEq(auction.refundable(_id(alice)), 0);
         assertEq(auction.unallocatedRent(poolId), uint256(RATE) * 100);
         vm.prank(bob);
-        assertEq(auctionPositions.collectRent(nft, key, -1600, 1600, bob), 0);
+        assertEq(manager.collectRent(nft, key, -1600, 1600, bob), 0);
+    }
+
+    function test_withdrawAndCollectRentInOneLock() public {
+        _bid(alice, RATE, 512, alice);
+        _time(201);
+        (uint128 amount0, uint128 amount1, uint256 rent) =
+            manager.withdrawAndCollectRent(nft, key, -1600, 1600, liquidity, carol);
+        assertGt(amount0, 0);
+        assertGt(amount1, 0);
+        assertApproxEqAbs(rent, uint256(RATE) * 100, 1);
+        assertEq(carol.balance, rent);
+        assertEq(token0.balanceOf(carol), amount0);
+        assertEq(token1.balanceOf(carol), amount1);
+        (uint128 remaining,,, uint256 pending) = manager.getPositionRentAndLiquidity(nft, key, -1600, 1600);
+        assertEq(remaining, 0);
+        assertEq(pending, 0);
     }
 
     function test_lateLiquidityDoesNotReceiveEarlierRent() public {
         _bid(alice, RATE, 512, alice);
         _time(201);
-        (uint256 other,) = createPosition(key, -1600, 1600, 1e18, 1e18);
+        (uint256 other,) = _createPosition(key, -1600, 1600, 1e18, 1e18);
         _time(301);
         assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 150, 2);
         assertApproxEqAbs(_claim(other, -1600, 1600), uint256(RATE) * 50, 1);
     }
 
     function test_tickCrossingsAllocateOnlyToActiveRanges() public {
-        (uint256 upper,) = createPosition(key, 1600, 3200, 2e18, 0);
+        (uint256 upper,) = _createPosition(key, 1600, 3200, 2e18, 0);
         _bid(alice, RATE, 512, address(executor));
         _time(201);
         executor.swap(key, _params(2e18, true, 2000), false);
@@ -551,13 +592,12 @@ contract ContinuousAuctionTest is FullTest {
     function test_reinitializedTicksDoNotGiveAwayHistoricalRent() public {
         _bid(alice, RATE, 512, alice);
         _time(201);
-        positions.withdraw(nft, key, -1600, 1600, liquidity);
+        manager.withdraw(nft, key, -1600, 1600, liquidity);
         _time(301);
-        (uint256 other,) = createPosition(key, -1600, 1600, 1e18, 1e18);
+        (uint256 other,) = _createPosition(key, -1600, 1600, 1e18, 1e18);
         _time(401);
         assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 100, 1);
         assertApproxEqAbs(_claim(other, -1600, 1600), uint256(RATE) * 100, 1);
-        assertEq(auction.refundable(alice), 0);
         assertEq(auction.unallocatedRent(poolId), uint256(RATE) * 100);
     }
 
@@ -569,7 +609,7 @@ contract ContinuousAuctionTest is FullTest {
         _time(301);
         executor.swap(key, _params(2e18, false, 0), false);
         assertGt(core.poolState(poolId).liquidity(), 0);
-        assertEq(auction.refundable(alice), 0);
+        assertEq(auction.refundable(_id(alice)), 0);
         assertEq(auction.unallocatedRent(poolId), uint256(RATE) * 100);
         _time(401);
         assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 200, 2);
@@ -577,8 +617,8 @@ contract ContinuousAuctionTest is FullTest {
     }
 
     function test_crossingZeroTickDoesNotTakeSameCellShortcut() public {
-        (uint256 below, uint128 belowLiquidity) = createPosition(key, -16, 0, 0, 1e16);
-        (uint256 above, uint128 aboveLiquidity) = createPosition(key, 0, 16, 1e16, 0);
+        (uint256 below, uint128 belowLiquidity) = _createPosition(key, -16, 0, 0, 1e16);
+        (uint256 above, uint128 aboveLiquidity) = _createPosition(key, 0, 16, 1e16, 0);
         _bid(alice, RATE, 512, address(executor));
         _time(201);
         executor.swap(key, _params(1e16, false, -1), false);
@@ -594,22 +634,15 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(_claim(below, -16, 0), 0);
     }
 
-    function test_unownedPositionCannotClaimOtherPositionsRent() public {
-        _bid(alice, RATE, 512, alice);
-        _time(201);
-        assertEq(auction.collectRent(key, createPositionId(bytes24(uint192(nft)), -1600, 1600), bob), 0);
-        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 100, 1);
-    }
-
     function test_approvedOperatorCanCollectButMetadataOwnerCannot() public {
         _bid(alice, RATE, 512, alice);
         _time(201);
         vm.prank(owner);
         vm.expectRevert();
-        auctionPositions.collectRent(nft, key, -1600, 1600, owner);
-        positions.approve(bob, nft);
+        manager.collectRent(nft, key, -1600, 1600, owner);
+        manager.approve(bob, nft);
         vm.prank(bob);
-        uint256 amount = auctionPositions.collectRent(nft, key, -1600, 1600, alice);
+        uint256 amount = manager.collectRent(nft, key, -1600, 1600, alice);
         assertApproxEqAbs(amount, uint256(RATE) * 100, 1);
         assertEq(alice.balance, amount);
     }
@@ -619,46 +652,39 @@ contract ContinuousAuctionTest is FullTest {
         _time(201);
         auction.accrue(key);
         uint256 quoted =
-            auction.getPositionRent(key, address(positions), createPositionId(bytes24(uint192(nft)), -1600, 1600));
+            auction.getPositionRent(key, address(manager), createPositionId(bytes24(uint192(nft)), -1600, 1600));
+        (,,, uint256 viaManager) = manager.getPositionRentAndLiquidity(nft, key, -1600, 1600);
+        assertEq(viaManager, quoted);
         assertEq(_claim(nft, -1600, 1600), quoted);
         assertApproxEqAbs(quoted, uint256(RATE) * 100, 1);
     }
 
     /// PAYMENT SAFETY
 
-    function test_failedRefundTransferPreservesCredit() public {
+    function test_failedWithdrawalRevertsWholeLockAndPreservesCredit() public {
         _bid(alice, RATE, 512, alice);
         _bid(bob, RATE * 2, 512, bob);
-        uint256 credit = auction.refundable(alice);
+        uint256 credit = auction.refundable(_id(alice));
         vm.prank(alice);
         vm.expectRevert();
-        auction.withdrawRefund(address(token0));
-        assertEq(auction.refundable(alice), credit);
-        vm.prank(alice);
-        assertEq(auction.withdrawRefund(alice), credit);
-    }
-
-    function test_claimRecipientCannotReenterAccounting() public {
-        _bid(alice, RATE, 512, alice);
-        _time(201);
-        AuctionReenterReceiver receiver = new AuctionReenterReceiver();
-        receiver.configure(address(auction), abi.encodeCall(auction.accrue, (key)));
-        uint256 amount = auctionPositions.collectRent(nft, key, -1600, 1600, address(receiver));
-        assertFalse(receiver.reentered());
-        assertEq(address(receiver).balance, amount);
-        assertApproxEqAbs(amount, uint256(RATE) * 100, 1);
-        assertEq(_claim(nft, -1600, 1600), 0);
+        periphery.updateBid(key, SALT, 0, 0, address(0), 0, address(token0)); // Recipient rejects ETH.
+        assertEq(auction.refundable(_id(alice)), credit);
+        assertEq(_remove(alice), credit);
     }
 
     function test_nativeFundingSurvivesInclusionDelay() public {
         uint256 preparedFunding = uint256(RATE) * (512 - 101);
         _time(105);
-        auction.bid{value: preparedFunding}(key, RATE, 512, alice, FEE);
-        assertEq(auction.refundable(address(this)), uint256(RATE) * 5);
+        vm.deal(alice, preparedFunding);
+        vm.prank(alice);
+        periphery.updateBid{value: preparedFunding}(key, SALT, RATE, 512, alice, FEE, alice);
+        assertEq(address(periphery).balance, uint256(RATE) * 5);
+        vm.prank(alice);
+        periphery.refundNativeToken();
+        assertEq(alice.balance, uint256(RATE) * 5);
         _time(512);
         uint256 earned = _claim(nft, -1600, 1600);
-        uint256 refund = auction.withdrawRefund(address(this));
-        assertApproxEqAbs(earned + refund, preparedFunding, 1);
+        assertApproxEqAbs(earned, uint256(RATE) * (512 - 106), 1);
     }
 
     function test_maxRateAndMaxTenureFitAccounting() public {
@@ -675,7 +701,8 @@ contract ContinuousAuctionTest is FullTest {
     function testFuzz_scheduleMatchesPerSecondReference(uint256 seed) public {
         uint256[4096] memory rates;
         uint8[4096] memory holders;
-        uint256[8] memory expectedRefunds;
+        uint256[8] memory credits;
+        uint256[8] memory paidOut;
         uint256[8] memory ends;
         uint256 total;
         uint256 now_ = 100;
@@ -686,36 +713,43 @@ contract ContinuousAuctionTest is FullTest {
             uint256 choice = (seed >> 8) % 4;
             uint8 h = holders[now_];
             if (choice == 0 && rates[now_] != 0 && ends[h] + 1 < 4000) {
+                // The holder extends: replacing its own bid nets the added tenure.
                 uint256 end = ends[h] + 1 + (seed >> 24) % (4000 - ends[h] - 1);
                 address holder_ = address(uint160(1000 + h));
                 uint256 funding = rates[now_] * (end - ends[h]);
                 vm.deal(holder_, holder_.balance + funding);
                 vm.prank(holder_);
-                auction.extend{value: funding}(key, uint64(end));
+                int256 delta = periphery.updateBid{value: funding}(
+                    key, SALT, uint96(rates[now_]), uint64(end), holder_, FEE, holder_
+                );
+                assertEq(uint256(delta), funding);
                 for (uint256 t = ends[h]; t < end; ++t) {
                     holders[t] = h;
                     rates[t] = rates[now_];
                 }
                 total += funding;
                 ends[h] = end;
-            } else if (choice == 1 && rates[now_] != 0 && now_ < ends[h]) {
-                uint256 end = now_ + (seed >> 24) % (ends[h] - now_);
-                vm.prank(address(uint160(1000 + h)));
-                auction.shorten(key, uint64(end));
+            } else if (choice == 1 && rates[now_] != 0 && now_ + 2 < ends[h]) {
+                // The holder shortens: the relinquished tenure is withdrawn at once.
+                uint256 end = now_ + 2 + (seed >> 24) % (ends[h] - now_ - 2);
+                address holder_ = address(uint160(1000 + h));
+                vm.prank(holder_);
+                int256 delta = periphery.updateBid(key, SALT, uint96(rates[now_]), uint64(end), holder_, FEE, holder_);
+                assertEq(uint256(-delta), rates[now_] * (ends[h] - end));
+                paidOut[h] += uint256(-delta);
                 for (uint256 t = end; t < ends[h]; ++t) {
-                    expectedRefunds[h] += rates[t];
                     rates[t] = 0;
                 }
                 ends[h] = end;
             } else {
-                uint96 rate = rates[now_ + 1] == 0 ? RATE : _minimumOutbid(uint96(rates[now_ + 1]));
+                uint96 rate = uint96(rates[now_ + 1] + 1);
                 uint256 end = now_ + 2 + (seed >> 24) % 1600;
                 address bidder = address(uint160(1000 + i));
                 total += uint256(rate) * (end - now_ - 1);
                 _bid(bidder, rate, uint64(end), bidder);
                 for (uint256 t = now_ + 1; t < 4096; ++t) {
                     if (rates[t] != 0) {
-                        expectedRefunds[holders[t]] += rates[t];
+                        credits[holders[t]] += rates[t];
                         ends[holders[t]] = now_ + 1;
                     }
                     if (t < end) {
@@ -728,7 +762,7 @@ contract ContinuousAuctionTest is FullTest {
                 ends[i] = end;
             }
             for (uint256 j; j <= i; ++j) {
-                assertEq(auction.refundable(address(uint160(1000 + j))), expectedRefunds[j]);
+                assertEq(auction.refundable(_id(address(uint160(1000 + j)))), credits[j]);
             }
             assertEq(auction.executorAt(poolId), rates[now_] == 0 ? address(0) : address(uint160(1000 + holders[now_])));
         }
@@ -739,26 +773,22 @@ contract ContinuousAuctionTest is FullTest {
         _time(4096);
         uint256 paid = _claim(nft, -1600, 1600);
         assertApproxEqAbs(paid, rent, 16);
-        uint256 refunds;
+        uint256 withdrawn;
         for (uint256 i; i < 8; ++i) {
-            address bidder = address(uint160(1000 + i));
-            vm.prank(bidder);
-            refunds += auction.withdrawRefund(bidder);
+            withdrawn += _remove(address(uint160(1000 + i))) + paidOut[i];
         }
-        assertEq(total, refunds + rent);
-        assertEq(address(auction).balance, rent - paid);
+        assertEq(total, withdrawn + rent);
+        assertEq(_funds(), rent - paid);
     }
 
     function testFuzz_escrowConservationAcrossLiquidityGaps(uint256 seed) public {
         uint256[2048] memory rates;
         uint8[2048] memory holders;
         bool[2048] memory active;
-        uint256[8] memory refunds;
+        uint256[8] memory credits;
         uint256 total;
         uint256 now_ = 100;
         bool hasLiquidity = true;
-        token0.approve(address(positions), type(uint256).max);
-        token1.approve(address(positions), type(uint256).max);
         for (uint256 i; i < 8; ++i) {
             seed = uint256(keccak256(abi.encode(seed, i)));
             uint256 next = now_ + 1 + seed % 20;
@@ -768,17 +798,17 @@ contract ContinuousAuctionTest is FullTest {
             now_ = next;
             _time(now_);
             if ((seed >> 16) % 2 == 1) {
-                if (hasLiquidity) positions.withdraw(nft, key, -1600, 1600, liquidity);
-                else (liquidity,,) = positions.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0);
+                if (hasLiquidity) manager.withdraw(nft, key, -1600, 1600, liquidity);
+                else (liquidity,,) = manager.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0);
                 hasLiquidity = !hasLiquidity;
             }
-            uint96 rate = rates[now_ + 1] == 0 ? RATE : _minimumOutbid(uint96(rates[now_ + 1]));
+            uint96 rate = uint96(rates[now_ + 1] + 1);
             uint256 end = now_ + 2 + (seed >> 24) % 1600;
             address bidder = address(uint160(1000 + i));
             total += uint256(rate) * (end - now_ - 1);
             _bid(bidder, rate, uint64(end), bidder);
             for (uint256 t = now_ + 1; t < 2048; ++t) {
-                if (rates[t] != 0) refunds[holders[t]] += rates[t];
+                if (rates[t] != 0) credits[holders[t]] += rates[t];
                 if (t < end) {
                     holders[t] = uint8(i);
                     rates[t] = rate;
@@ -800,15 +830,14 @@ contract ContinuousAuctionTest is FullTest {
         uint256 paid = _claim(nft, -1600, 1600);
         assertApproxEqAbs(paid, expectedRent, 25);
         assertEq(auction.unallocatedRent(poolId), unallocated);
-        uint256 refunded;
+        uint256 withdrawn;
         for (uint256 i; i < 8; ++i) {
             address bidder = address(uint160(1000 + i));
-            assertEq(auction.refundable(bidder), refunds[i]);
-            vm.prank(bidder);
-            refunded += auction.withdrawRefund(bidder);
+            assertEq(auction.refundable(_id(bidder)), credits[i]);
+            withdrawn += _remove(bidder);
         }
-        assertEq(total, refunded + expectedRent + unallocated);
-        assertEq(address(auction).balance, expectedRent - paid + unallocated);
+        assertEq(total, withdrawn + expectedRent + unallocated);
+        assertEq(_funds(), expectedRent - paid + unallocated);
     }
 
     /// GAS
@@ -816,32 +845,63 @@ contract ContinuousAuctionTest is FullTest {
     function _cold() private {
         coolAllContracts();
         vm.cool(address(auction));
+        vm.cool(address(manager));
+        vm.cool(address(periphery));
         vm.cool(address(executor));
         vm.cool(address(outsider));
     }
 
-    function test_gas_initialBid() public {
+    function test_gas_newBid() public {
         _cold();
-        _bid(alice, RATE, 1024, address(executor));
-        vm.snapshotGasLastCall("Auction#initialBid");
+        vm.deal(alice, 1e20);
+        vm.prank(alice);
+        periphery.updateBid{value: uint256(RATE) * (1024 - 101)}(key, SALT, RATE, 1024, address(executor), FEE, alice);
+        vm.snapshotGasLastCall("AuctionPeriphery#newBid");
     }
 
-    function test_gas_activeReplacement() public {
+    function test_gas_displaceLiveBid() public {
         _bid(alice, RATE, 1024, address(executor));
         _time(201);
         _cold();
-        _bid(bob, RATE * 2, 512, bob);
-        vm.snapshotGasLastCall("Auction#activeReplacement");
+        vm.deal(bob, 1e20);
+        vm.prank(bob);
+        periphery.updateBid{value: uint256(RATE) * 2 * (512 - 202)}(key, SALT, RATE * 2, 512, bob, FEE, bob);
+        vm.snapshotGasLastCall("AuctionPeriphery#displaceLiveBid");
     }
 
-    function test_gas_extend() public {
+    function test_gas_replaceOwnBid() public {
         _bid(alice, RATE, 512, address(executor));
         _time(201);
         _cold();
-        vm.deal(alice, uint256(RATE) * 512);
+        vm.deal(alice, 1e20);
         vm.prank(alice);
-        auction.extend{value: uint256(RATE) * 512}(key, 1024);
-        vm.snapshotGasLastCall("Auction#extend");
+        periphery.updateBid{value: uint256(RATE) * 512}(key, SALT, RATE, 1024, address(executor), FEE, alice);
+        vm.snapshotGasLastCall("AuctionPeriphery#replaceOwnBid");
+    }
+
+    function test_gas_removeBidAndWithdraw() public {
+        _bid(alice, RATE, 1024, address(executor));
+        _time(201);
+        _cold();
+        vm.prank(alice);
+        periphery.updateBid(key, SALT, 0, 0, address(0), 0, alice);
+        vm.snapshotGasLastCall("AuctionPeriphery#removeBidAndWithdraw");
+    }
+
+    function test_gas_accrue() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        auction.accrue(key);
+        vm.snapshotGasLastCall("Auction#accrue");
+    }
+
+    function test_gas_initializePool() public {
+        PoolKey memory k = key;
+        k.config = createConcentratedPoolConfig(0, 64, address(auction));
+        _cold();
+        core.initializePool(k, 0);
+        vm.snapshotGasLastCall("Auction#initializePool");
     }
 
     function test_gas_holderSwap() public {
@@ -869,77 +929,8 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(core.poolState(poolId).tick(), 8);
     }
 
-    function test_gas_claim() public {
-        _bid(alice, RATE, 512, address(executor));
-        _time(201);
-        _cold();
-        _claim(nft, -1600, 1600);
-        vm.snapshotGasLastCall("AuctionPositions#claim");
-    }
-
-    function test_gas_refund() public {
-        _bid(alice, RATE, 512, alice);
-        _bid(bob, RATE * 2, 1024, bob);
-        _cold();
-        vm.prank(alice);
-        auction.withdrawRefund(alice);
-        vm.snapshotGasLastCall("Auction#refund");
-    }
-
-    function test_gas_shorten() public {
-        _bid(alice, RATE, 1024, address(executor));
-        _time(201);
-        _cold();
-        vm.prank(alice);
-        auction.shorten(key, 512);
-        vm.snapshotGasLastCall("Auction#shorten");
-    }
-
-    function test_gas_setFee() public {
-        _bid(alice, RATE, 512, address(executor));
-        _time(201);
-        _cold();
-        vm.prank(alice);
-        auction.setFee(key, FEE / 2);
-        vm.snapshotGasLastCall("Auction#setFee");
-    }
-
-    function test_gas_accrue() public {
-        _bid(alice, RATE, 512, address(executor));
-        _time(201);
-        _cold();
-        auction.accrue(key);
-        vm.snapshotGasLastCall("Auction#accrue");
-    }
-
-    function test_gas_initializePool() public {
-        PoolKey memory k = key;
-        k.config = createConcentratedPoolConfig(0, 64, address(auction));
-        _cold();
-        core.initializePool(k, 0);
-        vm.snapshotGasLastCall("Auction#initializePool");
-    }
-
-    function test_gas_deposit() public {
-        _bid(alice, RATE, 512, address(executor));
-        _time(201);
-        token0.approve(address(positions), 1e18);
-        token1.approve(address(positions), 1e18);
-        _cold();
-        positions.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0);
-        vm.snapshotGasLastCall("AuctionPositions#deposit");
-    }
-
-    function test_gas_withdraw() public {
-        _bid(alice, RATE, 512, address(executor));
-        _time(201);
-        _cold();
-        positions.withdraw(nft, key, -1600, 1600, liquidity / 2);
-        vm.snapshotGasLastCall("AuctionPositions#withdrawHalf");
-    }
-
     function test_gas_swapCrossingOneTick() public {
-        createPosition(key, 1600, 3200, 2e18, 0);
+        _createPosition(key, 1600, 3200, 2e18, 0);
         _bid(alice, RATE, 512, address(executor));
         _time(201);
         _cold();
@@ -949,10 +940,10 @@ contract ContinuousAuctionTest is FullTest {
     }
 
     function test_gas_swapCrossingFourTicks() public {
-        createPosition(key, 1600, 3200, 2e18, 0);
-        createPosition(key, 3200, 4800, 2e18, 0);
-        createPosition(key, 4800, 6400, 2e18, 0);
-        createPosition(key, 6400, 8000, 2e18, 0);
+        _createPosition(key, 1600, 3200, 2e18, 0);
+        _createPosition(key, 3200, 4800, 2e18, 0);
+        _createPosition(key, 4800, 6400, 2e18, 0);
+        _createPosition(key, 6400, 8000, 2e18, 0);
         _bid(alice, RATE, 512, address(executor));
         _time(201);
         _cold();
@@ -961,13 +952,37 @@ contract ContinuousAuctionTest is FullTest {
         assertGe(core.poolState(poolId).tick(), 6400);
     }
 
-    function test_gas_withdrawSwapFees() public {
+    function test_gas_collectRent() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        _claim(nft, -1600, 1600);
+        vm.snapshotGasLastCall("AuctionPositions#collectRent");
+    }
+
+    function test_gas_deposit() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        manager.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0);
+        vm.snapshotGasLastCall("AuctionPositions#deposit");
+    }
+
+    function test_gas_withdraw() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        manager.withdraw(nft, key, -1600, 1600, liquidity / 2);
+        vm.snapshotGasLastCall("AuctionPositions#withdrawHalf");
+    }
+
+    function test_gas_collectSwapFees() public {
         _bid(alice, RATE, 512, address(executor));
         _time(201);
         outsider.swap(key, _params(1e17, true, 100), false);
         _cold();
         vm.prank(alice);
-        auction.withdrawSwapFees(key, alice);
-        vm.snapshotGasLastCall("Auction#withdrawSwapFees");
+        periphery.collectSwapFees(key, SALT, alice);
+        vm.snapshotGasLastCall("AuctionPeriphery#collectSwapFees");
     }
 }

@@ -5,7 +5,12 @@ its pools earn a single asset, the extension's immutable `bidToken`, instead of
 swap fees in the pool's tokens. A continuous first-price auction sells the right
 to be the pool's fee-free swapper. The winner pays rent per second to the
 providers whose liquidity is active. Everyone else may still swap while the pool
-is rented, paying the pool's fee to the holder.
+is rented, paying the holder's fee to the holder.
+
+Everything happens through `Core.forward` and is keyed by the forwarding locker,
+as in Ve33. The extension never holds tokens: bid funding, credits, rent, and
+swap fees are Core saved balances of the extension, and the locker that forwards
+a call pays or withdraws the difference in the same lock.
 
 `bidToken == address(0)` selects the native token; other addresses select
 standard, non-rebasing ERC20s. Incoming ERC20 funding is checked against the
@@ -23,40 +28,60 @@ notice period. Providers set the floor themselves by withdrawing when rent does
 not cover what the holder's trading costs them, and an unrented pool does not
 swap, so they are never exposed without being paid.
 
-## Bids
+## Forward interface
+
+The first word of forwarded data selects the operation; anything else is a
+swap. `ContinuousAuctionLib` encodes each call.
 
 ```solidity
-bid(PoolKey key, uint96 rate, uint64 end, address executor, uint32 fee)
-extend(PoolKey key, uint64 end)
-shorten(PoolKey key, uint64 end)
-setFee(PoolKey key, uint32 fee)
-withdrawRefund(address recipient)
+AUCTION_UPDATE_BID        (PoolKey key, bytes32 salt, uint96 rate, uint64 end, address executor, uint32 fee) -> int256 delta
+AUCTION_COLLECT_RENT      (PoolKey key, PositionId positionId)                                                 -> uint256 amount
+AUCTION_COLLECT_SWAP_FEES (PoolKey key, bytes32 salt)                                                          -> (uint128, uint128)
+swap                      (PoolKey key, SwapParameters params)                                                 -> (PoolBalanceUpdate, PoolState)
 ```
 
-- A bid covers `[timestamp + 1, end)` at `rate` base units per second and must
-  be fully funded: `rate * (end - start)`. Native bids may overpay; the excess
-  is credited to the bidder's refund balance, which tolerates inclusion delay.
-  ERC20 bids pull the exact amount.
+A bid is identified by `keccak256(abi.encode(locker, salt))`, so one locker can
+hold bids under several salts and a periphery can represent many users. Rent is
+owed to the Core position owner, which is the forwarding locker.
+
+### Updating a bid
+
+`AUCTION_UPDATE_BID` is the only bid operation. It sets the caller's bid for
+`[timestamp + 1, end)` at `rate` base units per second with the given executor
+and fee, replacing whatever the caller had scheduled:
+
+- A new bid must exceed the rate scheduled at its start. The scheduled bidder may
+  replace its own bid at any rate, higher or lower, and any end. An expiring
+  incumbent need not be outbid.
 - `end - start` must be at least one second and at most `2**32 - 1` seconds.
-- The bid must exceed the rate scheduled at its start. An expiring incumbent
-  need not be outbid.
-- The incumbent keeps the current second. The displaced part of its funding is
-  credited as a refund; nothing is rescheduled later. A bid placed in the same
-  second as another pending bid replaces it and refunds it entirely.
-- `extend` adds funded tenure at the same rate. `shorten` relinquishes tenure
-  and credits the refund; shortening to now is an immediate exit. There is no
-  rate reduction: exit and bid again. Neither is available to a bidder whose bid
-  has already been displaced.
-- `fee` is the fee the bid will charge non-holder swaps once it activates, a
-  0.32 fixed-point fraction: the upper 32 bits of Core's fee format. There is no
-  cap. `setFee` changes it: immediately for the live holder, at activation for
-  a pending bidder. A displaced bid cannot change it.
+  Rate zero removes the caller's schedule from the next second on.
+- The incumbent keeps the current second. Another bidder's displaced tenure is
+  recorded as its credit. The caller's own replaced tenure and any outstanding
+  credit are netted against the new funding, and the returned `delta` is what
+  the locker owes (positive) or may withdraw (negative) in the same lock. A call
+  with rate zero and nothing scheduled simply withdraws the credit.
+- `fee` is the fee the bid charges non-holder swaps once it activates, a 0.32
+  fixed-point fraction: the upper 32 bits of Core's fee format. There is no cap.
+  To change it, replace the bid; the change applies from the next second.
 - `executor` is the authorized **Core locker contract**. It must authenticate
   its callers. Naming a permissionless router grants that router's users
   fee-free access.
 
+Extend, shorten, raise, lower, re-target the executor, change the fee, and exit
+are therefore all the same operation, and several can be batched in one lock.
 The schedule is one live bid plus at most one pending bid placed this second.
 Every operation is constant time.
+
+### Periphery
+
+`AuctionPeriphery(core, auction)` settles bids for accounts that are not
+lockers. `updateBid(key, salt, rate, end, executor, fee, recipient)` forwards
+under `keccak256(abi.encode(msg.sender, salt))`, pays a positive delta from the
+caller (ERC20 allowance, or ETH sent with the call for a native bid token) and
+withdraws a negative one to `recipient`. `collectSwapFees(key, salt, recipient)`
+withdraws the caller's fees. Batch `refundNativeToken()` in a multicall to
+recover excess ETH. `bidderId(owner, salt)` gives the identity the extension
+uses.
 
 ## Swaps
 
@@ -67,8 +92,8 @@ The authorized locker calls `Core.forward(address(extension))` with trailing
 - While the pool is rented, any other locker may forward a swap and pays the
   holder's fee to the holder: on the output for exact-input swaps, on the input
   for exact-output swaps. The returned `(PoolBalanceUpdate, PoolState)` already
-  reflects the fee. Fees are saved in Core under the pool's salt and withdrawn by
-  the bidder with `withdrawSwapFees(poolKey, recipient)`.
+  reflects the fee. Fees are saved in Core under a salt of the pool and bidder
+  and moved to the bidder's locker by `AUCTION_COLLECT_SWAP_FEES`.
 - Without a live bid the pool does not swap. Providers may still deposit and
   withdraw at any time.
 
@@ -95,29 +120,30 @@ periods.
   depositors. A holder can avoid that outcome by providing liquidity at the
   market price itself.
 - Position changes checkpoint earned rent into an owed balance. Removing all
-  liquidity does not discard it. `collectRent(poolKey, positionId, recipient)`
-  pays the Core position owner; `getPositionRent` quotes already-accrued rent.
+  liquidity does not discard it. `AUCTION_COLLECT_RENT` moves the position
+  owner's rent to its locker; `getPositionRent` quotes already-accrued rent.
 - Integer rounding favors solvency; dust remains in the extension. There is no
   administrator sweep of any balance.
 
 ## AuctionPositions
 
-`AuctionPositions(core, auction, metadataOwner)` extends the standard `Positions`
-manager with zero protocol fees and rent collection:
+`AuctionPositions(core, auction, metadataOwner)` is a position NFT manager for
+this extension's pools, without protocol fees, that also collects rent:
 
 ```solidity
 collectRent(id, poolKey, tickLower, tickUpper, recipient)
+withdrawAndCollectRent(id, poolKey, tickLower, tickUpper, liquidity, recipient)
+getPositionRentAndLiquidity(id, poolKey, tickLower, tickUpper)
 ```
 
-The NFT owner and approved operators may collect; the four-argument overload
-pays the caller. The metadata owner receives no right to other users' rent.
+The NFT owner and approved operators may collect; the overloads without a
+recipient pay the caller. The metadata owner receives no right to other users' rent.
 Pending rent travels with the NFT on transfer and remains claimable after full
 withdrawal. Collect all balances before burning the NFT. The original minter can
 recreate the same deterministic NFT ID and thereby regain control of any value
 left under that ID after an authorized burn.
 
-Use the inherited `mintAndDeposit`, `deposit`, and `withdraw` APIs for
-principal. The manager can also manage ordinary pools, but its rent collector
+Use `mintAndDeposit`, `deposit`, and `withdraw` for principal. The manager
 accepts only this extension's pools.
 
 ## Economics
@@ -172,11 +198,13 @@ risk between the bid token and the pool's tokens.
 ## Deployment and reproducibility
 
 Use `script/DeployContinuousAuction.s.sol` with explicit `CORE_ADDRESS`,
-`BID_TOKEN`, `OWNER_ADDRESS`, and a bytes32 `SALT`.
+`BID_TOKEN`, `OWNER_ADDRESS`, and a bytes32 `SALT`. It deploys the extension,
+`AuctionPositions`, and `AuctionPeriphery`.
 `BID_TOKEN=0x0000000000000000000000000000000000000000` selects native rent. The
 script uses the repository's canonical CREATE2 deployer and mines the required
-extension address prefix (`0x51`). Optional `AUCTION_ADDRESS` and
-`AUCTION_POSITIONS_ADDRESS` variables assert the predicted addresses. Repeated
+extension address prefix (`0x51`). Optional `AUCTION_ADDRESS`,
+`AUCTION_POSITIONS_ADDRESS`, and `AUCTION_PERIPHERY_ADDRESS` variables assert the
+predicted addresses. Repeated
 execution reuses the same deployments. The metadata owner can subsequently call
 the manager's inherited `setMetadata`.
 

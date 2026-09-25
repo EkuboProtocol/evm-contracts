@@ -14,21 +14,11 @@ one bid token; deploy again for another.
 
 ## Pools and terms
 
-Pools must be created through the extension. Direct `Core.initializePool` calls
-revert.
+Any pool whose key names this extension with a zero Core fee can be initialized
+directly through Core by anyone. Concentrated pools need a power-of-four tick
+spacing; full-range and stableswap configurations are supported as well. There
+are no per-pool terms. The extension's two terms are immutable per deployment:
 
-```solidity
-createPool(PoolKey key, int32 tick, uint32 fee, uint96 minRate, uint32 noticePeriod, uint16 minIncrementBps)
-```
-
-- The key must name this extension and a zero Core fee. Concentrated pools need
-  a power-of-four tick spacing; full-range and stableswap configurations are
-  supported as well.
-- `fee` is the initial fee charged to non-holder swaps, a 0.32 fixed-point
-  fraction: the upper 32 bits of Core's fee format. The fee is pool state that
-  each holder may change with `setFee`, without a cap.
-- `minRate` is the reserve rent in bid-token base units per second. No bid
-  below it is accepted.
 - `noticePeriod` is the minimum funded tenure of a bid and the minimum remaining
   tenure after a holder shortens its bid. It is the holder's exit notice, the
   bond a short-lived bid must post, and the cost of challenging a holder that
@@ -36,12 +26,14 @@ createPool(PoolKey key, int32 tick, uint32 fee, uint96 minRate, uint32 noticePer
 - `minIncrementBps` is the minimum rate increase, in basis points, that another
   bidder must offer over the scheduled bid.
 
-Terms are immutable per pool. A key identifies one pool, so one set of terms.
+There is no reserve rate. Providers set the floor themselves by withdrawing when
+rent does not cover what the holder's trading costs them, and an unrented pool
+does not swap, so they are never exposed without being paid.
 
 ## Bids
 
 ```solidity
-bid(PoolKey key, uint96 rate, uint64 end, address executor)
+bid(PoolKey key, uint96 rate, uint64 end, address executor, uint32 fee)
 extend(PoolKey key, uint64 end)
 shorten(PoolKey key, uint64 end)
 setFee(PoolKey key, uint32 fee)
@@ -63,9 +55,10 @@ withdrawRefund(address recipient)
   and credits the refund, but the bid must keep at least `noticePeriod` seconds
   from now. That is the only voluntary exit; there is no rate reduction. Neither
   is available to a bidder whose bid has already been displaced.
-- `setFee` sets the non-holder swap fee and is available to the scheduled
-  bidder, pending or live. The fee persists in pool state across holders until
-  changed, so a new holder should set it after bidding.
+- `fee` is the fee the bid will charge non-holder swaps once it activates, a
+  0.32 fixed-point fraction: the upper 32 bits of Core's fee format. There is no
+  cap. `setFee` changes it: immediately for the live holder, at activation for
+  a pending bidder. A displaced bid cannot change it.
 - `executor` is the authorized **Core locker contract**. It must authenticate
   its callers. Naming a permissionless router grants that router's users
   fee-free access.
@@ -80,7 +73,7 @@ The authorized locker calls `Core.forward(address(extension))` with trailing
 
 - The holder's executor swaps with no fee.
 - While the pool is rented, any other locker may forward a swap and pays the
-  current fee to the holder: on the output for exact-input swaps, on the input
+  holder's fee to the holder: on the output for exact-input swaps, on the input
   for exact-output swaps. The returned `(PoolBalanceUpdate, PoolState)` already
   reflects the fee. Fees are saved in Core under the pool's salt and withdrawn by
   the bidder with `withdrawSwapFees(poolKey, recipient)`.
@@ -168,9 +161,10 @@ The design choices below each close a way for that revenue to leak:
   locked capital and the rent only buy exposure to providers who have no reason
   to stay. The notice period prices the defence: longer notice makes challenges
   dearer and control changes rarer, shorter notice makes parking indefensible.
-- **A reserve rate** keeps a lone bidder from taking fee-free access for
-  nothing. Below the reserve the pool is simply unrented, and unrented pools do
-  not swap, so providers bear no arbitrage loss they are not paid for.
+- **No reserve rate.** A lone bidder can rent the pool for almost nothing, but
+  providers are not obliged to stay: rent below what the holder's trading costs
+  them is a signal to withdraw, and a thin pool is worth little to rent. A
+  creator-chosen reserve could only add a way for the pool to sit unrented.
 - **A minimum increment and a notice period** make control changes costly. A
   bid must beat the incumbent by the increment, and every bid posts at least a
   notice period of rent. Flipping control every block therefore ratchets the
@@ -189,7 +183,8 @@ risk between the bid token and the pool's tokens.
 ## Deployment and reproducibility
 
 Use `script/DeployContinuousAuction.s.sol` with explicit `CORE_ADDRESS`,
-`BID_TOKEN`, `OWNER_ADDRESS`, and a bytes32 `SALT`.
+`BID_TOKEN`, `OWNER_ADDRESS`, `NOTICE_PERIOD` (seconds), `MIN_INCREMENT_BPS`,
+and a bytes32 `SALT`.
 `BID_TOKEN=0x0000000000000000000000000000000000000000` selects native rent. The
 script uses the repository's canonical CREATE2 deployer and mines the required
 extension address prefix (`0x51`). Optional `AUCTION_ADDRESS` and
@@ -205,6 +200,6 @@ forge script --offline script/DeployContinuousAuction.s.sol:DeployContinuousAuct
 
 The script command simulates deployment; add `--broadcast` for an approved
 launch. The Core and bid-token bytecode must exist on the target chain (except
-native address zero), and the chain must support transient storage. Create pools
-with `createPool`, configure a caller-authenticated executor before bidding, and
-note that the general Router does not route through this extension.
+native address zero), and the chain must support transient storage. Initialize pools
+directly through Core, configure a caller-authenticated executor before bidding,
+and note that the general Router does not route through this extension.

@@ -43,16 +43,21 @@ function continuousAuctionCallPoints() pure returns (CallPoints memory) {
 /// @notice Continuous first-price auction of privileged swap access to pools whose liquidity providers are paid
 /// rent in a single immutable bid token.
 /// @dev The holder's named executor swaps fee-free. While a pool is rented, any other locker may swap through
-/// forward and pays the pool's fee to the holder. That keeps the price within the fee band of the market, which
-/// bounds how far a holder can move the price away from other providers' ranges before being arbitraged. Rent
-/// accrues per second to liquidity active over time. Bids are fully funded, start at timestamp+1, must beat the
-/// scheduled rate by the pool's increment, and can be extended at any time or shortened with the pool's notice.
-/// Without an active bid the pool does not swap. Rent charged while no liquidity is active is never refunded.
+/// forward and pays the holder's fee to the holder. Rent accrues per second to liquidity active over time. Bids
+/// are fully funded, start at timestamp+1, must beat the scheduled rate by the increment, and can be extended at
+/// any time or shortened with notice. Without an active bid the pool does not swap. Rent charged while no
+/// liquidity is active is never refunded. Any pool naming this extension with a zero Core fee may be initialized
+/// directly through Core; there are no per-pool terms.
 contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTransient {
     using CoreLib for *;
     using ExposedStorageLib for *;
 
     address public immutable bidToken;
+    /// @notice Minimum funded tenure of a bid and minimum remaining tenure after shortening. It is the holder's
+    /// exit notice, the bond a short-lived bid posts, and the cost of challenging a holder that moved the price.
+    uint32 public immutable noticePeriod;
+    /// @notice Minimum rate increase over the scheduled bid required of another bidder, in basis points.
+    uint16 public immutable minIncrementBps;
 
     struct Bid {
         address bidder;
@@ -66,12 +71,10 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         Bid current;
         // Only nonempty within the second it was placed; promoted by the next settlement.
         Bid next;
-        bool initialized;
-        // A 0.32 fixed-point fraction: the upper 32 bits of Core's 0.64 fee format.
+        // Fees charged to non-holder swaps, as 0.32 fixed-point fractions: the upper 32 bits of Core's 0.64 fee
+        // format. `fee` applies to the live holder; `nextFee` is the pending bid's and is promoted with it.
         uint32 fee;
-        uint96 minRate;
-        uint32 noticePeriod;
-        uint16 minIncrementBps;
+        uint32 nextFee;
         uint48 lastSettled;
         uint256 growth;
     }
@@ -96,12 +99,15 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
     error PoolClosed();
     error SwapMustHappenThroughForward();
 
-    event PoolCreated(
-        PoolId indexed poolId, PoolKey key, uint32 fee, uint96 minRate, uint32 noticePeriod, uint16 minIncrementBps
-    );
     event FeeUpdated(PoolId indexed poolId, address indexed bidder, uint32 fee);
     event BidPlaced(
-        PoolId indexed poolId, address indexed bidder, address executor, uint96 rate, uint48 start, uint48 end
+        PoolId indexed poolId,
+        address indexed bidder,
+        address executor,
+        uint96 rate,
+        uint48 start,
+        uint48 end,
+        uint32 fee
     );
     event BidEndUpdated(PoolId indexed poolId, address indexed bidder, uint48 end);
     event RefundCredited(address indexed bidder, uint256 amount);
@@ -116,8 +122,13 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         PoolId indexed poolId, address indexed bidder, address recipient, uint128 amount0, uint128 amount1
     );
 
-    constructor(ICore core, address _bidToken) BaseExtension(core) BaseForwardee(core) {
+    constructor(ICore core, address _bidToken, uint32 _noticePeriod, uint16 _minIncrementBps)
+        BaseExtension(core)
+        BaseForwardee(core)
+    {
         bidToken = _bidToken;
+        noticePeriod = _noticePeriod;
+        minIncrementBps = _minIncrementBps;
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
@@ -131,40 +142,8 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         }
     }
 
-    /// POOL CREATION
-
-    /// @notice Initializes a pool with immutable auction terms. Pools of this extension can only be created here.
-    /// @param fee Initial fee charged to non-holder swaps, as a 0.32 fixed-point fraction. The fee is pool
-    /// state that each holder may change with setFee; there is no cap. A holder that uses a high fee to hold
-    /// the price away from other providers' ranges creates a mispricing any bidder can claim by outbidding it
-    /// for one notice period, so the notice period is what prices that defence.
-    /// @param minRate Reserve rent in bid-token base units per second.
-    /// @param noticePeriod Minimum funded tenure of a bid and minimum remaining tenure after shortening.
-    /// @param minIncrementBps Minimum rate increase over the scheduled bid, in basis points.
-    function createPool(
-        PoolKey calldata key,
-        int32 tick,
-        uint32 fee,
-        uint96 minRate,
-        uint32 noticePeriod,
-        uint16 minIncrementBps
-    ) external nonReentrant returns (SqrtRatio sqrtRatio) {
+    function beforeInitializePool(address, PoolKey memory key, int32) external view override onlyCore {
         _validate(key);
-        PoolId poolId = key.toPoolId();
-        Auction storage auction = auctions[poolId];
-        if (auction.initialized) revert InvalidPool();
-        auction.initialized = true;
-        auction.fee = fee;
-        auction.minRate = minRate;
-        auction.noticePeriod = noticePeriod;
-        auction.minIncrementBps = minIncrementBps;
-        auction.lastSettled = uint48(block.timestamp);
-        sqrtRatio = CORE.initializePool(key, tick);
-        emit PoolCreated(poolId, key, fee, minRate, noticePeriod, minIncrementBps);
-    }
-
-    function beforeInitializePool(address caller, PoolKey memory key, int32) external view override onlyCore {
-        if (caller != address(this) || !auctions[key.toPoolId()].initialized) revert InvalidPool();
     }
 
     function beforeSwap(Locker, PoolKey memory, SwapParameters) external pure override {
@@ -177,18 +156,23 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
     /// @dev Executor is the authorized Core locker, NOT tx.origin. It must authenticate its own callers.
     /// Full native funding or ERC20 allowance is required; native excess becomes refundable credit.
     /// A displaced bid is refunded for the displaced interval. Another bidder must exceed the scheduled rate
-    /// by the pool's increment; the scheduled bidder may raise its own rate by any amount.
-    function bid(PoolKey calldata key, uint96 rate, uint64 end, address executor) external payable nonReentrant {
+    /// by the increment; the scheduled bidder may raise its own rate by any amount. The fee takes effect when
+    /// the bid activates.
+    function bid(PoolKey calldata key, uint96 rate, uint64 end, address executor, uint32 fee)
+        external
+        payable
+        nonReentrant
+    {
         _validate(key);
         PoolId poolId = key.toPoolId();
         Auction storage auction = auctions[poolId];
-        if (!auction.initialized) revert InvalidPool();
-        _accrue(poolId, CORE.poolState(poolId).liquidity());
+        PoolState state = CORE.poolState(poolId);
+        if (!state.isInitialized()) revert InvalidPool();
+        _accrue(poolId, state.liquidity());
         if (block.timestamp >= type(uint48).max) revert InvalidBid();
         uint48 start = uint48(block.timestamp + 1);
         if (rate == 0 || executor == address(0)) revert InvalidBid();
-        if (rate < auction.minRate) revert BidTooLow();
-        _checkEnd(end, start, auction.noticePeriod);
+        _checkEnd(end, start, noticePeriod);
 
         // The scheduled bid at activation is a same-second pending bid, else the incumbent if it outlasts start.
         Bid storage scheduled = auction.next.bidder != address(0) ? auction.next : auction.current;
@@ -196,7 +180,7 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
             uint256 minimum = uint256(scheduled.rate)
                 + (scheduled.bidder == msg.sender
                         ? 1
-                        : FixedPointMathLib.fullMulDivUp(scheduled.rate, auction.minIncrementBps, 10000));
+                        : FixedPointMathLib.fullMulDivUp(scheduled.rate, minIncrementBps, 10000));
             if (rate <= scheduled.rate || rate < minimum) revert BidTooLow();
         }
 
@@ -212,7 +196,8 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
             current.end = start;
         }
         auction.next = Bid(msg.sender, rate, executor, start, uint48(end));
-        emit BidPlaced(poolId, msg.sender, executor, rate, start, uint48(end));
+        auction.nextFee = fee;
+        emit BidPlaced(poolId, msg.sender, executor, rate, start, uint48(end), fee);
     }
 
     /// @notice Extends the caller's scheduled bid to a later end at the same rate, funding the added interval.
@@ -230,7 +215,7 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         emit BidEndUpdated(poolId, msg.sender, uint48(end));
     }
 
-    /// @notice Shortens the caller's scheduled bid, keeping at least the pool's notice period from now.
+    /// @notice Shortens the caller's scheduled bid, keeping at least the notice period from now.
     /// @dev Rent for the relinquished interval becomes refundable credit. This is the only voluntary exit.
     function shorten(PoolKey calldata key, uint64 end) external nonReentrant {
         _validate(key);
@@ -238,7 +223,7 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         Auction storage auction = auctions[poolId];
         _accrue(poolId, CORE.poolState(poolId).liquidity());
         Bid storage own = _ownBid(auction);
-        uint256 floor = block.timestamp + auction.noticePeriod;
+        uint256 floor = block.timestamp + noticePeriod;
         if (floor < own.start) floor = own.start;
         if (end >= own.end || end < floor) revert InvalidBid();
         _credit(msg.sender, uint256(own.rate) * (own.end - end));
@@ -246,15 +231,19 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
         emit BidEndUpdated(poolId, msg.sender, uint48(end));
     }
 
-    /// @notice Sets the fee charged to non-holder swaps. Only the scheduled bidder may call.
-    /// @dev The fee is pool state: it persists until the next change, including across holders.
+    /// @notice Sets the fee charged to non-holder swaps. The live holder changes it immediately; a pending
+    /// bidder changes the fee its bid will activate with.
     function setFee(PoolKey calldata key, uint32 fee) external nonReentrant {
         _validate(key);
         PoolId poolId = key.toPoolId();
         Auction storage auction = auctions[poolId];
         _accrue(poolId, CORE.poolState(poolId).liquidity());
-        _ownBid(auction);
-        auction.fee = fee;
+        if (auction.next.bidder == msg.sender) {
+            auction.nextFee = fee;
+        } else {
+            _ownBid(auction);
+            auction.fee = fee;
+        }
         emit FeeUpdated(poolId, msg.sender, fee);
     }
 
@@ -352,6 +341,7 @@ contract ContinuousAuction is BaseExtension, BaseForwardee, ReentrancyGuardTrans
             // The pending bid was placed at `from`, so it is live now and the incumbent ended at its start.
             rent += _rentBetween(auction.next, from, now_);
             auction.current = auction.next;
+            auction.fee = auction.nextFee;
             delete auction.next;
         }
         auction.lastSettled = now_;

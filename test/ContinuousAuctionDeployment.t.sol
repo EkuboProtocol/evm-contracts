@@ -8,7 +8,6 @@ import {ICore, IExtension} from "../src/interfaces/ICore.sol";
 import {ExtensionCallPointsLib} from "../src/libraries/ExtensionCallPointsLib.sol";
 import {Locker} from "../src/types/locker.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
-import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {ContinuousAuction, continuousAuctionCallPoints} from "../src/extensions/ContinuousAuction.sol";
 import {AuctionPositions} from "../src/AuctionPositions.sol";
 
@@ -17,7 +16,7 @@ contract AuctionDeploymentHarness is DeployContinuousAuction {
         external
         returns (ContinuousAuction auction, AuctionPositions positions)
     {
-        return _deploy(core, token, owner, salt, address(0), address(0));
+        return _deploy(core, token, owner, 3600, 500, salt, address(0), address(0));
     }
 }
 
@@ -59,16 +58,13 @@ contract ContinuousAuctionDeploymentTest is FullTest {
         (ContinuousAuction auction, AuctionPositions manager) = deployer.deploy(core, address(0), owner, salt);
         assertEq(uint8(uint160(address(auction)) >> 152), continuousAuctionCallPoints().toUint8());
         assertEq(auction.bidToken(), address(0));
+        assertEq(auction.noticePeriod(), 3600);
+        assertEq(auction.minIncrementBps(), 500);
         assertEq(address(manager.auction()), address(auction));
         assertEq(manager.owner(), owner);
         assertLe(address(auction).code.length, 24576);
         assertLe(address(manager).code.length, 24576);
-        PoolKey memory key = PoolKey({
-            token0: address(token0),
-            token1: address(token1),
-            config: createConcentratedPoolConfig(0, 16, address(auction))
-        });
-        auction.createPool(key, 0, 1 << 24, 0, 3600, 500);
+        PoolKey memory key = createPool(0, 0, 16, address(auction));
         (uint256 id, uint128 liquidity) = createPosition(key, -1600, 1600, 1e18, 1e18);
         positions.collectFees(id, key, -1600, 1600);
         positions.withdraw(id, key, -1600, 1600, liquidity);

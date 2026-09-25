@@ -15,12 +15,7 @@ import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {createPositionId} from "../../src/types/positionId.sol";
 import {createSwapParameters, SwapParameters} from "../../src/types/swapParameters.sol";
-import {
-    PoolConfig,
-    createConcentratedPoolConfig,
-    createFullRangePoolConfig,
-    createStableswapPoolConfig
-} from "../../src/types/poolConfig.sol";
+import {createConcentratedPoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {computeFee} from "../../src/math/fee.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
@@ -127,20 +122,15 @@ contract ContinuousAuctionTest is FullTest {
         token1.approve(address(executor), type(uint256).max);
         token0.approve(address(outsider), type(uint256).max);
         token1.approve(address(outsider), type(uint256).max);
-        key = _createPool(auction, createConcentratedPoolConfig(0, 16, address(auction)), RATE);
+        key = createPool(0, 0, 16, address(auction));
         poolId = key.toPoolId();
         (nft, liquidity) = createPosition(key, -1600, 1600, 1e18, 1e18);
     }
 
     function _deploy(address token, uint160 salt) private returns (ContinuousAuction a) {
         address target = address((uint160(continuousAuctionCallPoints().toUint8()) << 152) | salt);
-        deployCodeTo("ContinuousAuction.sol:ContinuousAuction", abi.encode(core, token), target);
+        deployCodeTo("ContinuousAuction.sol:ContinuousAuction", abi.encode(core, token, NOTICE, INCREMENT), target);
         return ContinuousAuction(target);
-    }
-
-    function _createPool(ContinuousAuction a, PoolConfig config, uint96 minRate) private returns (PoolKey memory k) {
-        k = PoolKey({token0: address(token0), token1: address(token1), config: config});
-        a.createPool(k, 0, FEE, minRate, NOTICE, INCREMENT);
     }
 
     function _bid(address bidder, uint96 rate, uint64 end, address exec) private {
@@ -151,7 +141,7 @@ contract ContinuousAuctionTest is FullTest {
         uint256 funding = uint256(rate) * (end - block.timestamp - 1);
         vm.deal(bidder, bidder.balance + funding);
         vm.prank(bidder);
-        auction.bid{value: funding}(k, rate, end, exec);
+        auction.bid{value: funding}(k, rate, end, exec, FEE);
     }
 
     function _time(uint256 time) private {
@@ -175,25 +165,26 @@ contract ContinuousAuctionTest is FullTest {
 
     /// POOL CREATION
 
-    function test_poolsMustBeCreatedThroughExtensionWithValidTerms() public {
+    function test_anyoneCreatesPoolsDirectlyAndTermsAreImmutables() public {
         PoolKey memory k = key;
-        k.config = createConcentratedPoolConfig(0, 64, address(auction));
-        vm.expectRevert(ContinuousAuction.InvalidPool.selector);
-        core.initializePool(k, 0);
         k.config = createConcentratedPoolConfig(1, 64, address(auction));
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
-        auction.createPool(k, 0, FEE, RATE, NOTICE, INCREMENT);
+        core.initializePool(k, 0);
         k.config = createConcentratedPoolConfig(0, 3, address(auction));
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
-        auction.createPool(k, 0, FEE, RATE, NOTICE, INCREMENT);
+        core.initializePool(k, 0);
+        k.config = createConcentratedPoolConfig(0, 64, address(auction));
+        vm.prank(alice);
+        core.initializePool(k, 0);
+        (,, uint32 fee, uint32 nextFee, uint48 lastSettled,) = auction.auctions(k.toPoolId());
+        assertEq(fee, 0);
+        assertEq(nextFee, 0);
+        assertEq(lastSettled, 0);
+        assertEq(auction.noticePeriod(), NOTICE);
+        assertEq(auction.minIncrementBps(), INCREMENT);
+        k.config = createConcentratedPoolConfig(0, 256, address(auction));
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
-        auction.createPool(key, 0, FEE, RATE, NOTICE, INCREMENT);
-        (,, bool initialized, uint32 fee, uint96 minRate, uint32 notice, uint16 increment,,) = auction.auctions(poolId);
-        assertTrue(initialized);
-        assertEq(fee, FEE);
-        assertEq(minRate, RATE);
-        assertEq(notice, NOTICE);
-        assertEq(increment, INCREMENT);
+        auction.bid{value: 1e20}(k, RATE, 512, alice, FEE); // Bids require an initialized pool.
     }
 
     /// ACCESS
@@ -264,35 +255,42 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(fee0 + fee1, 0);
     }
 
-    function test_holderSetsFeeAndItPersists() public {
+    function test_feeTravelsWithTheBidAndOnlyTheLiveHolderChangesItNow() public {
         vm.prank(alice);
         vm.expectRevert(ContinuousAuction.NotHolder.selector);
         auction.setFee(key, FEE / 2);
         _bid(alice, RATE, 512, address(executor));
-        vm.prank(alice);
-        auction.setFee(key, FEE / 2); // The pending bidder may already set the fee.
-        (,,, uint32 fee,,,,,) = auction.auctions(poolId);
-        assertEq(fee, FEE / 2);
         _time(101);
         PoolBalanceUpdate charged = outsider.swap(key, _params(1e17, true, 100), false);
         (uint128 fee0,) = auction.swapFeesOwed(poolId, alice);
-        assertEq(fee0, computeFee(uint128(-charged.delta0()) + fee0, uint64(FEE / 2) << 32));
+        assertEq(fee0, computeFee(uint128(-charged.delta0()) + fee0, FEE64));
         vm.prank(alice);
         auction.setFee(key, 0);
         outsider.swap(key, _params(1e17, false, -100), false);
         (uint128 after0, uint128 after1) = auction.swapFeesOwed(poolId, alice);
         assertEq(after0, fee0);
         assertEq(after1, 0);
+        // A pending bidder's fee does not touch the incumbent's last second.
+        vm.deal(bob, 1e20);
         vm.prank(bob);
-        vm.expectRevert(ContinuousAuction.NotHolder.selector);
-        auction.setFee(key, FEE);
-        _bid(bob, RATE * 2, 512, bob);
+        auction.bid{value: 1e20}(key, RATE * 2, 512, bob, FEE);
+        vm.prank(bob);
+        auction.setFee(key, FEE / 2);
+        (,, uint32 fee, uint32 nextFee,,) = auction.auctions(poolId);
+        assertEq(fee, 0);
+        assertEq(nextFee, FEE / 2);
+        outsider.swap(key, _params(1e17, true, 100), false);
+        (uint128 still0,) = auction.swapFeesOwed(poolId, alice);
+        assertEq(still0, fee0);
         vm.prank(alice);
         vm.expectRevert(ContinuousAuction.NotHolder.selector); // Displaced incumbents lose control of the fee.
         auction.setFee(key, FEE);
         _time(102);
-        (,,, fee,,,,,) = auction.auctions(poolId);
-        assertEq(fee, 0); // The fee is pool state and persists until the new holder changes it.
+        charged = executor.swap(key, _params(1e17, false, -100), false);
+        (,, fee,,,) = auction.auctions(poolId);
+        assertEq(fee, FEE / 2);
+        (, uint128 bob1) = auction.swapFeesOwed(poolId, bob);
+        assertEq(bob1, computeFee(uint128(-charged.delta1()) + bob1, uint64(FEE / 2) << 32));
         vm.prank(bob);
         auction.setFee(key, type(uint32).max); // No cap: a near-total fee makes the pool exclusive in practice.
         PoolBalanceUpdate exclusive = executor.swap(key, _params(1e17, true, 100), false);
@@ -303,23 +301,23 @@ contract ContinuousAuctionTest is FullTest {
 
     /// BIDDING RULES
 
-    function test_reserveIncrementNoticeAndSelfRaise() public {
+    function test_incrementNoticeAndSelfRaise() public {
         vm.deal(address(this), 1e30);
-        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
-        auction.bid{value: 1e20}(key, RATE - 1, 512, alice);
         vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.bid{value: 1e20}(key, RATE, 100 + NOTICE, alice);
+        auction.bid{value: 1e20}(key, 0, 512, alice, FEE);
         vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.bid{value: 1e20}(key, RATE, 512, address(0));
+        auction.bid{value: 1e20}(key, RATE, 100 + NOTICE, alice, FEE);
+        vm.expectRevert(ContinuousAuction.InvalidBid.selector);
+        auction.bid{value: 1e20}(key, RATE, 512, address(0), FEE);
         vm.expectRevert(ContinuousAuction.IncorrectFunding.selector);
-        auction.bid{value: 1}(key, RATE, 512, alice);
+        auction.bid{value: 1}(key, RATE, 512, alice, FEE);
         _bid(alice, RATE, 512, alice);
         vm.expectRevert(ContinuousAuction.BidTooLow.selector);
-        auction.bid{value: 1e20}(key, _minimumOutbid(RATE) - 1, 512, bob);
+        auction.bid{value: 1e20}(key, _minimumOutbid(RATE) - 1, 512, bob, FEE);
         vm.deal(alice, 1e20);
         vm.prank(alice);
         vm.expectRevert(ContinuousAuction.BidTooLow.selector);
-        auction.bid{value: 1e20}(key, RATE, 512, alice);
+        auction.bid{value: 1e20}(key, RATE, 512, alice, FEE);
         _bid(alice, RATE + 1, 512, alice); // The scheduled bidder raises without the increment.
         assertEq(auction.refundable(alice), uint256(RATE) * (512 - 101));
         _bid(bob, _minimumOutbid(RATE + 1), 512, bob);
@@ -327,8 +325,8 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(auction.executorAt(poolId), bob);
         _time(512);
         vm.expectRevert(ContinuousAuction.InvalidBid.selector);
-        auction.bid{value: 1e20}(key, RATE, 513 + uint64(type(uint32).max) + 1, alice);
-        _bid(carol, RATE, 1024, carol); // An expired incumbent need not be outbid.
+        auction.bid{value: 1e20}(key, RATE, 513 + uint64(type(uint32).max) + 1, alice, FEE);
+        _bid(carol, 1, 1024, carol); // An expired incumbent need not be outbid, and there is no reserve.
         _time(513);
         assertEq(auction.executorAt(poolId), carol);
     }
@@ -462,7 +460,8 @@ contract ContinuousAuctionTest is FullTest {
     }
 
     function test_stableswapRentIsIndependentOfPrice() public {
-        PoolKey memory stable = _createPool(auction, createStableswapPoolConfig(0, 20, 0, address(auction)), RATE);
+        PoolKey memory stable =
+            createPool(address(token0), address(token1), 0, createStableswapPoolConfig(0, 20, 0, address(auction)));
         (int32 lower, int32 upper) = stable.config.stableswapActiveLiquidityTickRange();
         (uint256 id, uint128 stableLiquidity) = createPosition(stable, lower, upper, 1e18, 1e18);
         _bid(stable, alice, RATE, 512, address(executor));
@@ -481,32 +480,26 @@ contract ContinuousAuctionTest is FullTest {
         ContinuousAuction erc = _deploy(address(asset), 1);
         AuctionPositions manager = new AuctionPositions(core, erc, owner);
         positions = manager;
-        PoolKey memory full = PoolKey({
-            token0: address(token0), token1: address(token1), config: createFullRangePoolConfig(0, address(erc))
-        });
-        erc.createPool(full, 0, FEE, 0, 0, 0);
+        PoolKey memory full = createFullRangePool(0, 0, address(erc));
         (uint256 id,) = createPosition(full, MIN_TICK, MAX_TICK, 1e18, 1e18);
         asset.approve(address(erc), type(uint256).max);
-        erc.bid(full, RATE, 512, alice);
+        erc.bid(full, RATE, 512, alice, FEE);
         _time(201);
         uint256 balance = asset.balanceOf(bob);
         uint256 paid = manager.collectRent(id, full, MIN_TICK, MAX_TICK, bob);
         assertApproxEqAbs(paid, uint256(RATE) * 100, 1);
         assertEq(asset.balanceOf(bob) - balance, paid);
         vm.expectRevert(ContinuousAuction.IncorrectFunding.selector);
-        erc.bid{value: 1}(full, RATE * 2, 512, bob);
+        erc.bid{value: 1}(full, RATE * 2, 512, bob, FEE);
     }
 
     function test_taxedFundingRevertsAtomically() public {
         TaxedAuctionToken asset = new TaxedAuctionToken(address(this));
         ContinuousAuction erc = _deploy(address(asset), 2);
-        PoolKey memory full = PoolKey({
-            token0: address(token0), token1: address(token1), config: createFullRangePoolConfig(0, address(erc))
-        });
-        erc.createPool(full, 0, FEE, 0, 0, 0);
+        PoolKey memory full = createFullRangePool(0, 0, address(erc));
         asset.approve(address(erc), type(uint256).max);
         vm.expectRevert(ContinuousAuction.IncorrectFunding.selector);
-        erc.bid(full, RATE, 512, alice);
+        erc.bid(full, RATE, 512, alice, FEE);
         assertEq(asset.balanceOf(address(erc)), 0);
         _time(101);
         assertEq(erc.executorAt(full.toPoolId()), address(0));
@@ -660,7 +653,7 @@ contract ContinuousAuctionTest is FullTest {
     function test_nativeFundingSurvivesInclusionDelay() public {
         uint256 preparedFunding = uint256(RATE) * (512 - 101);
         _time(105);
-        auction.bid{value: preparedFunding}(key, RATE, 512, alice);
+        auction.bid{value: preparedFunding}(key, RATE, 512, alice, FEE);
         assertEq(auction.refundable(address(this)), uint256(RATE) * 5);
         _time(512);
         uint256 earned = _claim(nft, -1600, 1600);

@@ -1,11 +1,11 @@
 {
-  "Auction#activeReplacement": "157950",
-  "Auction#extend": "91707",
-  "Auction#holderSwapWithAccrual": "144407",
-  "Auction#initialBid": "65116",
-  "Auction#outsiderSwapWithAccrual": "193639",
+  "Auction#activeReplacement": "155874",
+  "Auction#extend": "89186",
+  "Auction#holderSwapWithAccrual": "141908",
+  "Auction#initialBid": "68354",
+  "Auction#outsiderSwapWithAccrual": "191140",
   "Auction#refund": "41901",
-  "Auction#swapInsideTickSpacing": "145183",
+  "Auction#swapInsideTickSpacing": "142684",
   "Auction#withdrawSwapFees": "46594",
-  "AuctionPositions#claim": "136540"
+  "AuctionPositions#claim": "134019"
 }

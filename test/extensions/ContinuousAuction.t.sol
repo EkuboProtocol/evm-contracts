@@ -886,6 +886,81 @@ contract ContinuousAuctionTest is FullTest {
         vm.snapshotGasLastCall("Auction#refund");
     }
 
+    function test_gas_shorten() public {
+        _bid(alice, RATE, 1024, address(executor));
+        _time(201);
+        _cold();
+        vm.prank(alice);
+        auction.shorten(key, 512);
+        vm.snapshotGasLastCall("Auction#shorten");
+    }
+
+    function test_gas_setFee() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        vm.prank(alice);
+        auction.setFee(key, FEE / 2);
+        vm.snapshotGasLastCall("Auction#setFee");
+    }
+
+    function test_gas_accrue() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        auction.accrue(key);
+        vm.snapshotGasLastCall("Auction#accrue");
+    }
+
+    function test_gas_initializePool() public {
+        PoolKey memory k = key;
+        k.config = createConcentratedPoolConfig(0, 64, address(auction));
+        _cold();
+        core.initializePool(k, 0);
+        vm.snapshotGasLastCall("Auction#initializePool");
+    }
+
+    function test_gas_deposit() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        token0.approve(address(positions), 1e18);
+        token1.approve(address(positions), 1e18);
+        _cold();
+        positions.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0);
+        vm.snapshotGasLastCall("AuctionPositions#deposit");
+    }
+
+    function test_gas_withdraw() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        positions.withdraw(nft, key, -1600, 1600, liquidity / 2);
+        vm.snapshotGasLastCall("AuctionPositions#withdrawHalf");
+    }
+
+    function test_gas_swapCrossingOneTick() public {
+        createPosition(key, 1600, 3200, 2e18, 0);
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        executor.swap(key, _params(2e18, true, 2000), false);
+        vm.snapshotGasLastCall("Auction#swapCrossingOneTick");
+        assertGe(core.poolState(poolId).tick(), 1600);
+    }
+
+    function test_gas_swapCrossingFourTicks() public {
+        createPosition(key, 1600, 3200, 2e18, 0);
+        createPosition(key, 3200, 4800, 2e18, 0);
+        createPosition(key, 4800, 6400, 2e18, 0);
+        createPosition(key, 6400, 8000, 2e18, 0);
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        executor.swap(key, _params(10e18, true, 7000), false);
+        vm.snapshotGasLastCall("Auction#swapCrossingFourTicks");
+        assertGe(core.poolState(poolId).tick(), 6400);
+    }
+
     function test_gas_withdrawSwapFees() public {
         _bid(alice, RATE, 512, address(executor));
         _time(201);

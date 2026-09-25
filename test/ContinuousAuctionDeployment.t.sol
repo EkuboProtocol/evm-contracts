@@ -68,7 +68,7 @@ contract ContinuousAuctionDeploymentTest is FullTest {
             token1: address(token1),
             config: createConcentratedPoolConfig(0, 16, address(auction))
         });
-        auction.createPool(key, 0, 1 << 56, 0, 3600, 500);
+        auction.createPool(key, 0, 1 << 24, 0, 3600, 500);
         (uint256 id, uint128 liquidity) = createPosition(key, -1600, 1600, 1e18, 1e18);
         positions.collectFees(id, key, -1600, 1600);
         positions.withdraw(id, key, -1600, 1600, liquidity);

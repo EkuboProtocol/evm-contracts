@@ -18,16 +18,18 @@ Pools must be created through the extension. Direct `Core.initializePool` calls
 revert.
 
 ```solidity
-createPool(PoolKey key, int32 tick, uint64 fee, uint96 minRate, uint32 noticePeriod, uint16 minIncrementBps)
+createPool(PoolKey key, int32 tick, uint32 maxFee, uint96 minRate, uint32 noticePeriod, uint16 minIncrementBps)
 ```
 
 - The key must name this extension and a zero Core fee. Concentrated pools need
   a power-of-four tick spacing; full-range and stableswap configurations are
   supported as well.
-- `fee` is the fraction of a non-holder swap paid to the holder, as a 0.64
-  fixed-point number, and must be nonzero. It is also the price band inside
-  which the holder can hold the price away from the market without being
-  arbitraged, so it should be chosen with providers' range widths in mind.
+- `maxFee` caps the fee the holder may charge non-holder swaps. Fees are 0.32
+  fixed-point fractions, the upper 32 bits of Core's fee format, and the cap
+  must be nonzero. The cap is also the widest price band inside which a holder
+  can hold the price away from the market without being arbitraged, so it
+  should be chosen with providers' range widths in mind. The fee itself is pool
+  state: it starts at the cap and the holder sets it with `setFee`.
 - `minRate` is the reserve rent in bid-token base units per second. No bid
   below it is accepted.
 - `noticePeriod` is the minimum funded tenure of a bid and the minimum remaining
@@ -44,6 +46,7 @@ Terms are immutable per pool. A key identifies one pool, so one set of terms.
 bid(PoolKey key, uint96 rate, uint64 end, address executor)
 extend(PoolKey key, uint64 end)
 shorten(PoolKey key, uint64 end)
+setFee(PoolKey key, uint32 fee)
 withdrawRefund(address recipient)
 ```
 
@@ -62,6 +65,9 @@ withdrawRefund(address recipient)
   and credits the refund, but the bid must keep at least `noticePeriod` seconds
   from now. That is the only voluntary exit; there is no rate reduction. Neither
   is available to a bidder whose bid has already been displaced.
+- `setFee` sets the non-holder swap fee, up to `maxFee`, and is available to the
+  scheduled bidder, pending or live. The fee persists in pool state across
+  holders until changed, so a new holder should set it after bidding.
 - `executor` is the authorized **Core locker contract**. It must authenticate
   its callers. Naming a permissionless router grants that router's users
   fee-free access.
@@ -75,18 +81,19 @@ The authorized locker calls `Core.forward(address(extension))` with trailing
 `abi.encode(poolKey, swapParameters)`. Direct Core swaps revert.
 
 - The holder's executor swaps with no fee.
-- While the pool is rented, any other locker may forward a swap and pays `fee`
-  to the holder: on the output for exact-input swaps, on the input for
-  exact-output swaps. The returned `(PoolBalanceUpdate, PoolState)` already
+- While the pool is rented, any other locker may forward a swap and pays the
+  current fee to the holder: on the output for exact-input swaps, on the input
+  for exact-output swaps. The returned `(PoolBalanceUpdate, PoolState)` already
   reflects the fee. Fees are saved in Core under the pool's salt and withdrawn by
   the bidder with `withdrawSwapFees(poolKey, recipient)`.
 - Without a live bid the pool does not swap. Providers may still deposit and
   withdraw at any time.
 
 Because anyone can arbitrage a rented pool for the price of the fee, the price
-stays within the fee band of the market whenever arbitrageurs are active. A
-holder can only hold the price outside another position's range if that range
-ends inside the band.
+stays within the fee band of the market whenever arbitrageurs are active. The
+holder chooses the fee, so it chooses how tight that band is, but never wider
+than `maxFee`. A holder can only hold the price outside another position's
+range if that range ends inside the cap's band.
 
 ## Rent
 
@@ -147,8 +154,11 @@ The design choices below each close a way for that revenue to leak:
   recipients. Without them a holder could park the price in its own dust range,
   collect its own rent, and still trade against everyone else. With them, any
   parked price further than the fee from the market is arbitraged back and the
-  holder is paid only the fee. Providers should keep their ranges at least a fee
-  band wider than the market on each side.
+  holder is paid only the fee. The holder sets the fee because it earns it and
+  wants it low enough to attract routed flow; the creator's cap exists because
+  a holder that could raise the fee without limit could park at will. Providers
+  should keep their ranges at least a cap-wide band beyond the market on each
+  side.
 - **A reserve rate** keeps a lone bidder from taking fee-free access for
   nothing. Below the reserve the pool is simply unrented, and unrented pools do
   not swap, so providers bear no arbitrage loss they are not paid for.
@@ -162,7 +172,7 @@ The design choices below each close a way for that revenue to leak:
 
 What the mechanism does not do: it does not guarantee retail flow, which
 reaches the pool only through lockers that forward to the extension; it does not
-protect positions narrower than the fee band from price relocation; and it does
+protect positions narrower than the capped fee band from price relocation; and it does
 not compensate providers while the pool is unrented. Bidders bear the exchange
 risk between the bid token and the pool's tokens.
 

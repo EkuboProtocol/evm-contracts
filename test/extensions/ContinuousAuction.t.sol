@@ -108,7 +108,8 @@ contract ContinuousAuctionTest is FullTest {
     address bob = address(0xb0b);
     address carol = address(0xca401);
     uint96 constant RATE = 1e12;
-    uint64 constant FEE = 184467440737095516; // 1% as a 0.64 fixed-point fraction
+    uint32 constant FEE = 42949672; // 1% as a 0.32 fixed-point fraction
+    uint64 constant FEE64 = uint64(FEE) << 32;
     uint32 constant NOTICE = 100;
     uint16 constant INCREMENT = 1000;
 
@@ -189,7 +190,8 @@ contract ContinuousAuctionTest is FullTest {
         auction.createPool(k, 0, FEE, RATE, NOTICE, INCREMENT);
         vm.expectRevert(ContinuousAuction.InvalidPool.selector);
         auction.createPool(key, 0, FEE, RATE, NOTICE, INCREMENT);
-        (,, uint64 fee, uint96 minRate, uint32 notice, uint16 increment,,) = auction.auctions(poolId);
+        (,, uint32 maxFee, uint32 fee, uint96 minRate, uint32 notice, uint16 increment,,) = auction.auctions(poolId);
+        assertEq(maxFee, FEE);
         assertEq(fee, FEE);
         assertEq(minRate, RATE);
         assertEq(notice, NOTICE);
@@ -223,7 +225,7 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(auction.executorAt(poolId), address(outsider));
         PoolBalanceUpdate charged = executor.swap(key, params, false); // The old executor now pays the fee.
         (uint128 after0,) = auction.swapFeesOwed(poolId, bob);
-        assertEq(after0, computeFee(uint128(-charged.delta0()) + after0, FEE));
+        assertEq(after0, computeFee(uint128(-charged.delta0()) + after0, FEE64));
         _time(256);
         vm.expectRevert(ContinuousAuction.PoolClosed.selector);
         outsider.swap(key, params, false);
@@ -239,7 +241,7 @@ contract ContinuousAuctionTest is FullTest {
         assertGt(fee1, 0);
         assertEq(
             uint128(charged.delta1()),
-            FixedPointMathLib.fullMulDivUp(uint128(charged.delta1()) - fee1, 1 << 64, (1 << 64) - FEE)
+            FixedPointMathLib.fullMulDivUp(uint128(charged.delta1()) - fee1, 1 << 64, (1 << 64) - FEE64)
         );
     }
 
@@ -262,6 +264,45 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(token1.balanceOf(carol), fee1);
         (fee0, fee1) = auction.swapFeesOwed(poolId, alice);
         assertEq(fee0 + fee1, 0);
+    }
+
+    function test_holderSetsFeeUpToCapAndItPersists() public {
+        vm.prank(alice);
+        vm.expectRevert(ContinuousAuction.NotHolder.selector);
+        auction.setFee(key, FEE / 2);
+        _bid(alice, RATE, 512, address(executor));
+        vm.prank(alice);
+        vm.expectRevert(ContinuousAuction.InvalidTerms.selector);
+        auction.setFee(key, FEE + 1);
+        vm.prank(alice);
+        auction.setFee(key, FEE / 2); // The pending bidder may already set the fee.
+        (,,, uint32 fee,,,,,) = auction.auctions(poolId);
+        assertEq(fee, FEE / 2);
+        _time(101);
+        PoolBalanceUpdate charged = outsider.swap(key, _params(1e17, true, 100), false);
+        (uint128 fee0,) = auction.swapFeesOwed(poolId, alice);
+        assertEq(fee0, computeFee(uint128(-charged.delta0()) + fee0, uint64(FEE / 2) << 32));
+        vm.prank(alice);
+        auction.setFee(key, 0);
+        outsider.swap(key, _params(1e17, false, -100), false);
+        (uint128 after0, uint128 after1) = auction.swapFeesOwed(poolId, alice);
+        assertEq(after0, fee0);
+        assertEq(after1, 0);
+        vm.prank(bob);
+        vm.expectRevert(ContinuousAuction.NotHolder.selector);
+        auction.setFee(key, FEE);
+        _bid(bob, RATE * 2, 512, bob);
+        vm.prank(alice);
+        vm.expectRevert(ContinuousAuction.NotHolder.selector); // Displaced incumbents lose control of the fee.
+        auction.setFee(key, FEE);
+        _time(102);
+        (,,, fee,,,,,) = auction.auctions(poolId);
+        assertEq(fee, 0); // The fee is pool state and persists until the new holder changes it.
+        vm.prank(bob);
+        auction.setFee(key, FEE);
+        executor.swap(key, _params(1e17, true, 100), false);
+        (uint128 bob0,) = auction.swapFeesOwed(poolId, bob);
+        assertGt(bob0, 0);
     }
 
     /// BIDDING RULES

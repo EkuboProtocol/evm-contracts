@@ -33,6 +33,7 @@ This is the multi-chain ownerless and permissionless contract that enables all t
 These contracts manage positions in the Ekubo Protocol Core contract
 
 - **`Positions.sol`**: NFT-based liquidity position management
+- **`AuctionPositions.sol`**: Position NFTs with owner-authorized auction-rent collection
 - **`Orders.sol`**: TWAMM order management as NFTs
 
 ### Base Contracts
@@ -57,6 +58,7 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 - **`extensions/TWAMM.sol`**: Time-Weighted Average Market Maker implementation
 - **`extensions/MEVCapture.sol`**: MEV capture and redistribution mechanism
 - **`extensions/Ve33.sol`**: ve(3,3)-style extension. See [user guide](./docs/ve33-user-guide.md) and [architecture notes](./docs/ve-integrated-extension.md).
+- **`extensions/ContinuousAuction.sol`**: Fully funded continuous auctions for exclusive access to zero-fee pools. See [auction guide](./continuous-auction.md).
 
 ### Utility Contracts
 

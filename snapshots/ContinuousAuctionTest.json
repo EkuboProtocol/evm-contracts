@@ -1,0 +1,12 @@
+{
+  "Auction#activeReplacementFull": "175111",
+  "Auction#activeReplacementWithTail": "244149",
+  "Auction#initialBid": "130362",
+  "Auction#maximalScheduleExpiry": "1191665",
+  "Auction#maximalScheduleReplacement": "1739926",
+  "Auction#pendingReplacement": "145342",
+  "Auction#refund": "33254",
+  "Auction#swapInsideTickSpacing": "127132",
+  "Auction#swapWithAccrual": "126308",
+  "AuctionPositions#claim": "97913"
+}

@@ -58,7 +58,7 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 - **`extensions/TWAMM.sol`**: Time-Weighted Average Market Maker implementation
 - **`extensions/MEVCapture.sol`**: MEV capture and redistribution mechanism
 - **`extensions/Ve33.sol`**: ve(3,3)-style extension. See [user guide](./docs/ve33-user-guide.md) and [architecture notes](./docs/ve-integrated-extension.md).
-- **`extensions/ContinuousAuction.sol`**: Fully funded continuous auctions for exclusive access to zero-fee pools. See [auction guide](./continuous-auction.md).
+- **`extensions/ContinuousAuction.sol`**: Auction-managed pools whose providers earn rent in one bid token; the holder swaps fee-free and everyone else pays it a fee. See [auction guide](./continuous-auction.md).
 
 ### Utility Contracts
 

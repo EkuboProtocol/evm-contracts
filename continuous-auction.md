@@ -128,9 +128,12 @@ periods.
 - Rent charged while no liquidity is active is discarded: it is logged but never
   refunded nor paid to later depositors. A holder can avoid that outcome by
   providing liquidity at the market price itself.
-- Position changes checkpoint earned rent into an owed balance. Removing all
-  liquidity does not discard it. `AUCTION_COLLECT_RENT` moves the position
-  owner's rent to its locker; `getPositionRent` quotes already-accrued rent.
+- Position changes only advance the position's snapshot: like Core swap fees and
+  Ve33 rewards, rent is computed from the snapshot and never banked, so
+  uncollected rent is discarded on any liquidity change. Collect first —
+  `withdrawAndCollectRent` collects and withdraws atomically. `AUCTION_COLLECT_RENT`
+  moves the position owner's rent to its locker; `getPositionRent` quotes
+  already-accrued rent.
 - Integer rounding favors solvency; the scaled remainder of each global growth
   update is carried to the next settlement so settlement cadence cannot strand
   rent, while per-position checkpoint dust remains in the extension. There is no
@@ -149,8 +152,10 @@ getPositionRentAndLiquidity(id, poolKey, tickLower, tickUpper)
 
 The NFT owner and approved operators may collect; the overloads without a
 recipient pay the caller. The metadata owner receives no right to other users' rent.
-Pending rent travels with the NFT on transfer and remains claimable after full
-withdrawal. Collect all balances before burning the NFT. The original minter can
+Uncollected rent is discarded on any liquidity change, so collect before depositing
+more or withdrawing — `withdrawAndCollectRent` does both atomically. Claimability
+travels with the NFT on transfer. Collect all
+balances before burning the NFT. The original minter can
 recreate the same deterministic NFT ID and thereby regain control of any value
 left under that ID after an authorized burn.
 

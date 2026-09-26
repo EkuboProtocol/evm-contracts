@@ -83,10 +83,10 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         uint256 growth;
     }
 
-    struct PositionRent {
-        uint256 snapshot;
-        uint256 owed;
-    }
+    /// @notice Last rent-growth snapshot per position. Earnings are always computed from the
+    /// snapshot and never banked, mirroring Core fee and Ve33 reward accounting: uncollected
+    /// rent is discarded on any liquidity change, so collect before modifying a position.
+    mapping(PoolId => mapping(address => mapping(PositionId => uint256))) public positionRentSnapshot;
 
     mapping(PoolId => Auction) public auctions;
     /// @notice Bid-token credit of a bidder from displaced tenure, netted into its next bid update.
@@ -99,7 +99,6 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     /// own and no clearing is needed.
     mapping(PoolId => PendingFloor) public pendingFloor;
     mapping(PoolId => mapping(int32 => uint256)) public growthOutside;
-    mapping(PoolId => mapping(address => mapping(PositionId => PositionRent))) public positionRent;
 
     error InvalidBidToken();
     error InvalidPool();
@@ -515,19 +514,23 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         }
     }
 
-    function _checkpoint(PoolKey memory key, address owner, PositionId positionId, int32 tick, uint128 liquidity)
+    /// @dev Earnings since the position's last snapshot at the given tick and liquidity.
+    function _positionRent(PoolKey memory key, address owner, PositionId positionId, int32 tick, uint128 liquidity)
         private
+        view
+        returns (uint256 amount)
     {
-        PositionRent storage rent = positionRent[key.toPoolId()][owner][positionId];
-        uint256 inside = _inside(key, positionId, tick);
-        if (liquidity != 0) {
-            uint256 delta;
-            unchecked {
-                delta = inside - rent.snapshot;
-            }
-            rent.owed += FixedPointMathLib.fullMulDivN(delta, liquidity, 128);
+        uint256 delta;
+        unchecked {
+            delta = _inside(key, positionId, tick) - positionRentSnapshot[key.toPoolId()][owner][positionId];
         }
-        rent.snapshot = inside;
+        amount = FixedPointMathLib.fullMulDivN(delta, liquidity, 128);
+    }
+
+    /// @dev Advances the position's snapshot to current growth. Uncollected earnings are discarded,
+    /// mirroring Core fee and Ve33 reward accounting: collect before modifying a position.
+    function _syncRentSnapshot(PoolKey memory key, address owner, PositionId positionId, int32 tick) private {
+        positionRentSnapshot[key.toPoolId()][owner][positionId] = _inside(key, positionId, tick);
     }
 
     function beforeUpdatePosition(Locker locker, PoolKey memory key, PositionId positionId, int128 delta)
@@ -539,19 +542,14 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         PoolId poolId = key.toPoolId();
         PoolState state = CORE.poolState(poolId);
         _accrue(poolId, state.liquidity());
-        uint128 liquidity = _liquidity(poolId, locker.addr(), positionId);
-        if (liquidity != 0) _checkpoint(key, locker.addr(), positionId, state.tick(), liquidity);
-        bool changed;
         if (delta != 0 && key.config.isConcentrated()) {
-            bool lowerChanged = _updateTick(poolId, positionId.tickLower(), delta);
-            bool upperChanged = _updateTick(poolId, positionId.tickUpper(), delta);
-            changed = lowerChanged || upperChanged;
+            _updateTick(poolId, positionId.tickLower(), delta);
+            _updateTick(poolId, positionId.tickUpper(), delta);
         }
-        // Boundary initialization/deletion changes the coordinate system, not accrued rent.
-        // Existing positions with unchanged boundaries already took this snapshot in _checkpoint.
-        if (liquidity == 0 || changed) {
-            positionRent[poolId][locker.addr()][positionId].snapshot = _inside(key, positionId, state.tick());
-        }
+        // Sync after any tick flips: boundary initialization/deletion changes the coordinate system,
+        // and the snapshot must live in the new one. Uncollected earnings are discarded, mirroring
+        // Core fee and Ve33 reward accounting.
+        _syncRentSnapshot(key, locker.addr(), positionId, state.tick());
     }
 
     /// @dev Moves the position's earned rent to the forwarding locker, which withdraws the bid token.
@@ -560,11 +558,9 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         PoolId poolId = key.toPoolId();
         PoolState state = CORE.poolState(poolId);
         _accrue(poolId, state.liquidity());
-        _checkpoint(key, owner, positionId, state.tick(), _liquidity(poolId, owner, positionId));
-        PositionRent storage rent = positionRent[poolId][owner][positionId];
-        amount = rent.owed;
+        amount = _positionRent(key, owner, positionId, state.tick(), _liquidity(poolId, owner, positionId));
+        _syncRentSnapshot(key, owner, positionId, state.tick());
         if (amount != 0) {
-            rent.owed = 0;
             CORE.updateSavedBalances(
                 bidToken, AUCTION_SAVED_BALANCE_PAIR_TOKEN, AUCTION_FUNDS_SAVED_BALANCE_ID, -int256(amount), 0
             );
@@ -580,16 +576,8 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     {
         _validate(key);
         PoolId poolId = key.toPoolId();
-        PositionRent storage rent = positionRent[poolId][owner][positionId];
-        amount = rent.owed;
-        uint128 liquidity = _liquidity(poolId, owner, positionId);
-        if (liquidity != 0) {
-            uint256 delta;
-            unchecked {
-                delta = _inside(key, positionId, CORE.poolState(poolId).tick()) - rent.snapshot;
-            }
-            amount += FixedPointMathLib.fullMulDivN(delta, liquidity, 128);
-        }
+        amount =
+            _positionRent(key, owner, positionId, CORE.poolState(poolId).tick(), _liquidity(poolId, owner, positionId));
     }
 
     // Mirrors Ve33's range-aware external-reward accounting, including nonzero tick sentinels.

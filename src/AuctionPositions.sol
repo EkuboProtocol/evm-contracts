@@ -22,9 +22,11 @@ import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @notice Position NFTs for continuous-auction pools with owner/approved-operator collection of rent.
-/// @dev No protocol fees. Rent remains claimable after removing all liquidity and travels with the NFT on
-/// transfer; collect it before burning. Burning does not settle Core positions or rent, and the original minter
-/// can recreate the same deterministic NFT ID.
+/// @dev No protocol fees. Rent is computed from a per-position snapshot and never banked, mirroring
+/// Core fee and Ve33 reward accounting: uncollected rent is discarded on any liquidity change, so
+/// collect (or use `withdrawAndCollectRent`) before modifying a position. Rent travels with the NFT
+/// on transfer; collect it before burning. Burning does not settle Core positions or rent, and the
+/// original minter can recreate the same deterministic NFT ID.
 contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using CoreLib for *;
     using FlashAccountantLib for *;

@@ -642,6 +642,10 @@ contract ContinuousAuctionTest is FullTest {
     function test_rentOwnerAuthorizationTransferAndFullWithdrawal() public {
         _bid(alice, RATE, 512, alice);
         _time(200);
+        // Collect before withdrawing: uncollected rent is discarded on any liquidity change,
+        // mirroring Core fee and Ve33 reward accounting.
+        uint256 earned = _claim(nft, -1600, 1600);
+        assertApproxEqAbs(earned, uint256(RATE) * 99, 1);
         manager.withdraw(nft, key, -1600, 1600, liquidity);
         _time(300);
         vm.prank(bob);
@@ -649,11 +653,9 @@ contract ContinuousAuctionTest is FullTest {
         manager.collectRent(nft, key, -1600, 1600, bob);
         manager.transferFrom(address(this), bob, nft);
         vm.prank(bob);
-        uint256 paid = manager.collectRent(nft, key, -1600, 1600, bob);
-        assertApproxEqAbs(paid, uint256(RATE) * 99, 1);
-        assertEq(bob.balance, paid);
-        assertEq(auction.refundable(_id(alice)), 0);
-        // Empty-interval rent is discarded, not counted.
+        // Nothing accrued with no liquidity and nothing was banked.
+        assertEq(manager.collectRent(nft, key, -1600, 1600, bob), 0);
+        assertEq(bob.balance, 0);
         vm.prank(bob);
         assertEq(manager.collectRent(nft, key, -1600, 1600, bob), 0);
     }
@@ -701,11 +703,13 @@ contract ContinuousAuctionTest is FullTest {
     function test_reinitializedTicksDoNotGiveAwayHistoricalRent() public {
         _bid(alice, RATE, 512, alice);
         _time(201);
-        manager.withdraw(nft, key, -1600, 1600, liquidity);
+        // Collect before withdrawing: withdrawing discards uncollected rent instead of banking it.
+        (,, uint256 kept) = manager.withdrawAndCollectRent(nft, key, -1600, 1600, liquidity, address(this));
+        assertApproxEqAbs(kept, uint256(RATE) * 100, 1);
         _time(301);
         (uint256 other,) = _createPosition(key, -1600, 1600, 1e18, 1e18);
         _time(401);
-        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 100, 1);
+        assertEq(_claim(nft, -1600, 1600), 0);
         assertApproxEqAbs(_claim(other, -1600, 1600), uint256(RATE) * 100, 1);
     }
 
@@ -898,6 +902,9 @@ contract ContinuousAuctionTest is FullTest {
         uint256 total;
         uint256 now_ = 100;
         bool hasLiquidity = true;
+        // Rent must be collected before each withdrawal: uncollected rent is discarded on any
+        // liquidity change, mirroring Core fee and Ve33 reward accounting.
+        uint256 collected;
         for (uint256 i; i < 8; ++i) {
             seed = uint256(keccak256(abi.encode(seed, i)));
             uint256 next = now_ + 1 + seed % 20;
@@ -907,8 +914,12 @@ contract ContinuousAuctionTest is FullTest {
             now_ = next;
             _time(now_);
             if ((seed >> 16) % 2 == 1) {
-                if (hasLiquidity) manager.withdraw(nft, key, -1600, 1600, liquidity);
-                else (liquidity,,) = manager.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0);
+                if (hasLiquidity) {
+                    (,, uint256 rent) = manager.withdrawAndCollectRent(nft, key, -1600, 1600, liquidity, address(this));
+                    collected += rent;
+                } else {
+                    (liquidity,,) = manager.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0);
+                }
                 hasLiquidity = !hasLiquidity;
             }
             uint96 rate = uint96(rates[now_ + 1] + 1);
@@ -936,7 +947,7 @@ contract ContinuousAuctionTest is FullTest {
             else unallocated += rates[t];
         }
         _time(2048);
-        uint256 paid = _claim(nft, -1600, 1600);
+        uint256 paid = _claim(nft, -1600, 1600) + collected;
         assertApproxEqAbs(paid, expectedRent, 25);
         // Empty-interval rent is discarded, not counted; conservation below still holds exactly.
         uint256 withdrawn;

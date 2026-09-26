@@ -91,10 +91,12 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     /// @notice Scaled division remainder carried across rent settlements so caller-chosen settlement
     /// cadence cannot strand LP rent through repeated floor division.
     mapping(PoolId => uint256) public accrualRemainder;
-    /// @notice Original end of a live schedule truncated by another bidder's pending bid. Used to
-    /// restore the victim when the displacer cancels before activation; cleared on promotion,
-    /// owner edits, restore, or settled fallback.
-    mapping(PoolId => uint48) public displacedEnd;
+    /// @notice Promised rate of the most recently displaced same-start pending bid. Binds every
+    /// replacement for that start (including cancel-and-rebid by the displacer) until the second
+    /// passes; keyed by start so stale entries expire on their own and no clearing is needed.
+    mapping(PoolId => uint96) public pendingFloorRate;
+    /// @notice Activation second the pending floor applies to. See `pendingFloorRate`.
+    mapping(PoolId => uint48) public pendingFloorStart;
     mapping(PoolId => mapping(int32 => uint256)) public growthOutside;
     mapping(PoolId => mapping(address => mapping(PositionId => PositionRent))) public positionRent;
 
@@ -199,8 +201,10 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     /// and the fee charged to other swappers. Rate zero removes the locker's scheduled bid.
     /// @dev The locker's previous schedule is credited back and any outstanding credit is netted, so the returned
     /// delta is the net bid-token amount the locker owes (positive) or may withdraw (negative). Another locker's
-    /// scheduled bid is displaced only by a strictly higher rate and is credited for its displaced tenure. The
-    /// executor is a Core locker, NOT tx.origin, and must authenticate its own callers.
+    /// scheduled bid is displaced only by a strictly higher rate. Displacement of the live incumbent takes
+    /// effect at activation, when its relinquished tenure is credited; a displaced pending bid is credited
+    /// immediately since its tenure never started, but its promised rate binds same-start replacements.
+    /// The executor is a Core locker, NOT tx.origin, and must authenticate its own callers.
     function _updateBid(
         PoolKey memory key,
         address locker,
@@ -227,67 +231,47 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
             cost = uint256(rate) * (end - start);
         }
 
-        // The scheduled bid at activation is a same-second pending bid, else the incumbent if it outlasts start.
+        // Every new bid must strictly beat every other live schedule covering its start: a
+        // same-second pending bid and/or the live incumbent. Displacement takes effect at activation
+        // (see _accrue), so the incumbent is never truncated here and cancelling is always harmless.
+        // A killed pending promise still binds same-start replacements through the floor below.
         Bid storage scheduled = auction.next.bidder != bytes32(0) ? auction.next : auction.current;
         bool live = scheduled.end > start;
         bool own = live && scheduled.bidder == bidder;
-        if (rate != 0 && live && !own && rate <= scheduled.rate) revert BidTooLow();
-        // A pending winner replacing its own bid must still exceed a live incumbent it displaced.
-        // Otherwise outbidding high and immediately downgrading would grant exclusive access at a
-        // negligible rate while LPs lose the incumbent's rent. The boundary is inclusive because
-        // displacement truncates the incumbent to exactly `start`.
-        if (
-            rate != 0 && own && auction.current.bidder != bidder && auction.current.end >= start
-                && rate <= auction.current.rate
-        ) revert BidTooLow();
+        if (rate != 0) {
+            if (live && !own && rate <= scheduled.rate) revert BidTooLow();
+            if (auction.current.bidder != bidder && auction.current.end > start && rate <= auction.current.rate) {
+                revert BidTooLow();
+            }
+            uint96 floor = pendingFloorRate[poolId];
+            if (floor != 0 && start == pendingFloorStart[poolId] && rate <= floor) revert BidTooLow();
+        }
 
         uint256 credit = refundable[bidder];
         if (credit != 0) delete refundable[bidder];
 
         if (rate != 0 || own) {
             Bid storage next = auction.next;
-            // Whether this update restored a displaced victim schedule; a restored schedule must
-            // not be truncated again below.
-            bool restored;
             if (next.bidder != bytes32(0)) {
-                bytes32 replaced = next.bidder;
-                uint256 replacedCost = uint256(next.rate) * (next.end - next.start);
-                uint256 forfeit;
-                // Cancelling your own pending bid after displacing another bidder restores the victim
-                // when its credit is untouched, so the pool never closes and griefing gains nothing on
-                // any block time. Otherwise the cancellation settles: it forfeits one second at the
-                // pending rate to the victim, priced like a parking challenge.
-                if (rate == 0 && replaced == bidder) {
-                    Bid storage current_ = auction.current;
-                    uint48 stored = displacedEnd[poolId];
-                    delete displacedEnd[poolId];
-                    bool victimOutstanding =
-                        current_.bidder != bidder && current_.bidder != bytes32(0) && current_.end == start;
-                    uint256 tail = stored > start ? uint256(current_.rate) * (stored - start) : 0;
-                    if (victimOutstanding && tail != 0 && refundable[current_.bidder] >= tail) {
-                        current_.end = stored;
-                        refundable[current_.bidder] -= tail;
-                        restored = true;
-                    } else if (victimOutstanding) {
-                        forfeit = uint256(next.rate);
-                        _credit(current_.bidder, bidder, forfeit);
+                if (next.bidder != bidder) {
+                    // Replacing another bidder's pending bid fully refunds them: their tenure never
+                    // started. Their promised rate binds same-start replacements (see floor), so a
+                    // transient high bid cannot be followed by a low one.
+                    if (rate != 0) {
+                        pendingFloorRate[poolId] = next.rate;
+                        pendingFloorStart[poolId] = start;
                     }
+                    credit += _credit(next.bidder, bidder, uint256(next.rate) * (next.end - next.start));
+                } else {
+                    credit += uint256(next.rate) * (next.end - next.start);
                 }
-                credit += _credit(replaced, bidder, replacedCost - forfeit);
                 delete auction.next;
             }
             Bid storage current = auction.current;
-            // A restored victim schedule is final; truncating it again would undo the restore.
-            if (!restored && current.end > start) {
-                if (current.bidder != bidder) {
-                    // Record the displaced schedule for a later restore. Overwritten on every new
-                    // displacement; only a live schedule reaches this branch, so the marker always
-                    // denotes an outstanding truncated victim.
-                    displacedEnd[poolId] = current.end;
-                } else {
-                    delete displacedEnd[poolId];
-                }
-                credit += _credit(current.bidder, bidder, uint256(current.rate) * (current.end - start));
+            if (current.bidder == bidder && current.end > start) {
+                // Shortening your own live schedule nets the relinquished tenure immediately.
+                // Another bidder's schedule is only displaced at activation and needs no handling here.
+                credit += uint256(current.rate) * (current.end - start);
                 current.end = start;
             }
             if (rate != 0) auction.next = Bid(bidder, rate, executor, start, uint48(end), fee);
@@ -360,14 +344,25 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         // After the uint48 timestamp boundary, time wraps backward. Settle nothing rather than
         // promoting pending state or attributing rent over an empty interval.
         if (now_ < from) return;
-        uint256 rent = _rentBetween(auction.current, from, now_);
+        uint256 rent;
         if (auction.next.bidder != bytes32(0)) {
-            // The pending bid was placed at `from`, so it is live now and the incumbent ended at its start.
-            rent += _rentBetween(auction.next, from, now_);
+            // The pending bid was placed at `from`, so it activates now. Clamp the incumbent to the
+            // handover (it was never truncated at placement) and credit its relinquished tail.
+            uint48 handover = auction.next.start;
+            rent = _rentBetween(auction.current, from, handover) + _rentBetween(auction.next, from, now_);
+            bytes32 outgoing = auction.current.bidder;
+            uint256 tail;
+            if (outgoing != bytes32(0) && auction.current.end > handover) {
+                tail = uint256(auction.current.rate) * (auction.current.end - handover);
+            }
             auction.current = auction.next;
             delete auction.next;
-            // The schedule turned over; any recorded displacement is settled.
-            delete displacedEnd[poolId];
+            if (tail != 0) {
+                refundable[outgoing] += tail;
+                emit RefundCredited(outgoing, tail);
+            }
+        } else {
+            rent = _rentBetween(auction.current, from, now_);
         }
         auction.lastSettled = now_;
         if (rent != 0) {

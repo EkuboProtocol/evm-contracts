@@ -344,8 +344,10 @@ contract ContinuousAuctionTest is FullTest {
         _time(200);
         _bid(bob, RATE * 2, 512, bob);
         assertEq(auction.executorAt(poolId), alice);
-        assertEq(auction.refundable(_id(alice)), uint256(RATE) * (1024 - 201));
+        // The displaced tenure is credited when Bob's bid activates, not when placed.
         _time(201);
+        auction.accrue(key);
+        assertEq(auction.refundable(_id(alice)), uint256(RATE) * (1024 - 201));
         assertEq(auction.executorAt(poolId), bob);
         _time(600);
         assertEq(auction.executorAt(poolId), address(0)); // Displaced funding is not rescheduled.
@@ -363,10 +365,13 @@ contract ContinuousAuctionTest is FullTest {
         _time(150);
         _bid(bob, RATE * 2, 768, bob);
         _bid(carol, RATE * 3, 256, carol);
-        assertEq(auction.refundable(_id(alice)), uint256(RATE) * (1024 - 151));
+        // Replacing a never-active pending bid credits it immediately; Alice's live tenure is
+        // credited when Carol's bid activates.
         assertEq(auction.refundable(_id(bob)), uint256(RATE) * 2 * (768 - 151));
         assertEq(auction.executorAt(poolId), alice);
         _time(151);
+        auction.accrue(key);
+        assertEq(auction.refundable(_id(alice)), uint256(RATE) * (1024 - 151));
         assertEq(auction.executorAt(poolId), carol);
         ContinuousAuction.Bid memory h = auction.holder(poolId);
         assertEq(h.bidder, _id(carol));
@@ -382,8 +387,10 @@ contract ContinuousAuctionTest is FullTest {
         _bid(alice, RATE, 1024, alice);
         _time(200);
         _bid(bob, RATE * 2, 512, bob);
-        uint256 credit = auction.refundable(_id(alice));
         _time(300);
+        // Settle Bob's activation so Alice's displaced tenure is credited before she rebids.
+        auction.accrue(key);
+        uint256 credit = auction.refundable(_id(alice));
         uint256 funding = uint256(RATE) * 3 * (2048 - 301);
         vm.deal(alice, funding);
         vm.prank(alice);
@@ -437,11 +444,13 @@ contract ContinuousAuctionTest is FullTest {
         _bid(alice, RATE, 1024, alice);
         _time(200);
         _bid(bob, RATE * 2, 512, bob);
+        assertEq(auction.executorAt(poolId), alice); // The current second is unaffected.
+        // Alice's credit lands when Bob's bid activates; withdrawing it leaves the schedule alone.
+        _time(201);
+        auction.accrue(key);
         uint256 credit = auction.refundable(_id(alice));
         uint256 refund = _remove(alice); // Nothing scheduled to remove; the credit is withdrawn.
         assertEq(refund, credit);
-        assertEq(auction.executorAt(poolId), alice); // The current second is unaffected.
-        _time(201);
         assertEq(auction.executorAt(poolId), bob);
         assertEq(auction.holder(poolId).end, 512);
     }
@@ -461,40 +470,76 @@ contract ContinuousAuctionTest is FullTest {
         // Raising, or lowering while staying above the incumbent, remains allowed.
         _bid(bob, RATE * 3, 512, bob);
         _time(102);
+        auction.accrue(key); // Settles Bob's activation so Alice's displaced tenure is credited.
         assertEq(auction.executorAt(poolId), bob);
         // The incumbent keeps its displaced tenure as credit.
         assertEq(auction.refundable(_id(alice)), uint256(RATE) * (1024 - 102));
     }
 
-    function test_cancelAfterDisplacingRestoresTheVictim() public {
+    function test_cancelAfterDisplacingLeavesTheIncumbentIntact() public {
         _bid(alice, RATE, 1024, alice);
         _time(101); // Alice's bid is live before Bob displaces it.
         _bid(bob, RATE * 2, 512, bob);
         uint256 pendingCost = uint256(RATE) * 2 * (512 - 102);
-        // Cancelling refunds the full pending cost: nothing was destroyed.
+        // Cancelling refunds the full pending cost: the incumbent was never truncated.
         assertEq(_remove(bob), pendingCost);
-        // Alice's schedule is restored and her credit is debited back.
         assertEq(auction.refundable(_id(alice)), 0);
-        assertEq(auction.displacedEnd(poolId), 0);
         ContinuousAuction.Bid memory h = auction.holder(poolId);
         assertEq(h.bidder, _id(alice));
         assertEq(h.end, 1024);
         _time(102);
         assertEq(auction.executorAt(poolId), alice);
+        // Alice's rent accrues uninterrupted by Bob's excursion.
+        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * (102 - 101), 1);
     }
 
-    function test_cancelAfterVictimWithdrewFallsBackToForfeit() public {
+    function test_killedPendingPromiseBindsSameStartReplacements() public {
         _bid(alice, RATE, 1024, alice);
         _time(101); // Alice's bid is live before Bob displaces it.
         _bid(bob, RATE * 2, 512, bob);
-        // Alice withdraws her displaced tenure credit first, so there is nothing left to restore.
-        assertEq(_remove(alice), uint256(RATE) * (1024 - 102));
-        uint256 pendingCost = uint256(RATE) * 2 * (512 - 102);
-        assertEq(_remove(bob), pendingCost - uint256(RATE) * 2);
-        // The victim keeps one second at the pending rate; the pool stays schedule-less until rebid.
-        assertEq(auction.refundable(_id(alice)), uint256(RATE) * 2);
+        // Bob lowers his own pending bid, but not below Alice's live rate.
+        vm.prank(bob);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, RATE - 1, 512, bob, FEE, bob);
+        // Replacing Alice's pending-equivalent promise via a fresh identity does not help either:
+        // Carol must beat the live incumbent, and the floor only binds the same start.
+        _bid(carol, RATE * 2 + 1, 512, carol);
         _time(102);
-        assertEq(auction.executorAt(poolId), address(0));
+        assertEq(auction.executorAt(poolId), carol);
+    }
+
+    function test_pendingFloorBlocksCancelAndRebidDowngrade() public {
+        // No live incumbent. Alice promises 20 while pending; Bob kills it high, cancels, and re-bids low.
+        _bid(alice, 20, 512, alice);
+        _bid(bob, 21, 512, bob);
+        _remove(bob);
+        // Same-start rebids must still beat Alice's killed promise, by anyone including Bob.
+        vm.prank(bob);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, 15, 512, bob, FEE, bob);
+        // Topping the killed promise by one wei is enough, and the floor expires next second.
+        _bid(bob, 21, 512, bob);
+        _time(102);
+        assertEq(auction.executorAt(poolId), bob);
+    }
+
+    function test_pendingChainKeepsLiveCurrentIntact() public {
+        // X holds live at 10; A promises 20 while pending; B outbids the pending at 21.
+        _bid(alice, 10, 1024, alice);
+        _time(101);
+        _bid(bob, 20, 512, bob);
+        _bid(carol, 21, 512, carol);
+        // Bob's killed promise is fully credited; Alice's live schedule was never truncated.
+        assertEq(auction.refundable(_id(bob)), uint256(20) * (512 - 102));
+        assertEq(auction.holder(poolId).bidder, _id(alice));
+        // Carol's pending displaced Bob's promise, so lowering below 20 reverts via the floor,
+        // while staying above it remains allowed.
+        vm.prank(carol);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, 20, 512, carol, FEE, carol);
+        _bid(carol, 205, 5120, carol);
+        _time(102);
+        assertEq(auction.executorAt(poolId), carol);
     }
 
     /// RENT ALLOCATION
@@ -763,6 +808,8 @@ contract ContinuousAuctionTest is FullTest {
             _time(now_);
             uint256 choice = (seed >> 8) % 4;
             uint8 h = holders[now_];
+            // Tails displaced this iteration land at the next settlement, not at placement.
+            uint256[8] memory unlanded;
             if (choice == 0 && rates[now_] != 0 && ends[h] + 1 < 4000) {
                 // The holder extends: replacing its own bid nets the added tenure.
                 uint256 end = ends[h] + 1 + (seed >> 24) % (4000 - ends[h] - 1);
@@ -801,6 +848,7 @@ contract ContinuousAuctionTest is FullTest {
                 for (uint256 t = now_ + 1; t < 4096; ++t) {
                     if (rates[t] != 0) {
                         credits[holders[t]] += rates[t];
+                        unlanded[holders[t]] += rates[t];
                         ends[holders[t]] = now_ + 1;
                     }
                     if (t < end) {
@@ -813,7 +861,7 @@ contract ContinuousAuctionTest is FullTest {
                 ends[i] = end;
             }
             for (uint256 j; j <= i; ++j) {
-                assertEq(auction.refundable(_id(address(uint160(1000 + j)))), credits[j]);
+                assertEq(auction.refundable(_id(address(uint160(1000 + j)))), credits[j] - unlanded[j]);
             }
             assertEq(auction.executorAt(poolId), rates[now_] == 0 ? address(0) : address(uint160(1000 + holders[now_])));
         }

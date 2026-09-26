@@ -50,21 +50,24 @@ owed to the Core position owner, which is the forwarding locker.
 `[timestamp + 1, end)` at `rate` base units per second with the given executor
 and fee, replacing whatever the caller had scheduled:
 
-- A new bid must exceed the rate scheduled at its start. The scheduled bidder may
-  replace its own bid at any rate, higher or lower, and any end, except that a
-  pending winner replacing its own bid must still exceed a live incumbent it
-  displaced: outbidding high and immediately downgrading would grant exclusive
-  access at a negligible rate while LPs lose the incumbent's rent. An expiring
-  incumbent need not be outbid.
+- A new bid must exceed every other live schedule covering its start: a
+  same-second pending bid and/or the live incumbent. The scheduled bidder may
+  replace its own bid, and an expiring incumbent need not be outbid.
+- Displacement takes effect at activation, not at placement. The incumbent is
+  never truncated early, so cancelling a pending bid is always harmless and the
+  pool never closes from it. The incumbent's relinquished tenure is credited
+  when the new bid activates; a replaced pending bid is credited immediately
+  since its tenure never started.
+- A killed pending promise still binds same-start replacements: displacing
+  another bidder's pending bid records its rate, and every bid for that start —
+  including cancel-and-rebid by the displacer — must beat it until the second
+  passes. Topping the killed promise by one wei suffices.
 - `end - start` must be at least one second and at most `2**32 - 1` seconds, and
   `end` must fit in 48 bits. Rate zero removes the caller's schedule from the
-  next second on. Cancelling a pending bid that displaced another bidder's live
-  schedule restores the victim when its credit is untouched, so the pool never
-  closes and the cancellation is free; otherwise it forfeits one second at the
-  pending rate to the victim, priced like a parking challenge.
+  next second on.
 - The incumbent keeps the current second. Another bidder's displaced tenure is
-  recorded as its credit. The caller's own replaced tenure and any outstanding
-  credit are netted against the new funding, and the returned `delta` is what
+  credited when the new bid activates. The caller's own replaced tenure and any
+  outstanding credit are netted against the new funding, and the returned `delta` is what
   the locker owes (positive) or may withdraw (negative) in the same lock. A call
   with rate zero and nothing scheduled simply withdraws the credit.
 - `fee` is the fee the bid charges non-holder swaps once it activates, a 0.32

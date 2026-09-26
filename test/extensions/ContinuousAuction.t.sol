@@ -660,6 +660,15 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(manager.collectRent(nft, key, -1600, 1600, bob), 0);
     }
 
+    function test_zeroDeltaTouchPreservesAccruedRent() public {
+        _bid(alice, RATE, 512, alice);
+        _time(201);
+        // A zero-delta deposit modifies nothing and must not discard accrued rent.
+        (uint128 added,,) = manager.deposit(nft, key, -1600, 1600, 0, 0, 0);
+        assertEq(added, 0);
+        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 100, 1);
+    }
+
     function test_withdrawAndCollectRentInOneLock() public {
         _bid(alice, RATE, 512, alice);
         _time(201);

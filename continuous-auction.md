@@ -128,12 +128,12 @@ periods.
 - Rent charged while no liquidity is active is discarded: it is logged but never
   refunded nor paid to later depositors. A holder can avoid that outcome by
   providing liquidity at the market price itself.
-- Position changes only advance the position's snapshot: like Core swap fees and
-  Ve33 rewards, rent is computed from the snapshot and never banked, so
-  uncollected rent is discarded on any liquidity change. Collect first —
-  `withdrawAndCollectRent` collects and withdraws atomically. `AUCTION_COLLECT_RENT`
-  moves the position owner's rent to its locker; `getPositionRent` quotes
-  already-accrued rent.
+- Position changes advance the position's snapshot when liquidity actually changes.
+  Like Core swap fees and Ve33 rewards, rent is computed from the snapshot and
+  never banked, so uncollected rent is discarded on any nonzero liquidity change.
+  Collect first — `withdrawAndCollectRent` collects and withdraws atomically.
+  `AUCTION_COLLECT_RENT` moves the position owner's rent to its locker;
+  `getPositionRent` quotes already-accrued rent.
 - Integer rounding favors solvency; the scaled remainder of each global growth
   update is carried to the next settlement so settlement cadence cannot strand
   rent, while per-position checkpoint dust remains in the extension. There is no

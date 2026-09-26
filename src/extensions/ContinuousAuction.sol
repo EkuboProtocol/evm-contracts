@@ -542,14 +542,18 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         PoolId poolId = key.toPoolId();
         PoolState state = CORE.poolState(poolId);
         _accrue(poolId, state.liquidity());
-        if (delta != 0 && key.config.isConcentrated()) {
-            _updateTick(poolId, positionId.tickLower(), delta);
-            _updateTick(poolId, positionId.tickUpper(), delta);
+        // A zero-delta touch modifies nothing, so the snapshot must not advance: syncing here
+        // would discard accrued rent without any liquidity change.
+        if (delta != 0) {
+            if (key.config.isConcentrated()) {
+                _updateTick(poolId, positionId.tickLower(), delta);
+                _updateTick(poolId, positionId.tickUpper(), delta);
+            }
+            // Sync after any tick flips: boundary initialization/deletion changes the coordinate
+            // system, and the snapshot must live in the new one. Uncollected earnings are discarded,
+            // mirroring Core fee and Ve33 reward accounting.
+            _syncRentSnapshot(key, locker.addr(), positionId, state.tick());
         }
-        // Sync after any tick flips: boundary initialization/deletion changes the coordinate system,
-        // and the snapshot must live in the new one. Uncollected earnings are discarded, mirroring
-        // Core fee and Ve33 reward accounting.
-        _syncRentSnapshot(key, locker.addr(), positionId, state.tick());
     }
 
     /// @dev Moves the position's earned rent to the forwarding locker, which withdraws the bid token.

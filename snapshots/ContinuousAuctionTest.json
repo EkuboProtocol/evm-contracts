@@ -1,0 +1,17 @@
+{
+  "Auction#accrue": "112848",
+  "Auction#holderSwapWithAccrual": "168772",
+  "Auction#initializePool": "75982",
+  "Auction#outsiderSwapWithAccrual": "195899",
+  "Auction#swapCrossingFourTicks": "242439",
+  "Auction#swapCrossingOneTick": "187350",
+  "Auction#swapInsideTickSpacing": "169548",
+  "AuctionPeriphery#collectSwapFees": "49039",
+  "AuctionPeriphery#displaceLiveBid": "224183",
+  "AuctionPeriphery#newBid": "130925",
+  "AuctionPeriphery#removeBidAndWithdraw": "165004",
+  "AuctionPeriphery#replaceOwnBid": "200391",
+  "AuctionPositions#collectRent": "171337",
+  "AuctionPositions#deposit": "245770",
+  "AuctionPositions#withdrawHalf": "233623"
+}

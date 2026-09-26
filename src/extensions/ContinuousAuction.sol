@@ -22,6 +22,7 @@ import {addLiquidityDelta} from "../math/liquidity.sol";
 import {isPowerOfFour} from "../math/isPowerOfFour.sol";
 import {CallPoints} from "../types/callPoints.sol";
 import {Locker} from "../types/locker.sol";
+import {PendingFloor, createPendingFloor} from "../types/pendingFloor.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolState} from "../types/poolState.sol";
@@ -92,12 +93,11 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     mapping(bytes32 => uint256) public refundable;
     // NOTE: rent charged while no liquidity is active is discarded (still logged as
     // `RentUnallocated`) rather than counted, so it needs no storage.
-    /// @notice Promised rate of the most recently displaced same-start pending bid. Binds every
-    /// replacement for that start (including cancel-and-rebid by the displacer) until the second
-    /// passes; keyed by start so stale entries expire on their own and no clearing is needed.
-    mapping(PoolId => uint96) public pendingFloorRate;
-    /// @notice Activation second the pending floor applies to. See `pendingFloorRate`.
-    mapping(PoolId => uint48) public pendingFloorStart;
+    /// @notice Packed promised rate and activation second of the most recently displaced
+    /// same-start pending bid. Binds every replacement for that start (including cancel-and-rebid
+    /// by the displacer) until the second passes; keyed by start so stale entries expire on their
+    /// own and no clearing is needed.
+    mapping(PoolId => PendingFloor) public pendingFloor;
     mapping(PoolId => mapping(int32 => uint256)) public growthOutside;
     mapping(PoolId => mapping(address => mapping(PositionId => PositionRent))) public positionRent;
 
@@ -247,8 +247,10 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
             if (auction.current.bidder != bidder && auction.current.end > start && rate <= auction.current.rate) {
                 revert BidTooLow();
             }
-            uint96 floor = pendingFloorRate[poolId];
-            if (floor != 0 && start == pendingFloorStart[poolId] && rate <= floor) revert BidTooLow();
+            PendingFloor floor = pendingFloor[poolId];
+            if (PendingFloor.unwrap(floor) != bytes32(0) && start == floor.floorStart() && rate <= floor.floorRate()) {
+                revert BidTooLow();
+            }
         }
 
         uint256 credit = refundable[bidder];
@@ -262,8 +264,7 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
                     // started. Their promised rate binds same-start replacements (see floor), so a
                     // transient high bid cannot be followed by a low one. Only a live promise binds.
                     if (rate != 0 && next.end > start) {
-                        pendingFloorRate[poolId] = next.rate;
-                        pendingFloorStart[poolId] = start;
+                        pendingFloor[poolId] = createPendingFloor(next.rate, start);
                     }
                     credit += _credit(next.bidder, bidder, uint256(next.rate) * (next.end - next.start));
                 } else {

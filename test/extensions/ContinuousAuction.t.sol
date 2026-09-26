@@ -508,6 +508,20 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(auction.executorAt(poolId), carol);
     }
 
+    function test_incumbentExitSucceedsDespiteAttackerPending() public {
+        _bid(alice, RATE, 1024, alice);
+        _time(101); // Alice is live; Bob plants a pending bid on top of her.
+        _bid(bob, RATE * 2, 512, bob);
+        // Alice's rate-zero exit shortens her own live schedule even though Bob's pending exists,
+        // and withdraws her prepaid tail. Bob's pending is untouched.
+        uint256 refund = _remove(alice);
+        assertEq(refund, uint256(RATE) * (1024 - 102));
+        _time(102);
+        assertEq(auction.executorAt(poolId), bob);
+        // Bob's pending activated normally; Alice holds nothing.
+        assertEq(auction.refundable(_id(alice)), 0);
+    }
+
     function test_pendingFloorBlocksCancelAndRebidDowngrade() public {
         // No live incumbent. Alice promises 20 while pending; Bob kills it high, cancels, and re-bids low.
         _bid(alice, 20, 512, alice);

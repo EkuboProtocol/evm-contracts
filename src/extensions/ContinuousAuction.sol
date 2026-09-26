@@ -238,6 +238,9 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         Bid storage scheduled = auction.next.bidder != bytes32(0) ? auction.next : auction.current;
         bool live = scheduled.end > start;
         bool own = live && scheduled.bidder == bidder;
+        // A live schedule of yours counts as yours even when someone else holds a pending bid on
+        // top of it: a pending bid must never silently veto your exit.
+        bool ownLive = auction.current.bidder == bidder && auction.current.end > start;
         if (rate != 0) {
             if (live && !own && rate <= scheduled.rate) revert BidTooLow();
             if (auction.current.bidder != bidder && auction.current.end > start && rate <= auction.current.rate) {
@@ -250,14 +253,14 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         uint256 credit = refundable[bidder];
         if (credit != 0) delete refundable[bidder];
 
-        if (rate != 0 || own) {
+        if (rate != 0 || own || ownLive) {
             Bid storage next = auction.next;
-            if (next.bidder != bytes32(0)) {
+            if (next.bidder != bytes32(0) && (rate != 0 || next.bidder == bidder)) {
                 if (next.bidder != bidder) {
                     // Replacing another bidder's pending bid fully refunds them: their tenure never
                     // started. Their promised rate binds same-start replacements (see floor), so a
-                    // transient high bid cannot be followed by a low one.
-                    if (rate != 0) {
+                    // transient high bid cannot be followed by a low one. Only a live promise binds.
+                    if (rate != 0 && next.end > start) {
                         pendingFloorRate[poolId] = next.rate;
                         pendingFloorStart[poolId] = start;
                     }
@@ -345,7 +348,7 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         // promoting pending state or attributing rent over an empty interval.
         if (now_ < from) return;
         uint256 rent;
-        if (auction.next.bidder != bytes32(0)) {
+        if (auction.next.bidder != bytes32(0) && now_ >= auction.next.start) {
             // The pending bid was placed at `from`, so it activates now. Clamp the incumbent to the
             // handover (it was never truncated at placement) and credit its relinquished tail.
             uint48 handover = auction.next.start;

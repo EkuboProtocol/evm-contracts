@@ -88,6 +88,13 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     /// @notice Bid-token credit of a bidder from displaced tenure, netted into its next bid update.
     mapping(bytes32 => uint256) public refundable;
     mapping(PoolId => uint256) public unallocatedRent;
+    /// @notice Scaled division remainder carried across rent settlements so caller-chosen settlement
+    /// cadence cannot strand LP rent through repeated floor division.
+    mapping(PoolId => uint256) public accrualRemainder;
+    /// @notice Original end of a live schedule truncated by another bidder's pending bid. Used to
+    /// restore the victim when the displacer cancels before activation; cleared on promotion,
+    /// owner edits, restore, or settled fallback.
+    mapping(PoolId => uint48) public displacedEnd;
     mapping(PoolId => mapping(int32 => uint256)) public growthOutside;
     mapping(PoolId => mapping(address => mapping(PositionId => PositionRent))) public positionRent;
 
@@ -225,18 +232,61 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         bool live = scheduled.end > start;
         bool own = live && scheduled.bidder == bidder;
         if (rate != 0 && live && !own && rate <= scheduled.rate) revert BidTooLow();
+        // A pending winner replacing its own bid must still exceed a live incumbent it displaced.
+        // Otherwise outbidding high and immediately downgrading would grant exclusive access at a
+        // negligible rate while LPs lose the incumbent's rent. The boundary is inclusive because
+        // displacement truncates the incumbent to exactly `start`.
+        if (
+            rate != 0 && own && auction.current.bidder != bidder && auction.current.end >= start
+                && rate <= auction.current.rate
+        ) revert BidTooLow();
 
         uint256 credit = refundable[bidder];
         if (credit != 0) delete refundable[bidder];
 
         if (rate != 0 || own) {
             Bid storage next = auction.next;
+            // Whether this update restored a displaced victim schedule; a restored schedule must
+            // not be truncated again below.
+            bool restored;
             if (next.bidder != bytes32(0)) {
-                credit += _credit(next.bidder, bidder, uint256(next.rate) * (next.end - next.start));
+                bytes32 replaced = next.bidder;
+                uint256 replacedCost = uint256(next.rate) * (next.end - next.start);
+                uint256 forfeit;
+                // Cancelling your own pending bid after displacing another bidder restores the victim
+                // when its credit is untouched, so the pool never closes and griefing gains nothing on
+                // any block time. Otherwise the cancellation settles: it forfeits one second at the
+                // pending rate to the victim, priced like a parking challenge.
+                if (rate == 0 && replaced == bidder) {
+                    Bid storage current_ = auction.current;
+                    uint48 stored = displacedEnd[poolId];
+                    delete displacedEnd[poolId];
+                    bool victimOutstanding =
+                        current_.bidder != bidder && current_.bidder != bytes32(0) && current_.end == start;
+                    uint256 tail = stored > start ? uint256(current_.rate) * (stored - start) : 0;
+                    if (victimOutstanding && tail != 0 && refundable[current_.bidder] >= tail) {
+                        current_.end = stored;
+                        refundable[current_.bidder] -= tail;
+                        restored = true;
+                    } else if (victimOutstanding) {
+                        forfeit = uint256(next.rate);
+                        _credit(current_.bidder, bidder, forfeit);
+                    }
+                }
+                credit += _credit(replaced, bidder, replacedCost - forfeit);
                 delete auction.next;
             }
             Bid storage current = auction.current;
-            if (current.end > start) {
+            // A restored victim schedule is final; truncating it again would undo the restore.
+            if (!restored && current.end > start) {
+                if (current.bidder != bidder) {
+                    // Record the displaced schedule for a later restore. Overwritten on every new
+                    // displacement; only a live schedule reaches this branch, so the marker always
+                    // denotes an outstanding truncated victim.
+                    displacedEnd[poolId] = current.end;
+                } else {
+                    delete displacedEnd[poolId];
+                }
                 credit += _credit(current.bidder, bidder, uint256(current.rate) * (current.end - start));
                 current.end = start;
             }
@@ -265,7 +315,7 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     /// first, the pending bid overlaps the incumbent for one second, and rates fit uint96, so bounding the
     /// tenure below 2**32 seconds keeps the rent of any settlement window below 2**128.
     function _checkEnd(uint64 end, uint48 from) private pure {
-        if (end <= from || end - from > type(uint32).max) revert InvalidBid();
+        if (end <= from || end - from > type(uint32).max || end > type(uint48).max) revert InvalidBid();
     }
 
     /// @dev The bid holding the pool now, if any. Before settlement a pending bid may already be live.
@@ -307,12 +357,17 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         uint48 now_ = uint48(block.timestamp);
         uint48 from = auction.lastSettled;
         if (from == now_) return;
+        // After the uint48 timestamp boundary, time wraps backward. Settle nothing rather than
+        // promoting pending state or attributing rent over an empty interval.
+        if (now_ < from) return;
         uint256 rent = _rentBetween(auction.current, from, now_);
         if (auction.next.bidder != bytes32(0)) {
             // The pending bid was placed at `from`, so it is live now and the incumbent ended at its start.
             rent += _rentBetween(auction.next, from, now_);
             auction.current = auction.next;
             delete auction.next;
+            // The schedule turned over; any recorded displacement is settled.
+            delete displacedEnd[poolId];
         }
         auction.lastSettled = now_;
         if (rent != 0) {
@@ -324,7 +379,11 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
             } else {
                 unchecked {
                     // rent < 2**128, see _checkEnd.
-                    auction.growth += (rent << 128) / liquidity;
+                    // The scaled remainder is carried so settling short intervals cannot strand rent.
+                    uint256 scaled = (rent << 128) + accrualRemainder[poolId];
+                    uint256 step = scaled / liquidity;
+                    accrualRemainder[poolId] = scaled % liquidity;
+                    auction.growth += step;
                 }
                 emit RentAccrued(poolId, rent);
             }
@@ -379,10 +438,10 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
             }
         } else {
             if (delta0 < 0) {
-                fee0 = computeFee(uint128(-delta0), fee);
+                fee0 = computeFee(_abs(delta0), fee);
                 delta0 += int128(fee0);
             } else if (delta1 < 0) {
-                fee1 = computeFee(uint128(-delta1), fee);
+                fee1 = computeFee(_abs(delta1), fee);
                 delta1 += int128(fee1);
             }
         }
@@ -397,6 +456,13 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
 
     function _feeSalt(PoolId poolId, bytes32 bidder) private pure returns (bytes32) {
         return keccak256(abi.encode(poolId, bidder));
+    }
+
+    /// @dev Unsigned magnitude of a signed delta. Negating type(int128).min overflows, but its
+    /// magnitude 2**127 fits in uint128 and the resulting fee stays below it, so the adjusted
+    /// delta still fits int128.
+    function _abs(int128 x) private pure returns (uint128) {
+        return x == type(int128).min ? uint128(1) << 127 : uint128(-x);
     }
 
     function _savedFees(PoolKey memory key, bytes32 salt) private view returns (uint128 amount0, uint128 amount1) {

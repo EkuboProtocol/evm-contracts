@@ -241,8 +241,14 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
             if (liquidity < minLiquidity) revert DepositFailedDueToSlippage(liquidity, minLiquidity);
             if (liquidity > uint128(type(int128).max)) revert DepositOverflow();
 
-            PoolBalanceUpdate balanceUpdate =
-                CORE.updatePosition(poolKey, positionId(id, tickLower, tickUpper), int128(liquidity));
+            PoolId poolId = poolKey.toPoolId();
+            PositionId positionId_ = positionId(id, tickLower, tickUpper);
+            // The view quotes aggregate liquidity as int128, so the aggregate must fit even when
+            // each individual delta does. Mirrors the Ve33Positions deposit check.
+            uint128 existingLiquidity = ContinuousAuctionLib.positionLiquidity(CORE, poolId, address(this), positionId_);
+            if (existingLiquidity > uint128(type(int128).max) - liquidity) revert DepositOverflow();
+
+            PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId_, int128(liquidity));
             uint128 amount0 = uint128(balanceUpdate.delta0());
             uint128 amount1 = uint128(balanceUpdate.delta1());
 
@@ -271,9 +277,12 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
             if (liquidity > uint128(type(int128).max)) revert WithdrawOverflow();
             PositionId positionId_ = positionId(id, tickLower, tickUpper);
 
+            // Settle all state before any external transfer so a recipient callback observes the
+            // drained position and cannot redirect principal after an NFT sale. This matches the
+            // ordering in BasePositions and Ve33Positions.
             uint256 rent;
             if (callType == CALL_TYPE_WITHDRAW_AND_COLLECT_RENT) {
-                rent = _collectRent(poolKey, positionId_, recipient);
+                rent = _accrueRent(poolKey, positionId_);
             }
 
             uint128 amount0;
@@ -282,6 +291,10 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
                 PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId_, -int128(liquidity));
                 amount0 = uint128(-balanceUpdate.delta0());
                 amount1 = uint128(-balanceUpdate.delta1());
+            }
+
+            if (rent != 0) ACCOUNTANT.withdraw(bidToken, recipient, SafeCastLib.toUint128(rent));
+            if (liquidity != 0) {
                 ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
             }
 
@@ -297,11 +310,17 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
         }
     }
 
+    /// @dev Moves the position's earned rent to the forwarding locker. The caller withdraws the bid
+    /// token after all state changes so recipient callbacks observe settled state.
+    function _accrueRent(PoolKey memory poolKey, PositionId positionId_) private returns (uint256 rent) {
+        rent = ContinuousAuctionLib.collectRent(CORE, address(auction), poolKey, positionId_);
+    }
+
     function _collectRent(PoolKey memory poolKey, PositionId positionId_, address recipient)
         private
         returns (uint256 rent)
     {
-        rent = ContinuousAuctionLib.collectRent(CORE, address(auction), poolKey, positionId_);
+        rent = _accrueRent(poolKey, positionId_);
         if (rent != 0) ACCOUNTANT.withdraw(bidToken, recipient, SafeCastLib.toUint128(rent));
     }
 

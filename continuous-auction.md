@@ -51,10 +51,17 @@ owed to the Core position owner, which is the forwarding locker.
 and fee, replacing whatever the caller had scheduled:
 
 - A new bid must exceed the rate scheduled at its start. The scheduled bidder may
-  replace its own bid at any rate, higher or lower, and any end. An expiring
+  replace its own bid at any rate, higher or lower, and any end, except that a
+  pending winner replacing its own bid must still exceed a live incumbent it
+  displaced: outbidding high and immediately downgrading would grant exclusive
+  access at a negligible rate while LPs lose the incumbent's rent. An expiring
   incumbent need not be outbid.
-- `end - start` must be at least one second and at most `2**32 - 1` seconds.
-  Rate zero removes the caller's schedule from the next second on.
+- `end - start` must be at least one second and at most `2**32 - 1` seconds, and
+  `end` must fit in 48 bits. Rate zero removes the caller's schedule from the
+  next second on. Cancelling a pending bid that displaced another bidder's live
+  schedule restores the victim when its credit is untouched, so the pool never
+  closes and the cancellation is free; otherwise it forfeits one second at the
+  pending rate to the victim, priced like a parking challenge.
 - The incumbent keeps the current second. Another bidder's displaced tenure is
   recorded as its credit. The caller's own replaced tenure and any outstanding
   credit are netted against the new funding, and the returned `delta` is what
@@ -122,7 +129,9 @@ periods.
 - Position changes checkpoint earned rent into an owed balance. Removing all
   liquidity does not discard it. `AUCTION_COLLECT_RENT` moves the position
   owner's rent to its locker; `getPositionRent` quotes already-accrued rent.
-- Integer rounding favors solvency; dust remains in the extension. There is no
+- Integer rounding favors solvency; the scaled remainder of each global growth
+  update is carried to the next settlement so settlement cadence cannot strand
+  rent, while per-position checkpoint dust remains in the extension. There is no
   administrator sweep of any balance.
 
 ## AuctionPositions

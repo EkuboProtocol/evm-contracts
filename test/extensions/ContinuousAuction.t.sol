@@ -446,6 +446,57 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(auction.holder(poolId).end, 512);
     }
 
+    function test_pendingWinnerCannotDowngradeBelowTheDisplacedIncumbent() public {
+        _bid(alice, RATE, 1024, alice);
+        _time(101); // Alice's bid is live before Bob displaces it.
+        _bid(bob, RATE * 2, 512, bob);
+        // The pending winner may replace its own bid, but not below the live incumbent it displaced.
+        vm.prank(bob);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, RATE - 1, 512, bob, FEE, bob);
+        // Lowering to exactly the incumbent rate is still displacement without a strict improvement.
+        vm.prank(bob);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, RATE, 512, bob, FEE, bob);
+        // Raising, or lowering while staying above the incumbent, remains allowed.
+        _bid(bob, RATE * 3, 512, bob);
+        _time(102);
+        assertEq(auction.executorAt(poolId), bob);
+        // The incumbent keeps its displaced tenure as credit.
+        assertEq(auction.refundable(_id(alice)), uint256(RATE) * (1024 - 102));
+    }
+
+    function test_cancelAfterDisplacingRestoresTheVictim() public {
+        _bid(alice, RATE, 1024, alice);
+        _time(101); // Alice's bid is live before Bob displaces it.
+        _bid(bob, RATE * 2, 512, bob);
+        uint256 pendingCost = uint256(RATE) * 2 * (512 - 102);
+        // Cancelling refunds the full pending cost: nothing was destroyed.
+        assertEq(_remove(bob), pendingCost);
+        // Alice's schedule is restored and her credit is debited back.
+        assertEq(auction.refundable(_id(alice)), 0);
+        assertEq(auction.displacedEnd(poolId), 0);
+        ContinuousAuction.Bid memory h = auction.holder(poolId);
+        assertEq(h.bidder, _id(alice));
+        assertEq(h.end, 1024);
+        _time(102);
+        assertEq(auction.executorAt(poolId), alice);
+    }
+
+    function test_cancelAfterVictimWithdrewFallsBackToForfeit() public {
+        _bid(alice, RATE, 1024, alice);
+        _time(101); // Alice's bid is live before Bob displaces it.
+        _bid(bob, RATE * 2, 512, bob);
+        // Alice withdraws her displaced tenure credit first, so there is nothing left to restore.
+        assertEq(_remove(alice), uint256(RATE) * (1024 - 102));
+        uint256 pendingCost = uint256(RATE) * 2 * (512 - 102);
+        assertEq(_remove(bob), pendingCost - uint256(RATE) * 2);
+        // The victim keeps one second at the pending rate; the pool stays schedule-less until rebid.
+        assertEq(auction.refundable(_id(alice)), uint256(RATE) * 2);
+        _time(102);
+        assertEq(auction.executorAt(poolId), address(0));
+    }
+
     /// RENT ALLOCATION
 
     function test_parkedPriceIsArbitragedBackByOutsiders() public {

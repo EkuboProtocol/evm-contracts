@@ -76,6 +76,9 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         // Only nonempty within the second it was placed; promoted by the next settlement.
         Bid next;
         uint48 lastSettled;
+        // Scaled division leftover carried to the next settlement. Packs with `lastSettled`,
+        // so it costs no additional storage slot.
+        uint128 accrualRemainder;
         uint256 growth;
     }
 
@@ -87,10 +90,8 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     mapping(PoolId => Auction) public auctions;
     /// @notice Bid-token credit of a bidder from displaced tenure, netted into its next bid update.
     mapping(bytes32 => uint256) public refundable;
-    mapping(PoolId => uint256) public unallocatedRent;
-    /// @notice Scaled division remainder carried across rent settlements so caller-chosen settlement
-    /// cadence cannot strand LP rent through repeated floor division.
-    mapping(PoolId => uint256) public accrualRemainder;
+    // NOTE: rent charged while no liquidity is active is discarded (still logged as
+    // `RentUnallocated`) rather than counted, so it needs no storage.
     /// @notice Promised rate of the most recently displaced same-start pending bid. Binds every
     /// replacement for that start (including cancel-and-rebid by the displacer) until the second
     /// passes; keyed by start so stale entries expire on their own and no clearing is needed.
@@ -372,15 +373,15 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
             if (liquidity == 0) {
                 // Access costs rent independently of where the executor leaves the price. Do not award
                 // empty-interval rent to a later depositor or refund it to the holder who moved the price.
-                unallocatedRent[poolId] += rent;
+                // It is discarded, not counted.
                 emit RentUnallocated(poolId, rent);
             } else {
                 unchecked {
                     // rent < 2**128, see _checkEnd.
                     // The scaled remainder is carried so settling short intervals cannot strand rent.
-                    uint256 scaled = (rent << 128) + accrualRemainder[poolId];
+                    uint256 scaled = (rent << 128) + auction.accrualRemainder;
                     uint256 step = scaled / liquidity;
-                    accrualRemainder[poolId] = scaled % liquidity;
+                    auction.accrualRemainder = uint128(scaled % liquidity);
                     auction.growth += step;
                 }
                 emit RentAccrued(poolId, rent);

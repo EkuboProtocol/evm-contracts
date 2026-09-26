@@ -195,7 +195,7 @@ contract ContinuousAuctionTest is FullTest {
         k.config = createConcentratedPoolConfig(0, 64, address(auction));
         vm.prank(alice);
         core.initializePool(k, 0);
-        (,, uint48 lastSettled,) = auction.auctions(k.toPoolId());
+        (,, uint48 lastSettled,,) = auction.auctions(k.toPoolId());
         assertEq(lastSettled, 0);
         k.config = createConcentratedPoolConfig(0, 256, address(auction));
         vm.deal(alice, 1e20);
@@ -602,7 +602,6 @@ contract ContinuousAuctionTest is FullTest {
         _time(201);
         uint256 paid = manager.collectRent(id, stable, lower, upper, address(this));
         assertApproxEqAbs(paid, uint256(RATE) * 100, 1);
-        assertEq(auction.unallocatedRent(stable.toPoolId()), 0);
     }
 
     function test_fullRangePoolWithErc20BidToken() public {
@@ -654,7 +653,7 @@ contract ContinuousAuctionTest is FullTest {
         assertApproxEqAbs(paid, uint256(RATE) * 99, 1);
         assertEq(bob.balance, paid);
         assertEq(auction.refundable(_id(alice)), 0);
-        assertEq(auction.unallocatedRent(poolId), uint256(RATE) * 100);
+        // Empty-interval rent is discarded, not counted.
         vm.prank(bob);
         assertEq(manager.collectRent(nft, key, -1600, 1600, bob), 0);
     }
@@ -708,7 +707,6 @@ contract ContinuousAuctionTest is FullTest {
         _time(401);
         assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 100, 1);
         assertApproxEqAbs(_claim(other, -1600, 1600), uint256(RATE) * 100, 1);
-        assertEq(auction.unallocatedRent(poolId), uint256(RATE) * 100);
     }
 
     function test_emptyRangeDoesNotLetExecutorAvoidRent() public {
@@ -720,10 +718,8 @@ contract ContinuousAuctionTest is FullTest {
         executor.swap(key, _params(2e18, false, 0), false);
         assertGt(core.poolState(poolId).liquidity(), 0);
         assertEq(auction.refundable(_id(alice)), 0);
-        assertEq(auction.unallocatedRent(poolId), uint256(RATE) * 100);
         _time(401);
         assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 200, 2);
-        assertEq(auction.unallocatedRent(poolId), uint256(RATE) * 100);
     }
 
     function test_crossingZeroTickDoesNotTakeSameCellShortcut() public {
@@ -942,7 +938,7 @@ contract ContinuousAuctionTest is FullTest {
         _time(2048);
         uint256 paid = _claim(nft, -1600, 1600);
         assertApproxEqAbs(paid, expectedRent, 25);
-        assertEq(auction.unallocatedRent(poolId), unallocated);
+        // Empty-interval rent is discarded, not counted; conservation below still holds exactly.
         uint256 withdrawn;
         for (uint256 i; i < 8; ++i) {
             address bidder = address(uint160(1000 + i));

@@ -125,10 +125,9 @@ periods.
   snapshots, following Ve33's external reward accounting. Full-range and
   stableswap pools use global growth, so every position earns pro rata
   regardless of price.
-- Rent charged while no liquidity is active is recorded in
-  `unallocatedRent(poolId)` and is neither refunded nor paid to later
-  depositors. A holder can avoid that outcome by providing liquidity at the
-  market price itself.
+- Rent charged while no liquidity is active is discarded: it is logged but never
+  refunded nor paid to later depositors. A holder can avoid that outcome by
+  providing liquidity at the market price itself.
 - Position changes checkpoint earned rent into an owed balance. Removing all
   liquidity does not discard it. `AUCTION_COLLECT_RENT` moves the position
   owner's rent to its locker; `getPositionRent` quotes already-accrued rent.

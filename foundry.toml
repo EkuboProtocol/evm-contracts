@@ -3,6 +3,11 @@ src = "src"
 out = "out"
 libs = ["lib"]
 verbosity = 3
+# Pin pre-1.8 behavior: each external call in a test must observe state (including
+# transient storage) written by earlier calls in the same test, matching mainnet.
+# Foundry 1.8 flipped the default to `isolate = true`, which breaks cross-call
+# transient storage reads in ExposedStorageTest.
+isolate = false
 no_match_contract = "SlowTest"
 evm_version = 'osaka'
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

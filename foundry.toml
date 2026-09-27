@@ -54,3 +54,18 @@ verbosity = 0
 gas_limit = "18446744073709551615"
 match_test = "test_all_tick_values"
 match_contract = "SlowTestAllTicksTest"
+
+[fmt]
+# Files formatted with an older formatter whose style 1.8.3 disagrees with.
+# Reformatting them would only add version churn, so they are excluded.
+ignore = [
+    "src/Core.sol",
+    "test/FreeLPOwnerPacking.t.sol",
+    "test/extensions/SignedExclusiveSwap.t.sol",
+    "test/libraries/TWAMMStorageLayout.t.sol",
+    "test/math/twamm.t.sol",
+    "test/types/poolKey.t.sol",
+    "test/types/position.t.sol",
+    "test/types/positionId.t.sol",
+    "test/types/swapParameters.t.sol",
+]

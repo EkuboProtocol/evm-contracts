@@ -73,13 +73,16 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     }
 
     struct Auction {
-        Bid current;
-        // Only nonempty within the second it was placed; promoted by the next settlement.
-        Bid next;
+        // The current bid and, while `hasNext`, the next bid: placed during second `lastSettled`
+        // and activating at `lastSettled + 1`. Activation flips `currentIndex` instead of copying,
+        // so the slot of the other bid keeps stale data that only the next placement overwrites.
+        // Nothing reads it unless `hasNext`.
+        Bid[2] bids;
         uint48 lastSettled;
-        // Scaled division leftover carried to the next settlement. Packs with `lastSettled`,
-        // so it costs no additional storage slot.
+        // Scaled division leftover carried to the next settlement.
         uint128 accrualRemainder;
+        uint8 currentIndex;
+        bool hasNext;
         uint256 growth;
     }
 
@@ -88,7 +91,7 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     /// rent is discarded on any liquidity change, so collect before modifying a position.
     mapping(PoolId => mapping(address => mapping(PositionId => uint256))) public positionRentSnapshot;
 
-    mapping(PoolId => Auction) public auctions;
+    mapping(PoolId => Auction) private _auctions;
     /// @notice Bid-token credit of a bidder from displaced tenure, netted into its next bid update.
     mapping(bytes32 => uint256) public refundable;
     // NOTE: rent charged while no liquidity is active is discarded (still logged as
@@ -224,69 +227,65 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         if (block.timestamp >= type(uint48).max) revert InvalidBid();
         uint48 start = uint48(block.timestamp + 1);
         bytes32 bidder = ContinuousAuctionLib.bidderId(locker, salt);
-        Auction storage auction = auctions[poolId];
+        Auction storage auction = _auctions[poolId];
+        uint256 index = auction.currentIndex;
+        Bid storage current = auction.bids[index];
+        Bid storage next = auction.bids[index ^ 1];
+        // After settlement, a next bid was placed this second and starts at `start`.
+        bool hasNext = auction.hasNext;
+        bool ownNext = hasNext && next.bidder == bidder;
+        // The current bid still covers `start`. Only then does it bind others or refund its owner.
+        bool currentCoversStart = current.end > start;
+        bool ownCurrent = currentCoversStart && current.bidder == bidder;
 
         uint256 cost;
         if (rate != 0) {
             if (executor == address(0)) revert InvalidBid();
             _checkEnd(end, start);
             cost = uint256(rate) * (end - start);
+            // Every new bid must strictly beat every other schedule covering its start: another
+            // bidder's next bid and/or the current bid. Displacement of the current bid takes effect
+            // at activation (see _accrue), so it is never truncated here.
+            if (hasNext && !ownNext && rate <= next.rate) revert BidTooLow();
+            if (currentCoversStart && !ownCurrent && rate <= current.rate) revert BidTooLow();
         }
-
-        // Every new bid must strictly beat every other live schedule covering its start: a
-        // same-second pending bid and/or the live incumbent. Displacement takes effect at activation
-        // (see _accrue), so the incumbent is never truncated here. A killed pending promise still binds
-        // same-start replacements, and the removal of the displacing pending bid, through the floor below.
-        Bid storage scheduled = auction.next.bidder != bytes32(0) ? auction.next : auction.current;
-        bool live = scheduled.end > start;
-        bool own = live && scheduled.bidder == bidder;
-        // A live schedule of yours counts as yours even when someone else holds a pending bid on
-        // top of it: a pending bid must never silently veto your exit.
-        bool ownLive = auction.current.bidder == bidder && auction.current.end > start;
-        if (rate != 0) {
-            if (live && !own && rate <= scheduled.rate) revert BidTooLow();
-            if (auction.current.bidder != bidder && auction.current.end > start && rate <= auction.current.rate) {
-                revert BidTooLow();
-            }
-        }
-        // The floor also binds the pending bid's own removal: the displacer owns that pending bid, so
-        // cancelling it would erase the displaced commitment for free. It may only be raised or
-        // replaced above the floor, and then activates, ending any incumbent schedule.
-        if (rate != 0 || auction.next.bidder == bidder) {
+        // A displaced next bid's promise binds every later bid for the same start, and also the removal
+        // of the next bid by its owner: cancelling it would erase the displaced promise for free. It may
+        // only be replaced above the floor, and then activates, ending the current bid's schedule.
+        if (rate != 0 || ownNext) {
             PendingFloor floor = pendingFloor[poolId];
-            if (PendingFloor.unwrap(floor) != bytes32(0) && start == floor.floorStart() && rate <= floor.floorRate()) {
-                revert BidTooLow();
-            }
+            if (floor.floorStart() == start && rate <= floor.floorRate()) revert BidTooLow();
         }
 
         uint256 credit = refundable[bidder];
         if (credit != 0) delete refundable[bidder];
 
-        if (rate != 0 || own || ownLive) {
-            Bid storage next = auction.next;
-            if (next.bidder != bytes32(0) && (rate != 0 || next.bidder == bidder)) {
-                if (next.bidder != bidder) {
-                    // Replacing another bidder's pending bid fully refunds them: their tenure never
-                    // started. Their promised rate binds same-start replacements (see floor), so a
-                    // transient high bid cannot be followed by a low one. Only a live promise binds.
-                    if (rate != 0 && next.end > start) {
-                        pendingFloor[poolId] = createPendingFloor(next.rate, start);
-                    }
-                    credit += _credit(next.bidder, bidder, uint256(next.rate) * (next.end - next.start));
-                } else {
-                    credit += uint256(next.rate) * (next.end - next.start);
-                }
-                delete auction.next;
+        // A next bid is replaced by its owner, or displaced by a new bid of anyone else. Another
+        // bidder's exit leaves it alone. Its tenure never started, so it is refunded in full.
+        if (ownNext || (hasNext && rate != 0)) {
+            uint256 promised = uint256(next.rate) * (next.end - next.start);
+            if (ownNext) {
+                credit += promised;
+            } else {
+                // The displaced promise binds every later bid for the same start, so a transient
+                // high bid cannot be followed by a low one.
+                pendingFloor[poolId] = createPendingFloor(next.rate, start);
+                refundable[next.bidder] += promised;
+                emit RefundCredited(next.bidder, promised);
             }
-            Bid storage current = auction.current;
-            if (current.bidder == bidder && current.end > start) {
-                // Shortening your own live schedule nets the relinquished tenure immediately.
-                // Another bidder's schedule is only displaced at activation and needs no handling here.
-                credit += uint256(current.rate) * (current.end - start);
-                current.end = start;
-            }
-            if (rate != 0) auction.next = Bid(bidder, rate, executor, start, uint48(end), fee);
+            hasNext = false;
         }
+        // Shortening your own current bid nets the relinquished tenure immediately, even when
+        // another bidder's next bid sits on top of it: a next bid never vetoes the holder's exit.
+        if (ownCurrent) {
+            credit += uint256(current.rate) * (current.end - start);
+            current.end = start;
+        }
+        if (rate != 0) {
+            auction.bids[index ^ 1] = Bid(bidder, rate, executor, start, uint48(end), fee);
+            hasNext = true;
+        }
+        if (hasNext != auction.hasNext) auction.hasNext = hasNext;
 
         delta = int256(cost) - int256(credit);
         if (delta != 0) {
@@ -295,15 +294,6 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
             );
         }
         emit BidUpdated(poolId, locker, salt, rate, start, uint48(end), executor, fee, delta);
-    }
-
-    /// @dev Returns the amount when it belongs to the acting bidder, else records it as that bidder's credit.
-    function _credit(bytes32 owner, bytes32 acting, uint256 amount) private returns (uint256 netted) {
-        if (owner == acting) return amount;
-        if (amount != 0) {
-            refundable[owner] += amount;
-            emit RefundCredited(owner, amount);
-        }
     }
 
     /// @dev Rent between settlements must fit uint128 for the Q128 growth update. Every bid update settles
@@ -315,21 +305,36 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
 
     /// @dev The bid holding the pool now, if any. Before settlement a pending bid may already be live.
     function _activeBid(Auction storage auction) private view returns (Bid storage active, bool live) {
-        active = auction.next;
-        if (active.bidder == bytes32(0) || active.start > block.timestamp) active = auction.current;
+        uint256 index = auction.currentIndex;
+        active = auction.bids[index];
+        if (auction.hasNext && auction.bids[index ^ 1].start <= block.timestamp) active = auction.bids[index ^ 1];
         live = active.start <= block.timestamp && block.timestamp < active.end;
     }
 
     /// @notice Returns the bid currently holding the pool, or an empty bid.
     function holder(PoolId poolId) external view returns (Bid memory) {
-        (Bid storage active, bool live) = _activeBid(auctions[poolId]);
+        (Bid storage active, bool live) = _activeBid(_auctions[poolId]);
         if (live) return active;
     }
 
     /// @notice Returns the currently authorized fee-free locker, or zero if the pool is not rented.
     function executorAt(PoolId poolId) public view returns (address executor) {
-        (Bid storage active, bool live) = _activeBid(auctions[poolId]);
+        (Bid storage active, bool live) = _activeBid(_auctions[poolId]);
         if (live) executor = active.executor;
+    }
+
+    /// @notice The settled schedule of a pool: the current bid, the next bid (empty if none), the last
+    /// settlement second, the carried growth remainder, and Q128 rent growth per unit of active liquidity.
+    function auctions(PoolId poolId)
+        external
+        view
+        returns (Bid memory current, Bid memory next, uint48 lastSettled, uint128 accrualRemainder, uint256 growth)
+    {
+        Auction storage auction = _auctions[poolId];
+        uint256 index = auction.currentIndex;
+        current = auction.bids[index];
+        if (auction.hasNext) next = auction.bids[index ^ 1];
+        (lastSettled, accrualRemainder, growth) = (auction.lastSettled, auction.accrualRemainder, auction.growth);
     }
 
     /// RENT SETTLEMENT
@@ -348,32 +353,33 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     }
 
     function _accrue(PoolId poolId, uint128 liquidity) private {
-        Auction storage auction = auctions[poolId];
+        Auction storage auction = _auctions[poolId];
         uint48 now_ = uint48(block.timestamp);
         uint48 from = auction.lastSettled;
-        if (from == now_) return;
-        // After the uint48 timestamp boundary, time wraps backward. Settle nothing rather than
-        // promoting pending state or attributing rent over an empty interval.
-        if (now_ < from) return;
+        // Same second: nothing to settle. After the uint48 timestamp boundary, time wraps backward;
+        // settle nothing rather than activating the next bid or attributing rent over an empty interval.
+        if (now_ <= from) return;
+        uint256 index = auction.currentIndex;
+        Bid storage current = auction.bids[index];
         uint256 rent;
-        if (auction.next.bidder != bytes32(0) && now_ >= auction.next.start) {
-            // The pending bid was placed at `from`, so it activates now. Clamp the incumbent to the
-            // handover (it was never truncated at placement) and credit its relinquished tail.
-            uint48 handover = auction.next.start;
-            rent = _rentBetween(auction.current, from, handover) + _rentBetween(auction.next, from, now_);
-            bytes32 outgoing = auction.current.bidder;
-            uint256 tail;
-            if (outgoing != bytes32(0) && auction.current.end > handover) {
-                tail = uint256(auction.current.rate) * (auction.current.end - handover);
-            }
-            auction.current = auction.next;
-            delete auction.next;
-            if (tail != 0) {
+        if (auction.hasNext) {
+            // The next bid was placed at `from`, so it activates at `from + 1 <= now_`. Clamp the
+            // current bid to the handover (it was never truncated at placement) and credit its
+            // relinquished tail.
+            Bid storage next = auction.bids[index ^ 1];
+            uint48 handover = next.start;
+            rent = _rentBetween(current, from, handover) + _rentBetween(next, from, now_);
+            uint48 currentEnd = current.end;
+            if (currentEnd > handover) {
+                bytes32 outgoing = current.bidder;
+                uint256 tail = uint256(current.rate) * (currentEnd - handover);
                 refundable[outgoing] += tail;
                 emit RefundCredited(outgoing, tail);
             }
+            auction.currentIndex = uint8(index ^ 1);
+            auction.hasNext = false;
         } else {
-            rent = _rentBetween(auction.current, from, now_);
+            rent = _rentBetween(current, from, now_);
         }
         auction.lastSettled = now_;
         if (rent != 0) {
@@ -404,11 +410,13 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     {
         _validate(key);
         PoolId poolId = key.toPoolId();
-        Auction storage auction = auctions[poolId];
+        Auction storage auction = _auctions[poolId];
         PoolState before_ = CORE.poolState(poolId);
         _accrue(poolId, before_.liquidity());
-        (Bid storage active, bool live) = _activeBid(auction);
-        if (!live) revert PoolClosed();
+        // Settlement has activated any due next bid, so the current bid holds the pool if it has not
+        // ended. It started at or before the last settlement.
+        Bid storage active = auction.bids[auction.currentIndex];
+        if (block.timestamp >= active.end) revert PoolClosed();
         (update, after_) = CORE.swap(0, key, params);
         if (locker != active.executor) {
             update = _chargeSwapFee(key, poolId, active.bidder, params, update, uint64(active.fee) << 32);
@@ -511,12 +519,12 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
 
     function _inside(PoolKey memory key, PositionId positionId, int32 tick) private view returns (uint256 value) {
         PoolId poolId = key.toPoolId();
-        if (key.config.isStableswap()) return auctions[poolId].growth;
+        if (key.config.isStableswap()) return _auctions[poolId].growth;
         uint256 lower = growthOutside[poolId][positionId.tickLower()];
         uint256 upper = growthOutside[poolId][positionId.tickUpper()];
         unchecked {
             if (tick < positionId.tickLower()) return lower - upper;
-            if (tick < positionId.tickUpper()) return auctions[poolId].growth - lower - upper;
+            if (tick < positionId.tickUpper()) return _auctions[poolId].growth - lower - upper;
             return upper - lower;
         }
     }
@@ -606,7 +614,7 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         if (uint256(int256(before_) + 0x80000000) / spacing == uint256(int256(after_) + 0x80000000) / spacing) {
             return;
         }
-        uint256 global = auctions[poolId].growth;
+        uint256 global = _auctions[poolId].growth;
         int32 tick = before_;
         if (after_ < before_) {
             while (true) {

@@ -1403,6 +1403,30 @@ contract ContinuousAuctionTest is FullTest {
         vm.snapshotGasLastCall("AuctionPeriphery#displaceSettledLiveBid");
     }
 
+    function test_gas_accrueSteadyStateActivation() public {
+        // Activation into bid storage that previous bids already used.
+        _settledHistory();
+        _bid(alice, RATE, 1024, address(executor));
+        _time(250);
+        _cold();
+        auction.accrue(key);
+        vm.snapshotGasLastCall("Auction#accrueSteadyStateActivation");
+    }
+
+    function test_gas_accrueSteadyStateDisplacement() public {
+        // Activation that ends a live incumbent early and credits its tail.
+        _settledHistory();
+        _bid(alice, RATE, 1024, address(executor));
+        _time(250);
+        auction.accrue(key);
+        _time(300);
+        _bid(bob, RATE * 2, 512, bob);
+        _time(320);
+        _cold();
+        auction.accrue(key);
+        vm.snapshotGasLastCall("Auction#accrueSteadyStateDisplacement");
+    }
+
     function test_gas_replaceOwnSettledBid() public {
         _settledHistory();
         _bid(alice, RATE, 512, address(executor));

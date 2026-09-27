@@ -23,11 +23,13 @@ import {isPowerOfFour} from "../math/isPowerOfFour.sol";
 import {CallPoints} from "../types/callPoints.sol";
 import {Locker} from "../types/locker.sol";
 import {PendingFloor, createPendingFloor} from "../types/pendingFloor.sol";
+import {PoolConfig} from "../types/poolConfig.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolId} from "../types/poolId.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {PositionId} from "../types/positionId.sol";
+import {StorageSlot} from "../types/storageSlot.sol";
 import {SwapParameters} from "../types/swapParameters.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
@@ -513,13 +515,13 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
 
     /// LIQUIDITY PROVIDER RENT
 
-    function _liquidity(PoolId poolId, address owner, PositionId positionId) private view returns (uint128) {
-        return ContinuousAuctionLib.positionLiquidity(CORE, poolId, owner, positionId);
-    }
-
-    function _inside(PoolKey memory key, PositionId positionId, int32 tick) private view returns (uint256 value) {
-        PoolId poolId = key.toPoolId();
-        if (key.config.isStableswap()) return _auctions[poolId].growth;
+    /// @dev Rent growth inside the position's range at the given tick.
+    function _inside(PoolId poolId, PoolConfig config, PositionId positionId, int32 tick)
+        private
+        view
+        returns (uint256 value)
+    {
+        if (config.isStableswap()) return _auctions[poolId].growth;
         uint256 lower = growthOutside[poolId][positionId.tickLower()];
         uint256 upper = growthOutside[poolId][positionId.tickUpper()];
         unchecked {
@@ -529,23 +531,11 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         }
     }
 
-    /// @dev Earnings since the position's last snapshot at the given tick and liquidity.
-    function _positionRent(PoolKey memory key, address owner, PositionId positionId, int32 tick, uint128 liquidity)
-        private
-        view
-        returns (uint256 amount)
-    {
-        uint256 delta;
+    /// @dev Earnings since `snapshot` for `liquidity` given the growth inside the range.
+    function _earned(uint256 inside, uint256 snapshot, uint128 liquidity) private pure returns (uint256) {
         unchecked {
-            delta = _inside(key, positionId, tick) - positionRentSnapshot[key.toPoolId()][owner][positionId];
+            return FixedPointMathLib.fullMulDivN(inside - snapshot, liquidity, 128);
         }
-        amount = FixedPointMathLib.fullMulDivN(delta, liquidity, 128);
-    }
-
-    /// @dev Advances the position's snapshot to current growth. Uncollected earnings are discarded,
-    /// mirroring Core fee and Ve33 reward accounting: collect before modifying a position.
-    function _syncRentSnapshot(PoolKey memory key, address owner, PositionId positionId, int32 tick) private {
-        positionRentSnapshot[key.toPoolId()][owner][positionId] = _inside(key, positionId, tick);
     }
 
     function beforeUpdatePosition(Locker locker, PoolKey memory key, PositionId positionId, int128 delta)
@@ -555,30 +545,48 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         nonReentrant
     {
         PoolId poolId = key.toPoolId();
-        PoolState state = CORE.poolState(poolId);
-        _accrue(poolId, state.liquidity());
         // A zero-delta touch modifies nothing, so the snapshot must not advance: syncing here
         // would discard accrued rent without any liquidity change.
-        if (delta != 0) {
-            if (key.config.isConcentrated()) {
-                _updateTick(poolId, positionId.tickLower(), delta);
-                _updateTick(poolId, positionId.tickUpper(), delta);
-            }
-            // Sync after any tick flips: boundary initialization/deletion changes the coordinate
-            // system, and the snapshot must live in the new one. Uncollected earnings are discarded,
-            // mirroring Core fee and Ve33 reward accounting.
-            _syncRentSnapshot(key, locker.addr(), positionId, state.tick());
+        if (delta == 0) {
+            _accrue(poolId, CORE.poolState(poolId).liquidity());
+            return;
         }
+        PoolState state;
+        if (key.config.isConcentrated()) {
+            // One Core read for the pool state and both boundary ticks.
+            (bytes32 packed, bytes32 lowerData, bytes32 upperData) = CORE.sload(
+                StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolId)),
+                StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, positionId.tickLower())),
+                StorageSlot.unwrap(CoreStorageLayout.poolTicksSlot(poolId, positionId.tickUpper()))
+            );
+            state = PoolState.wrap(packed);
+            _accrue(poolId, state.liquidity());
+            _updateTick(poolId, positionId.tickLower(), uint128(bytes16(lowerData)), delta);
+            _updateTick(poolId, positionId.tickUpper(), uint128(bytes16(upperData)), delta);
+        } else {
+            state = CORE.poolState(poolId);
+            _accrue(poolId, state.liquidity());
+        }
+        // Sync after any tick flips: boundary initialization/deletion changes the coordinate
+        // system, and the snapshot must live in the new one. Uncollected earnings are discarded,
+        // mirroring Core fee and Ve33 reward accounting.
+        positionRentSnapshot[poolId][locker.addr()][positionId] = _inside(poolId, key.config, positionId, state.tick());
     }
 
     /// @dev Moves the position's earned rent to the forwarding locker, which withdraws the bid token.
     function _collectRent(PoolKey memory key, address owner, PositionId positionId) private returns (uint256 amount) {
         _validate(key);
         PoolId poolId = key.toPoolId();
-        PoolState state = CORE.poolState(poolId);
+        (bytes32 packed, bytes32 position) = CORE.sload(
+            StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolId)),
+            StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId))
+        );
+        PoolState state = PoolState.wrap(packed);
         _accrue(poolId, state.liquidity());
-        amount = _positionRent(key, owner, positionId, state.tick(), _liquidity(poolId, owner, positionId));
-        _syncRentSnapshot(key, owner, positionId, state.tick());
+        uint256 inside = _inside(poolId, key.config, positionId, state.tick());
+        mapping(PositionId => uint256) storage snapshots = positionRentSnapshot[poolId][owner];
+        amount = _earned(inside, snapshots[positionId], uint128(uint256(position) >> 128));
+        snapshots[positionId] = inside;
         if (amount != 0) {
             CORE.updateSavedBalances(
                 bidToken, AUCTION_SAVED_BALANCE_PAIR_TOKEN, AUCTION_FUNDS_SAVED_BALANCE_ID, -int256(amount), 0
@@ -595,16 +603,17 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     {
         _validate(key);
         PoolId poolId = key.toPoolId();
-        amount =
-            _positionRent(key, owner, positionId, CORE.poolState(poolId).tick(), _liquidity(poolId, owner, positionId));
+        amount = _earned(
+            _inside(poolId, key.config, positionId, CORE.poolState(poolId).tick()),
+            positionRentSnapshot[poolId][owner][positionId],
+            ContinuousAuctionLib.positionLiquidity(CORE, poolId, owner, positionId)
+        );
     }
 
     // Mirrors Ve33's range-aware external-reward accounting, including nonzero tick sentinels.
-    function _updateTick(PoolId poolId, int32 tick, int128 delta) private returns (bool changed) {
-        (, uint128 gross) = CORE.poolTicks(poolId, tick);
+    function _updateTick(PoolId poolId, int32 tick, uint128 gross, int128 delta) private {
         uint128 next = addLiquidityDelta(gross, delta);
-        changed = (gross == 0) != (next == 0);
-        if (changed) growthOutside[poolId][tick] = gross == 0 ? 1 : 0;
+        if ((gross == 0) != (next == 0)) growthOutside[poolId][tick] = gross == 0 ? 1 : 0;
     }
 
     function _cross(PoolId poolId, int32 before_, int32 after_, uint32 spacing, uint256 skip) private {

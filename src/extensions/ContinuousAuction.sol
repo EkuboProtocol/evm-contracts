@@ -235,8 +235,8 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
 
         // Every new bid must strictly beat every other live schedule covering its start: a
         // same-second pending bid and/or the live incumbent. Displacement takes effect at activation
-        // (see _accrue), so the incumbent is never truncated here and cancelling is always harmless.
-        // A killed pending promise still binds same-start replacements through the floor below.
+        // (see _accrue), so the incumbent is never truncated here. A killed pending promise still binds
+        // same-start replacements, and the removal of the displacing pending bid, through the floor below.
         Bid storage scheduled = auction.next.bidder != bytes32(0) ? auction.next : auction.current;
         bool live = scheduled.end > start;
         bool own = live && scheduled.bidder == bidder;

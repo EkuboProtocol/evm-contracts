@@ -538,6 +538,9 @@ contract ContinuousAuctionTest is FullTest {
         vm.prank(bob);
         vm.expectRevert(ContinuousAuction.BidTooLow.selector);
         periphery.updateBid(key, SALT, 15, 512, bob, FEE, bob);
+        vm.prank(bob);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, 20, 512, bob, FEE, bob);
         // Topping the killed promise by one wei is enough, and the floor expires next second.
         _bid(bob, 21, 102, bob);
         _time(101);
@@ -612,7 +615,8 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(_remove(bob), uint256(RATE) * 2 * (512 - 102));
         // The incumbent still exits its own schedule while a bound pending bid sits on top.
         assertEq(_remove(alice), uint256(RATE) * (512 - 102));
-        // The bound displacer may raise and extend above the floor.
+        // The bound displacer may lower to one wei above the floor, or raise and extend.
+        _bid(carol, RATE * 2 + 2, 103, carol);
         _bid(carol, RATE * 4, 110, carol);
         // Escrow is Alice's unsettled current second plus Carol's schedule.
         assertEq(_funds(), uint256(RATE) + uint256(RATE) * 4 * (110 - 102));
@@ -622,6 +626,61 @@ contract ContinuousAuctionTest is FullTest {
         _time(110);
         uint256 rent = _claim(nft, -1600, 1600);
         assertApproxEqAbs(rent, uint256(RATE) + uint256(RATE) * 4 * (110 - 102), 2);
+        assertLe(_funds(), 2);
+    }
+
+    function test_incumbentSelfExtensionThatDisplacedAChallengerIsBound() public {
+        _bid(alice, RATE, 512, alice);
+        _time(101);
+        _bid(bob, RATE * 2, 512, bob);
+        // Alice outbids Bob with her live bid's own salt: her tail is netted into the new pending bid.
+        _bid(alice, RATE * 2 + 1, 1024, alice);
+        assertEq(auction.refundable(_id(alice)), 0);
+        assertEq(auction.refundable(_id(bob)), uint256(RATE) * 2 * (512 - 102));
+        // Having displaced Bob, she can neither exit at rate zero nor lower to his killed promise.
+        vm.startPrank(alice);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, 0, 0, address(0), 0, alice);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, RATE * 2, 1024, alice, FEE, alice);
+        vm.stopPrank();
+        // Her obligation is one second above the floor: shortening to it refunds the rest.
+        vm.prank(alice);
+        int256 delta = periphery.updateBid(key, SALT, RATE * 2 + 1, 103, alice, FEE, alice);
+        assertEq(uint256(-delta), uint256(RATE * 2 + 1) * (1024 - 103));
+        assertEq(_funds(), uint256(RATE) + auction.refundable(_id(bob)) + uint256(RATE * 2 + 1));
+        _time(102);
+        assertEq(auction.executorAt(poolId), alice);
+        assertEq(auction.holder(poolId).rate, RATE * 2 + 1);
+        _time(103);
+        assertEq(auction.executorAt(poolId), address(0));
+        assertEq(_remove(bob), uint256(RATE) * 2 * (512 - 102));
+        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) + uint256(RATE * 2 + 1), 2);
+        assertLe(_funds(), 2);
+    }
+
+    function test_displacerExitsByTruncationAfterActivationAndTheIncumbentIsNotRestored() public {
+        _bid(alice, RATE, 512, alice);
+        _time(101);
+        _bid(bob, RATE * 2, 512, bob);
+        _bid(carol, RATE * 2 + 1, 512, carol);
+        _time(102);
+        auction.accrue(key);
+        // At activation Alice's tail is credited, not restored as a fallback schedule.
+        assertEq(auction.holder(poolId).bidder, _id(carol));
+        assertEq(auction.refundable(_id(alice)), uint256(RATE) * (512 - 102));
+        // The floor has expired: Carol exits her live bid by truncation and keeps only the current second.
+        assertEq(_remove(carol), uint256(RATE * 2 + 1) * (512 - 103));
+        assertEq(
+            _funds(),
+            uint256(RATE * 2 + 1) + auction.refundable(_id(alice)) + auction.refundable(_id(bob)) + uint256(RATE)
+        );
+        _time(103);
+        assertEq(auction.executorAt(poolId), address(0));
+        assertEq(auction.holder(poolId).bidder, bytes32(0));
+        assertEq(_remove(alice), uint256(RATE) * (512 - 102));
+        assertEq(_remove(bob), uint256(RATE) * 2 * (512 - 102));
+        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) + uint256(RATE * 2 + 1), 2);
         assertLe(_funds(), 2);
     }
 

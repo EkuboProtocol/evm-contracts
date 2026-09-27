@@ -62,17 +62,20 @@ and fee, replacing whatever the caller had scheduled:
   another bidder's pending bid records its rate, and every bid for that start —
   including cancel-and-rebid by the displacer — must beat it until the second
   passes. Topping the killed promise by one wei suffices.
-- The displacing pending bid cannot be cancelled within that second: its owner
+- **The floor binds the pending slot.** The displacing pending bid cannot be
+  cancelled within that second (rate zero reverts with `BidTooLow`); its owner
   may only replace it above the killed promise. Otherwise a bidder could kill a
-  competing pending bid with a second salt and cancel for free, keeping a
-  lower-rate incumbent or leaving the pool closed. Displacing a competitor
-  therefore costs at least one second above its rate, and the displacing bid
-  activates and ends any incumbent schedule, whose tail is credited. The
-  displaced bidder is refunded in full and may bid again from the next second;
-  its schedule is not restored.
+  competing pending bid with a second salt or identity and cancel for free,
+  keeping a lower-rate incumbent or leaving the pool closed. Displacing a
+  competitor therefore obliges at least one second of rent above its rate, and
+  the displacing bid activates and ends any incumbent schedule, whose tail is
+  credited. The displaced bidder is refunded in full and may bid again from the
+  next second; its schedule is not restored. A pending bid that displaced
+  nobody stays freely cancellable, and the obligation lapses when the second
+  passes, after which the displacer may exit by truncation like any holder.
 - `end - start` must be at least one second and at most `2**32 - 1` seconds, and
   `end` must fit in 48 bits. Rate zero removes the caller's schedule from the
-  next second on.
+  next second on, except a pending bid bound by the floor above.
 - The incumbent keeps the current second. Another bidder's displaced tenure is
   credited when the new bid activates. The caller's own replaced tenure and any
   outstanding credit are netted against the new funding, and the returned `delta` is what
@@ -218,6 +221,46 @@ pay providers whose liquidity is inactive, whatever the cause, so out-of-range
 providers should withdraw rather than wait; and it does not compensate providers
 while the pool is unrented. Bidders bear the exchange
 risk between the bid token and the pool's tokens.
+
+## Design decisions
+
+### Pending displacement is binding for one second
+
+**Context.** Displacing a competitor's same-second pending bid deletes and
+fully refunds it. The floor already forced every later nonzero bid for that
+start above the killed rate, but rate zero was exempt, so the displacer could
+cancel. With a second salt, an incumbent at rate `R` could erase a `2R`
+challenge by bidding `2R + 1` for one second and cancelling in the same
+second, paying only gas. It kept its tenure at `R`. With no incumbent, anyone
+could leave the pool closed the same way.
+
+**Decision.** Rate-zero removal of the pending bid by its owner is subject to
+the same floor as a nonzero replacement. After a displacement at start `s`,
+whoever holds the pending slot for `s` cannot vacate it until `s` passes. It
+may only replace it at a rate above the killed promise, for any tenure of at
+least one second. Removing a live incumbent's own schedule is unchanged when
+the incumbent does not hold the pending slot. An incumbent that displaced a
+challenger by replacing its own bid holds the pending slot and is bound too.
+
+**Preserved invariant.** Once a bidder's pending promise for `s` has been
+displaced, the pool is held during `s` by a bid whose rate exceeds that
+promise. Displacing a competitor cannot preserve a lower-rate schedule or
+leave the pool unrented for that second. Funds are conserved throughout: the
+saved balance equals the unsettled current second, outstanding credits and the
+live and pending schedules.
+
+**Tradeoffs.** The obligation is one second of rent above the displaced rate,
+not the displaced bidder's full tenure. A bidder with a higher valuation can
+still take the pool briefly and exit by truncation the next second. The
+displaced bidder is refunded but not restored, and must re-bid from the next
+second. The displacing bid still activates and ends the incumbent's schedule,
+crediting its tail. Suppressing a challenger therefore costs the incumbent one
+second above the challenger's rate and its lower-rate tenure, rather than
+nothing.
+Obligating the displaced tenure, or keeping the displaced schedule as a
+recoverable fallback, would need more state and an economic change the board
+has not accepted. Honest bidders give up only same-second cancellation after
+outbidding someone.
 
 ## Deployment and reproducibility
 

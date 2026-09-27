@@ -134,10 +134,14 @@ contract ContinuousAuctionTest is FullTest {
 
     /// @dev Places or replaces `bidder`'s bid, funding exactly the net amount the extension charges.
     function _bid(PoolKey memory k, address bidder, uint96 rate, uint64 end, address exec) private {
+        _bid(k, bidder, SALT, rate, end, exec);
+    }
+
+    function _bid(PoolKey memory k, address bidder, bytes32 salt, uint96 rate, uint64 end, address exec) private {
         uint256 funding = uint256(rate) * (end - block.timestamp - 1);
         vm.deal(bidder, bidder.balance + funding);
         vm.prank(bidder);
-        periphery.updateBid{value: funding}(k, SALT, rate, end, exec, FEE, bidder);
+        periphery.updateBid{value: funding}(k, salt, rate, end, exec, FEE, bidder);
         vm.prank(bidder);
         periphery.refundNativeToken();
     }
@@ -523,18 +527,152 @@ contract ContinuousAuctionTest is FullTest {
     }
 
     function test_pendingFloorBlocksCancelAndRebidDowngrade() public {
-        // No live incumbent. Alice promises 20 while pending; Bob kills it high, cancels, and re-bids low.
+        // No live incumbent. Alice promises 20 while pending; Bob kills it high, then tries to cancel
+        // or re-bid low.
         _bid(alice, 20, 512, alice);
         _bid(bob, 21, 512, bob);
-        _remove(bob);
-        // Same-start rebids must still beat Alice's killed promise, by anyone including Bob.
+        vm.prank(bob);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, 0, 0, address(0), 0, bob);
+        // Same-start replacements must still beat Alice's killed promise, by anyone including Bob.
         vm.prank(bob);
         vm.expectRevert(ContinuousAuction.BidTooLow.selector);
         periphery.updateBid(key, SALT, 15, 512, bob, FEE, bob);
         // Topping the killed promise by one wei is enough, and the floor expires next second.
-        _bid(bob, 21, 512, bob);
-        _time(102);
+        _bid(bob, 21, 102, bob);
+        _time(101);
         assertEq(auction.executorAt(poolId), bob);
+        _time(102);
+        _bid(alice, 1, 512, alice);
+        _remove(alice); // An undisplacing pending bid remains freely cancellable.
+    }
+
+    /// CANCELLATION SUPPRESSION
+
+    function test_displacerCannotCancelToKeepTheLowerIncumbent() public {
+        bytes32 alt = bytes32(uint256(1));
+        _bid(alice, RATE, 512, alice);
+        _time(101);
+        _bid(bob, RATE * 2, 512, bob);
+        // Alice backruns Bob with a second salt and one second of funding.
+        _bid(key, alice, alt, RATE * 2 + 1, 103, alice);
+        assertEq(auction.refundable(_id(bob)), uint256(RATE) * 2 * (512 - 102));
+        // She may neither cancel it nor lower it to Bob's killed promise.
+        vm.startPrank(alice);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, alt, 0, 0, address(0), 0, alice);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, alt, RATE * 2, 103, alice, FEE, alice);
+        vm.stopPrank();
+        _time(102);
+        auction.accrue(key);
+        // The displacing bid holds the pool at the higher rate and her lower-rate schedule ended.
+        ContinuousAuction.Bid memory h = auction.holder(poolId);
+        assertEq(h.bidder, periphery.bidderId(alice, alt));
+        assertEq(h.rate, RATE * 2 + 1);
+        assertEq(auction.refundable(_id(alice)), uint256(RATE) * (512 - 102));
+        _time(103);
+        assertEq(auction.executorAt(poolId), address(0));
+        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) + uint256(RATE) * 2 + 1, 2);
+    }
+
+    function test_displacerCannotCancelToLeaveThePoolClosed() public {
+        _bid(bob, RATE, 512, bob);
+        // Same identity type as the board reproduction: no incumbent, one second of funding.
+        _bid(alice, RATE + 1, 102, alice);
+        vm.prank(alice);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, 0, 0, address(0), 0, alice);
+        assertEq(auction.refundable(_id(bob)), uint256(RATE) * (512 - 101));
+        _time(101);
+        assertEq(auction.executorAt(poolId), alice);
+        _time(102);
+        assertEq(auction.executorAt(poolId), address(0));
+        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) + 1, 1);
+    }
+
+    function test_chainedSameSecondDisplacementsBindEachDisplacerAndKeepExitRights() public {
+        bytes32 alt = bytes32(uint256(1));
+        _bid(alice, RATE, 512, alice);
+        _time(101);
+        _bid(bob, RATE * 2, 512, bob);
+        _bid(key, alice, alt, RATE * 2 + 1, 103, alice);
+        _bid(carol, RATE * 3, 104, carol);
+        // The floor follows the latest killed promise and binds the latest displacer.
+        vm.startPrank(carol);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, 0, 0, address(0), 0, carol);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, RATE * 2 + 1, 104, carol, FEE, carol);
+        vm.stopPrank();
+        // Displaced pending bidders only hold credit and withdraw it in full.
+        vm.prank(alice);
+        int256 delta = periphery.updateBid(key, alt, 0, 0, address(0), 0, alice);
+        assertEq(uint256(-delta), uint256(RATE * 2 + 1));
+        assertEq(_remove(bob), uint256(RATE) * 2 * (512 - 102));
+        // The incumbent still exits its own schedule while a bound pending bid sits on top.
+        assertEq(_remove(alice), uint256(RATE) * (512 - 102));
+        // The bound displacer may raise and extend above the floor.
+        _bid(carol, RATE * 4, 110, carol);
+        // Escrow is Alice's unsettled current second plus Carol's schedule.
+        assertEq(_funds(), uint256(RATE) + uint256(RATE) * 4 * (110 - 102));
+        _time(102);
+        assertEq(auction.executorAt(poolId), carol);
+        assertEq(auction.refundable(_id(alice)), 0);
+        _time(110);
+        uint256 rent = _claim(nft, -1600, 1600);
+        assertApproxEqAbs(rent, uint256(RATE) + uint256(RATE) * 4 * (110 - 102), 2);
+        assertLe(_funds(), 2);
+    }
+
+    /// forge-config: default.fuzz.runs = 512
+    function testFuzz_displacedPendingPromiseIsNeverErasedForFree(
+        bool incumbent,
+        uint8 identity,
+        uint96 incumbentRate,
+        uint96 bump,
+        uint64 displacerTenure
+    ) public {
+        incumbentRate = uint96(bound(incumbentRate, 1, 1e15));
+        uint96 challenge = incumbentRate + uint96(bound(bump, 1, 1e15));
+        displacerTenure = uint64(bound(displacerTenure, 1, 64));
+        uint256 incumbentSeconds;
+        if (incumbent) {
+            _bid(alice, incumbentRate, 512, alice);
+            _time(101);
+            incumbentSeconds = 1;
+        }
+        uint48 start = uint48(block.timestamp + 1);
+        _bid(bob, challenge, 512, bob);
+        (address who, bytes32 salt) =
+            identity % 3 == 0 ? (alice, SALT) : identity % 3 == 1 ? (alice, bytes32(uint256(1))) : (carol, SALT);
+        uint96 displacerRate = challenge + 1;
+        _bid(key, who, salt, displacerRate, start + displacerTenure, who);
+
+        vm.startPrank(who);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, salt, 0, 0, address(0), 0, who);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, salt, challenge, start + displacerTenure, who, FEE, who);
+        vm.stopPrank();
+
+        _time(start);
+        auction.accrue(key);
+        ContinuousAuction.Bid memory h = auction.holder(poolId);
+        assertEq(h.bidder, periphery.bidderId(who, salt));
+        assertGt(h.rate, challenge);
+        // Escrow is exactly accrued rent, outstanding credit and the live schedule.
+        uint256 bobCredit = auction.refundable(_id(bob));
+        assertEq(bobCredit, uint256(challenge) * (512 - start));
+        uint256 aliceCredit = auction.refundable(_id(alice));
+        // The displaced incumbent's tail is credited at activation, or netted at placement when it displaced itself.
+        bool selfDisplaced = who == alice && salt == SALT;
+        assertEq(aliceCredit, incumbent && !selfDisplaced ? uint256(incumbentRate) * (512 - start) : 0);
+        assertEq(
+            _funds(),
+            uint256(incumbentRate) * incumbentSeconds + bobCredit + aliceCredit + uint256(displacerRate)
+                * displacerTenure
+        );
     }
 
     function test_pendingChainKeepsLiveCurrentIntact() public {
@@ -554,6 +692,65 @@ contract ContinuousAuctionTest is FullTest {
         _bid(carol, 205, 5120, carol);
         _time(102);
         assertEq(auction.executorAt(poolId), carol);
+    }
+
+    /// forge-config: default.fuzz.runs = 512
+    function testFuzz_sameSecondChainBindsTheLatestDisplacerAndConservesEscrow(uint256 seed, bool incumbent) public {
+        uint256 incumbentEscrow;
+        if (incumbent) {
+            _bid(alice, RATE, 512, alice);
+            _time(101);
+            incumbentEscrow = uint256(RATE) * (512 - 101);
+        }
+        uint48 start = uint48(block.timestamp + 1);
+        address[6] memory users;
+        bytes32[6] memory salts;
+        for (uint256 k; k < 6; ++k) {
+            users[k] = address(uint160(2000 + k / 2));
+            salts[k] = bytes32(k % 2);
+        }
+        uint256 steps = 2 + seed % 5;
+        uint96 rate = RATE;
+        uint256 owner = type(uint256).max;
+        uint256 nextCost;
+        bool displaced;
+        for (uint256 i; i < steps; ++i) {
+            seed = uint256(keccak256(abi.encode(seed, i)));
+            uint256 k = seed % 6;
+            rate += uint96(1 + (seed >> 8) % RATE);
+            uint64 end = uint64(start + 1 + (seed >> 64) % 32);
+            _bid(key, users[k], salts[k], rate, end, users[k]);
+            // Replacing one's own pending bid displaces nobody; the floor binds after any displacement.
+            displaced = displaced || (i != 0 && k != owner);
+            owner = k;
+            nextCost = uint256(rate) * (end - start);
+            // Whoever holds the pending bid after a displacement cannot cancel it.
+            if (displaced) {
+                vm.startPrank(users[k]);
+                vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+                periphery.updateBid(key, salts[k], 0, 0, address(0), 0, users[k]);
+                vm.stopPrank();
+            }
+            // A displaced identity withdraws its full credit without touching the pending bid.
+            uint256 other = (seed >> 128) % 6;
+            if (other != owner && (seed >> 136) % 2 == 0) {
+                uint256 credit = auction.refundable(periphery.bidderId(users[other], salts[other]));
+                vm.prank(users[other]);
+                int256 delta = periphery.updateBid(key, salts[other], 0, 0, address(0), 0, users[other]);
+                assertEq(uint256(-delta), credit);
+            }
+            uint256 credits;
+            for (uint256 j; j < 6; ++j) {
+                credits += auction.refundable(periphery.bidderId(users[j], salts[j]));
+            }
+            assertEq(_funds(), incumbentEscrow + credits + nextCost);
+        }
+        _time(start);
+        auction.accrue(key);
+        ContinuousAuction.Bid memory h = auction.holder(poolId);
+        assertEq(h.bidder, periphery.bidderId(users[owner], salts[owner]));
+        assertEq(h.rate, rate);
+        if (incumbent) assertEq(auction.refundable(_id(alice)), uint256(RATE) * (512 - start));
     }
 
     /// RENT ALLOCATION

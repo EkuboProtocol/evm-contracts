@@ -94,9 +94,9 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     // NOTE: rent charged while no liquidity is active is discarded (still logged as
     // `RentUnallocated`) rather than counted, so it needs no storage.
     /// @notice Packed promised rate and activation second of the most recently displaced
-    /// same-start pending bid. Binds every replacement for that start (including cancel-and-rebid
-    /// by the displacer) until the second passes; keyed by start so stale entries expire on their
-    /// own and no clearing is needed.
+    /// same-start pending bid. Binds every replacement for that start until the second passes,
+    /// including cancellation of the displacing pending bid by its owner; keyed by start so stale
+    /// entries expire on their own and no clearing is needed.
     mapping(PoolId => PendingFloor) public pendingFloor;
     mapping(PoolId => mapping(int32 => uint256)) public growthOutside;
 
@@ -203,7 +203,9 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     /// delta is the net bid-token amount the locker owes (positive) or may withdraw (negative). Another locker's
     /// scheduled bid is displaced only by a strictly higher rate. Displacement of the live incumbent takes
     /// effect at activation, when its relinquished tenure is credited; a displaced pending bid is credited
-    /// immediately since its tenure never started, but its promised rate binds same-start replacements.
+    /// immediately since its tenure never started, but its promised rate binds same-start replacements,
+    /// including the removal of the displacing pending bid: once it displaces another bidder, it cannot be
+    /// cancelled within that second.
     /// The executor is a Core locker, NOT tx.origin, and must authenticate its own callers.
     function _updateBid(
         PoolKey memory key,
@@ -246,6 +248,11 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
             if (auction.current.bidder != bidder && auction.current.end > start && rate <= auction.current.rate) {
                 revert BidTooLow();
             }
+        }
+        // The floor also binds the pending bid's own removal: the displacer owns that pending bid, so
+        // cancelling it would erase the displaced commitment for free. It may only be raised or
+        // replaced above the floor, and then activates, ending any incumbent schedule.
+        if (rate != 0 || auction.next.bidder == bidder) {
             PendingFloor floor = pendingFloor[poolId];
             if (PendingFloor.unwrap(floor) != bytes32(0) && start == floor.floorStart() && rate <= floor.floorRate()) {
                 revert BidTooLow();

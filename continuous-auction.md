@@ -54,14 +54,22 @@ and fee, replacing whatever the caller had scheduled:
   same-second pending bid and/or the live incumbent. The scheduled bidder may
   replace its own bid, and an expiring incumbent need not be outbid.
 - Displacement takes effect at activation, not at placement. The incumbent is
-  never truncated early, so cancelling a pending bid is always harmless and the
-  pool never closes from it. The incumbent's relinquished tenure is credited
+  never truncated early, so cancelling a pending bid never closes the pool
+  early. The incumbent's relinquished tenure is credited
   when the new bid activates; a replaced pending bid is credited immediately
   since its tenure never started.
 - A killed pending promise still binds same-start replacements: displacing
   another bidder's pending bid records its rate, and every bid for that start —
   including cancel-and-rebid by the displacer — must beat it until the second
   passes. Topping the killed promise by one wei suffices.
+- The displacing pending bid cannot be cancelled within that second: its owner
+  may only replace it above the killed promise. Otherwise a bidder could kill a
+  competing pending bid with a second salt and cancel for free, keeping a
+  lower-rate incumbent or leaving the pool closed. Displacing a competitor
+  therefore costs at least one second above its rate, and the displacing bid
+  activates and ends any incumbent schedule, whose tail is credited. The
+  displaced bidder is refunded in full and may bid again from the next second;
+  its schedule is not restored.
 - `end - start` must be at least one second and at most `2**32 - 1` seconds, and
   `end` must fit in 48 bits. Rate zero removes the caller's schedule from the
   next second on.

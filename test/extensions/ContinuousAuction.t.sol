@@ -1370,4 +1370,173 @@ contract ContinuousAuctionTest is FullTest {
         periphery.collectSwapFees(key, SALT, alice);
         vm.snapshotGasLastCall("AuctionPeriphery#collectSwapFees");
     }
+
+    /// @dev A pool that has already activated and expired two bids, as in steady operation.
+    function _settledHistory() private {
+        _bid(carol, RATE, 150, carol);
+        _time(150);
+        _bid(carol, RATE, 180, carol);
+        _time(180);
+        auction.accrue(key);
+        _time(201);
+    }
+
+    function test_gas_newBidSteadyState() public {
+        _settledHistory();
+        _cold();
+        vm.deal(alice, 1e20);
+        vm.prank(alice);
+        periphery.updateBid{value: uint256(RATE) * (1024 - 202)}(key, SALT, RATE, 1024, address(executor), FEE, alice);
+        vm.snapshotGasLastCall("AuctionPeriphery#newBidSteadyState");
+    }
+
+    function test_gas_displaceSettledLiveBid() public {
+        _settledHistory();
+        _bid(alice, RATE, 1024, address(executor));
+        _time(250);
+        auction.accrue(key);
+        _time(300);
+        _cold();
+        vm.deal(bob, 1e20);
+        vm.prank(bob);
+        periphery.updateBid{value: uint256(RATE) * 2 * (512 - 301)}(key, SALT, RATE * 2, 512, bob, FEE, bob);
+        vm.snapshotGasLastCall("AuctionPeriphery#displaceSettledLiveBid");
+    }
+
+    function test_gas_replaceOwnSettledBid() public {
+        _settledHistory();
+        _bid(alice, RATE, 512, address(executor));
+        _time(250);
+        auction.accrue(key);
+        _time(300);
+        _cold();
+        vm.deal(alice, 1e20);
+        vm.prank(alice);
+        periphery.updateBid{value: uint256(RATE) * 512}(key, SALT, RATE, 1024, address(executor), FEE, alice);
+        vm.snapshotGasLastCall("AuctionPeriphery#replaceOwnSettledBid");
+    }
+
+    function test_gas_displacePendingBid() public {
+        _settledHistory();
+        _bid(alice, RATE, 1024, address(executor));
+        _cold();
+        vm.deal(bob, 1e20);
+        vm.prank(bob);
+        periphery.updateBid{value: uint256(RATE) * 2 * (512 - 202)}(key, SALT, RATE * 2, 512, bob, FEE, bob);
+        vm.snapshotGasLastCall("AuctionPeriphery#displacePendingBid");
+    }
+
+    function test_gas_cancelPendingBid() public {
+        _settledHistory();
+        _bid(alice, RATE, 1024, address(executor));
+        _cold();
+        vm.prank(alice);
+        periphery.updateBid(key, SALT, 0, 0, address(0), 0, alice);
+        vm.snapshotGasLastCall("AuctionPeriphery#cancelPendingBid");
+    }
+
+    function test_gas_accrueNoActivation() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(150);
+        auction.accrue(key);
+        _time(201);
+        _cold();
+        auction.accrue(key);
+        vm.snapshotGasLastCall("Auction#accrueNoActivation");
+    }
+
+    function test_gas_holderSwapNoActivation() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(150);
+        auction.accrue(key);
+        _time(201);
+        _cold();
+        executor.swap(key, _params(1000, true, 100), false);
+        vm.snapshotGasLastCall("Auction#holderSwapNoActivation");
+    }
+
+    function test_gas_outsiderSwapNoActivation() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(150);
+        auction.accrue(key);
+        _time(201);
+        _cold();
+        outsider.swap(key, _params(1000, true, 100), false);
+        vm.snapshotGasLastCall("Auction#outsiderSwapNoActivation");
+    }
+
+    function test_gas_holderSwapSameSecond() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        executor.swap(key, _params(1000, true, 100), false);
+        executor.swap(key, _params(1000, true, 100), false);
+        vm.snapshotGasLastCall("Auction#holderSwapSameSecond");
+    }
+
+    function test_gas_swapCrossingFourTicksDown() public {
+        _createPosition(key, -3200, -1600, 0, 2e18);
+        _createPosition(key, -4800, -3200, 0, 2e18);
+        _createPosition(key, -6400, -4800, 0, 2e18);
+        _createPosition(key, -8000, -6400, 0, 2e18);
+        _bid(alice, RATE, 512, address(executor));
+        _time(150);
+        auction.accrue(key);
+        _time(201);
+        _cold();
+        executor.swap(key, _params(10e18, false, -7000), false);
+        vm.snapshotGasLastCall("Auction#swapCrossingFourTicksDown");
+        assertLe(core.poolState(poolId).tick(), -6400);
+    }
+
+    function test_gas_swapCrossingSixteenTicks() public {
+        for (int32 t = 1600; t < 1600 + 16 * 1024; t += 1024) {
+            _createPosition(key, t, t + 1024, 1e18, 0);
+        }
+        _bid(alice, RATE, 512, address(executor));
+        _time(150);
+        auction.accrue(key);
+        _time(201);
+        _cold();
+        executor.swap(key, _params(100e18, true, 1600 + 16 * 1024 + 8), false);
+        vm.snapshotGasLastCall("Auction#swapCrossingSixteenTicks");
+        assertGe(core.poolState(poolId).tick(), 1600 + 16 * 1024);
+    }
+
+    function test_gas_swapAcrossEmptyWords() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(150);
+        auction.accrue(key);
+        _time(201);
+        _cold();
+        // Leaves every position and moves through about 100 empty bitmap words (spacing 16).
+        executor.swap(key, _params(10e18, true, 400000), false);
+        vm.snapshotGasLastCall("Auction#swapAcrossEmptyWords");
+        assertEq(core.poolState(poolId).tick(), 400000);
+    }
+
+    function test_gas_mintAndDepositNewRange() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        manager.mintAndDeposit(key, -3200, 3200, 1e18, 1e18, 0);
+        vm.snapshotGasLastCall("AuctionPositions#mintAndDepositNewRange");
+    }
+
+    function test_gas_withdrawAndCollectRentAll() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        manager.withdrawAndCollectRent(nft, key, -1600, 1600, liquidity, address(this));
+        vm.snapshotGasLastCall("AuctionPositions#withdrawAndCollectRentAll");
+    }
+
+    function test_gas_collectRentSettled() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(150);
+        auction.accrue(key);
+        _time(201);
+        _cold();
+        _claim(nft, -1600, 1600);
+        vm.snapshotGasLastCall("AuctionPositions#collectRentNoActivation");
+    }
 }

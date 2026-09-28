@@ -186,6 +186,359 @@ contract ContinuousAuctionTest is FullTest {
         });
     }
 
+    /// @dev Block gaps, in seconds, used as chain sensitivities. They are not chain commitments.
+    function _blockGaps() private pure returns (uint256[4] memory) {
+        return [uint256(1), 2, 6, 12];
+    }
+
+    /// @dev The smallest `end` leaving `blocks` executable blocks after the bid's inclusion block on a chain that
+    /// produces a block every `gap` seconds, when the bid lands up to `lateBlocks` blocks after `placedAt`. A paid
+    /// second is not a block: an on-time bid pays `(lateBlocks + blocks) * gap` seconds, `gap - 1` of them before its
+    /// first usable block.
+    function _usableEnd(uint256 placedAt, uint256 gap, uint256 blocks, uint256 lateBlocks)
+        private
+        pure
+        returns (uint64)
+    {
+        return uint64(placedAt + (lateBlocks + blocks) * gap + 1);
+    }
+
+    /// @dev Alice rents from 101 and moves the price into a dust range above the main position, where the dust is
+    /// the only active liquidity.
+    function _park() private returns (uint256 dust, uint128 dustLiquidity) {
+        (dust, dustLiquidity) = _createPosition(key, 3200, 3216, 1e15, 0);
+        _bid(alice, RATE, 1024, address(executor));
+        _time(101);
+        executor.swap(key, _params(5e18, true, 3208), false);
+        assertEq(core.poolState(poolId).liquidity(), dustLiquidity);
+    }
+
+    /// ECONOMIC REGRESSIONS
+    /// These pin current semantics that the specification's economics depend on. They are not exploit-success
+    /// invariants: each shows what the mechanism does and does not guarantee.
+
+    function test_economic_oneSecondBidCanExpireWithoutExecutableBlock() public {
+        _bid(alice, RATE, 102, address(executor));
+        vm.expectRevert(ContinuousAuction.PoolClosed.selector);
+        executor.swap(key, _params(1000, true, 100), false);
+        _time(112);
+        assertEq(auction.executorAt(poolId), address(0));
+        vm.expectRevert(ContinuousAuction.PoolClosed.selector);
+        executor.swap(key, _params(1000, true, 100), false);
+        assertApproxEqAbs(_claim(nft, -1600, 1600), RATE, 1);
+        assertEq(_remove(alice), 0);
+    }
+
+    function test_economic_shortDisplacerPaysFloorButLeavesNoExecutableTenure() public {
+        _bid(alice, RATE, 512, address(executor));
+        _bid(bob, RATE + 1, 102, address(outsider));
+        vm.prank(bob);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid(key, SALT, 0, 0, address(0), 0, bob);
+        _time(112);
+        auction.accrue(key);
+        assertEq(auction.refundable(_id(alice)), uint256(RATE) * 411);
+        assertEq(auction.executorAt(poolId), address(0));
+        assertApproxEqAbs(_claim(nft, -1600, 1600), RATE + 1, 1);
+        vm.expectRevert(ContinuousAuction.PoolClosed.selector);
+        executor.swap(key, _params(1000, true, 100), false);
+    }
+
+    function test_economic_challengerPreExecutionRentGoesToParkedLiquidity() public {
+        (uint256 dust, uint128 dustLiquidity) = _createPosition(key, 3200, 3216, 1e15, 0);
+        _bid(alice, RATE, 1024, address(executor));
+        _time(101);
+        executor.swap(key, _params(5e18, true, 3208), false);
+        assertEq(core.poolState(poolId).liquidity(), dustLiquidity);
+        _time(113);
+        assertApproxEqAbs(_claim(dust, 3200, 3216), uint256(RATE) * 12, 1);
+        _bid(bob, 2 * RATE, 126, address(outsider));
+        _time(125);
+        assertEq(auction.executorAt(poolId), address(outsider));
+        outsider.swap(key, _params(5e18, false, 0), false);
+        assertEq(core.poolState(poolId).tick(), 0);
+        // One old-holder second and eleven challenger seconds accrue before restoration.
+        assertApproxEqAbs(_claim(dust, 3200, 3216), uint256(RATE) + uint256(2 * RATE) * 11, 1);
+        assertEq(_claim(nft, -1600, 1600), 0);
+        _time(126);
+        assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(2 * RATE), 1);
+    }
+
+    function test_economic_soleActiveHolderRecapturesRaisedGrossRent() public {
+        (uint256 dust, uint128 dustLiquidity) = _createPosition(key, 3200, 3216, 1e15, 0);
+        _bid(alice, RATE, 1024, address(executor));
+        _time(101);
+        executor.swap(key, _params(5e18, true, 3208), false);
+        assertEq(core.poolState(poolId).liquidity(), dustLiquidity);
+        uint96 raised = 1000 * RATE;
+        uint256 funding = uint256(raised) * (1024 - 102);
+        vm.deal(alice, funding);
+        vm.prank(alice);
+        periphery.updateBid{value: funding}(key, SALT, raised, 1024, address(executor), type(uint32).max, alice);
+        _time(114);
+        assertEq(auction.holder(poolId).rate, raised);
+        assertApproxEqAbs(_claim(dust, 3200, 3216), uint256(RATE) + uint256(raised) * 12, 1);
+        assertEq(_claim(nft, -1600, 1600), 0);
+        vm.deal(bob, uint256(raised) * 1000);
+        vm.prank(bob);
+        vm.expectRevert(ContinuousAuction.BidTooLow.selector);
+        periphery.updateBid{value: raised}(key, SALT, raised, 116, address(outsider), 0, bob);
+    }
+
+    function test_economic_challengerCanDiluteParkedRentBeforeBidding() public {
+        (uint256 dust, uint128 dustLiquidity) = _createPosition(key, 3200, 3216, 1e15, 0);
+        _bid(alice, RATE, 1024, address(executor));
+        _time(101);
+        executor.swap(key, _params(5e18, true, 3208), false);
+        _time(113);
+        _claim(dust, 3200, 3216);
+        (uint256 entrant, uint128 entrantLiquidity) = _createPosition(key, 3200, 3216, 1e18, 1e18);
+        _bid(bob, 2 * RATE, 126, address(outsider));
+        _time(125);
+        uint256 intervalRent = uint256(RATE) * 23;
+        uint256 entrantRent = _claim(entrant, 3200, 3216);
+        assertApproxEqAbs(entrantRent, intervalRent * entrantLiquidity / (uint256(entrantLiquidity) + dustLiquidity), 1);
+        assertGt(entrantRent, intervalRent * 99 / 100);
+        manager.withdrawAndCollectRent(entrant, key, 3200, 3216, entrantLiquidity, address(this));
+        outsider.swap(key, _params(5e18, false, 0), false);
+        assertEq(core.poolState(poolId).tick(), 0);
+    }
+
+    function test_economic_nonzeroTopUpDiscardsAllUncollectedRent() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        auction.accrue(key);
+        assertApproxEqAbs(
+            auction.getPositionRent(key, address(manager), manager.positionId(nft, -1600, 1600)), uint256(RATE) * 100, 1
+        );
+        uint256 savedBefore = _funds();
+        (uint128 added,,) = manager.deposit(nft, key, -1600, 1600, 1000, 1000, 0);
+        assertGt(added, 0);
+        assertEq(_claim(nft, -1600, 1600), 0);
+        assertEq(_funds(), savedBefore);
+    }
+
+    function test_economic_sameBlockRestoreAndReparkDoesNotRewardTraversedLiquidity() public {
+        (uint256 dust,) = _createPosition(key, 3200, 3216, 1e15, 0);
+        _bid(alice, RATE, 1024, address(executor));
+        _time(101);
+        executor.swap(key, _params(5e18, true, 3208), false);
+        _time(113);
+        uint256 before0 = token0.balanceOf(address(this));
+        uint256 before1 = token1.balanceOf(address(this));
+        executor.swap(key, _params(5e18, false, 0), false);
+        executor.swap(key, _params(5e18, true, 3208), false);
+        assertApproxEqAbs(token0.balanceOf(address(this)), before0, 10);
+        assertApproxEqAbs(token1.balanceOf(address(this)), before1, 10);
+        assertEq(_claim(nft, -1600, 1600), 0);
+        assertApproxEqAbs(_claim(dust, 3200, 3216), uint256(RATE) * 12, 1);
+    }
+
+    /// CHAIN-AWARE BIDDING
+    /// Each case runs for every block gap from a snapshot. Placement times are literals because via-IR may re-read
+    /// `block.timestamp` after a warp.
+
+    function test_chainAware_minimalUsableEndPaysOneBlockGap() public {
+        uint256[4] memory gaps = _blockGaps();
+        for (uint256 i; i < gaps.length; i++) {
+            uint256 snapshot = vm.snapshotState();
+            uint256 gap = gaps[i];
+            uint256 t = 100;
+            uint64 end = _usableEnd(t, gap, 1, 0);
+            assertEq(end - (t + 1), gap);
+            _bid(alice, RATE, end, address(executor));
+            _time(t + gap);
+            assertEq(auction.executorAt(poolId), address(executor));
+            executor.swap(key, _params(1000, true, 100), false);
+            // gap - 1 paid seconds elapse before the first block in which the bid can swap.
+            assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * (gap - 1), 1);
+            _time(t + 2 * gap);
+            assertEq(auction.executorAt(poolId), address(0));
+            vm.expectRevert(ContinuousAuction.PoolClosed.selector);
+            executor.swap(key, _params(1000, true, 100), false);
+            assertApproxEqAbs(_claim(nft, -1600, 1600), RATE, 1);
+            assertEq(_remove(alice), 0);
+            vm.revertToState(snapshot);
+        }
+    }
+
+    function test_chainAware_endOneSecondShortOfNextBlockPaysWithoutAccess() public {
+        uint256[4] memory gaps = _blockGaps();
+        for (uint256 i; i < gaps.length; i++) {
+            uint256 snapshot = vm.snapshotState();
+            uint256 gap = gaps[i];
+            uint256 t = 100;
+            uint64 end = _usableEnd(t, gap, 1, 0) - 1;
+            if (gap == 1) {
+                // The one-second minimum already reaches the next block.
+                vm.prank(alice);
+                vm.expectRevert(ContinuousAuction.InvalidBid.selector);
+                periphery.updateBid(key, SALT, RATE, end, address(executor), FEE, alice);
+            } else {
+                _bid(alice, RATE, end, address(executor));
+                _time(t + gap);
+                assertEq(auction.executorAt(poolId), address(0));
+                vm.expectRevert(ContinuousAuction.PoolClosed.selector);
+                executor.swap(key, _params(1000, true, 100), false);
+                assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * (gap - 1), 1);
+                assertEq(_remove(alice), 0);
+            }
+            vm.revertToState(snapshot);
+        }
+    }
+
+    function test_chainAware_lateBidInclusionNeedsMargin() public {
+        uint256[4] memory gaps = _blockGaps();
+        for (uint256 i; i < gaps.length; i++) {
+            uint256 snapshot = vm.snapshotState();
+            uint256 gap = gaps[i];
+            uint256 t = 100;
+            _time(t + gap); // The bid lands one block later than planned.
+            // `end` is absolute, so a bid sized without margin reverts instead of paying for no usable block.
+            vm.prank(alice);
+            vm.expectRevert(ContinuousAuction.InvalidBid.selector);
+            periphery.updateBid(key, SALT, RATE, _usableEnd(t, gap, 1, 0), address(executor), FEE, alice);
+            _bid(alice, RATE, _usableEnd(t, gap, 1, 1), address(executor));
+            _time(t + 2 * gap);
+            assertEq(auction.executorAt(poolId), address(executor));
+            executor.swap(key, _params(1000, true, 100), false);
+            _time(t + 3 * gap);
+            assertEq(auction.executorAt(poolId), address(0));
+            vm.revertToState(snapshot);
+        }
+    }
+
+    function test_chainAware_delayedSwapInclusionNeedsMargin() public {
+        uint256[4] memory gaps = _blockGaps();
+        for (uint256 i; i < gaps.length; i++) {
+            uint256 gap = gaps[i];
+            uint256 t = 100;
+            uint256 snapshot = vm.snapshotState();
+            _bid(alice, RATE, _usableEnd(t, gap, 1, 0), address(executor));
+            _time(t + 2 * gap); // The swap misses the first usable block.
+            vm.expectRevert(ContinuousAuction.PoolClosed.selector);
+            executor.swap(key, _params(1000, true, 100), false);
+            vm.revertToState(snapshot);
+            uint64 end = _usableEnd(t, gap, 2, 0);
+            assertEq(end - (t + 1), 2 * gap);
+            _bid(alice, RATE, end, address(executor));
+            _time(t + 2 * gap);
+            executor.swap(key, _params(1000, true, 100), false);
+            vm.revertToState(snapshot);
+        }
+    }
+
+    function test_chainAware_shortDisplacementTruncatesLiveScheduleWithoutRestoringIt() public {
+        _bid(alice, RATE, 1000, address(executor));
+        _time(101);
+        uint256[4] memory gaps = _blockGaps();
+        for (uint256 i; i < gaps.length; i++) {
+            uint256 snapshot = vm.snapshotState();
+            uint256 gap = gaps[i];
+            uint256 t = 101;
+            _bid(bob, RATE + 1, uint64(t + 2), address(outsider));
+            _time(t + gap);
+            auction.accrue(key);
+            // Alice's tail from bob's activation is credited, not reinstated.
+            assertEq(auction.refundable(_id(alice)), uint256(RATE) * (1000 - (t + 1)));
+            if (gap == 1) {
+                assertEq(auction.executorAt(poolId), address(outsider));
+                outsider.swap(key, _params(1000, true, 100), false);
+            } else {
+                assertEq(auction.executorAt(poolId), address(0));
+                vm.expectRevert(ContinuousAuction.PoolClosed.selector);
+                executor.swap(key, _params(1000, true, 100), false);
+            }
+            // Alice's last second, then bob's second once it has elapsed.
+            assertApproxEqAbs(_claim(nft, -1600, 1600), gap == 1 ? RATE : uint256(RATE) + RATE + 1, 2);
+            // Alice can only return from the next second after she re-bids.
+            _bid(alice, RATE, 1000, address(executor));
+            _time(t + 2 * gap);
+            assertEq(auction.executorAt(poolId), address(executor));
+            vm.revertToState(snapshot);
+        }
+    }
+
+    function test_chainAware_preRestorationRentGoesToParkedLiquidity() public {
+        (uint256 dust,) = _park();
+        _time(113);
+        _claim(dust, 3200, 3216);
+        uint256[4] memory gaps = _blockGaps();
+        for (uint256 i; i < gaps.length; i++) {
+            uint256 snapshot = vm.snapshotState();
+            uint256 gap = gaps[i];
+            uint256 t = 113;
+            _bid(bob, 2 * RATE, _usableEnd(t, gap, 1, 0), address(outsider));
+            _time(t + gap);
+            outsider.swap(key, _params(5e18, false, 0), false);
+            assertEq(core.poolState(poolId).tick(), 0);
+            // Alice's last second and bob's gap - 1 seconds before his first block accrue before the restoring swap.
+            assertApproxEqAbs(_claim(dust, 3200, 3216), uint256(RATE) + uint256(2 * RATE) * (gap - 1), 1);
+            assertEq(_claim(nft, -1600, 1600), 0);
+            _time(t + gap + 1);
+            assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(2 * RATE), 1);
+            vm.revertToState(snapshot);
+        }
+    }
+
+    function test_chainAware_entrantLiquidityRecapturesPreRestorationRent() public {
+        (uint256 dust, uint128 dustLiquidity) = _park();
+        _time(113);
+        _claim(dust, 3200, 3216);
+        uint256[4] memory gaps = _blockGaps();
+        for (uint256 i; i < gaps.length; i++) {
+            uint256 snapshot = vm.snapshotState();
+            uint256 gap = gaps[i];
+            uint256 t = 113;
+            (uint256 entrant, uint128 entrantLiquidity) = _createPosition(key, 3200, 3216, 1e18, 1e18);
+            _bid(bob, 2 * RATE, _usableEnd(t, gap, 1, 0), address(outsider));
+            _time(t + gap);
+            uint256 intervalRent = uint256(RATE) + uint256(2 * RATE) * (gap - 1);
+            (,, uint256 entrantRent) =
+                manager.withdrawAndCollectRent(entrant, key, 3200, 3216, entrantLiquidity, address(this));
+            assertApproxEqAbs(
+                entrantRent, intervalRent * entrantLiquidity / (uint256(entrantLiquidity) + dustLiquidity), 1
+            );
+            assertGt(entrantRent, intervalRent * 99 / 100);
+            outsider.swap(key, _params(5e18, false, 0), false);
+            assertEq(core.poolState(poolId).tick(), 0);
+            vm.revertToState(snapshot);
+        }
+    }
+
+    function test_chainAware_maxFeeAppliesFromNextSecondAndNeedsFeeInclusiveBounds() public {
+        uint64 maxFee = uint64(type(uint32).max) << 32;
+        _bid(alice, RATE, 512, address(executor));
+        _time(101);
+        SwapParameters exactIn = _params(1e15, true, 100);
+        uint256 snapshot = vm.snapshotState();
+        (uint128 fee0Before,) = _fees(alice);
+        uint128 quoted = uint128(-outsider.swap(key, exactIn, false).delta0());
+        (uint128 fee0Quoted,) = _fees(alice);
+        uint128 gross = quoted + fee0Quoted - fee0Before;
+        vm.revertToState(snapshot);
+        vm.prank(alice);
+        periphery.updateBid(key, SALT, RATE, 512, address(executor), type(uint32).max, alice);
+        // The quoted fee still holds for the rest of the current second.
+        snapshot = vm.snapshotState();
+        assertEq(uint128(-outsider.swap(key, exactIn, false).delta0()), quoted);
+        vm.revertToState(snapshot);
+        _time(102);
+        uint128 out = uint128(-outsider.swap(key, exactIn, false).delta0());
+        (uint128 fee0After,) = _fees(alice);
+        assertEq(out + fee0After - fee0Before, gross);
+        assertEq(out, gross - computeFee(gross, maxFee));
+        assertLe(out, (gross >> 32) + 1);
+        // A trader bounding output by its quote less 1% slippage would revert rather than accept this.
+        assertLt(out, quoted * 99 / 100);
+        // Exact output grosses the input up by 2**32.
+        (, uint128 fee1Before) = _fees(alice);
+        PoolBalanceUpdate exactOut = outsider.swap(key, _params(-1000, false, 100), false);
+        (, uint128 fee1After) = _fees(alice);
+        assertEq(exactOut.delta0(), -1000);
+        assertEq(uint128(exactOut.delta1()), (uint128(exactOut.delta1()) - (fee1After - fee1Before)) << 32);
+    }
+
     /// POOLS
 
     function test_anyoneCreatesPoolsDirectlyAndThereAreNoTerms() public {

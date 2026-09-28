@@ -26,7 +26,8 @@ extension has no terms, per pool or per deployment: its only parameters are Core
 and the bid token. There is no reserve rate, no minimum bid increment, and no
 notice period. Providers set the floor themselves by withdrawing when rent does
 not cover what the holder's trading costs them, and an unrented pool does not
-swap, so they are never exposed without being paid.
+swap. Rent pays for time active rather than for exposure to any one trade, and
+availability is best-effort; see Economics.
 
 ## Forward interface
 
@@ -67,9 +68,9 @@ and fee, replacing whatever the caller had scheduled:
   may only replace it above the killed promise. Otherwise a bidder could kill a
   competing pending bid with a second salt or identity and cancel for free,
   keeping a lower-rate incumbent or leaving the pool closed. Displacing a
-  competitor therefore obliges at least one second of rent above its rate, and
-  the displacing bid activates and ends any incumbent schedule, whose tail is
-  credited. The displaced bidder is refunded in full and may bid again from the
+  competitor therefore obliges at least one paid second above its rate, which
+  need not contain an executable block, and the displacing bid activates and
+  ends any incumbent schedule, whose tail is credited. The displaced bidder is refunded in full and may bid again from the
   next second; its schedule is not restored. A pending bid that displaced
   nobody stays freely cancellable, and the obligation lapses when the second
   passes, after which the displacer may exit by truncation like any holder.
@@ -114,11 +115,12 @@ The authorized locker calls `Core.forward(address(extension))` with trailing
 - Without a live bid the pool does not swap. Providers may still deposit and
   withdraw at any time.
 
-Because anyone can arbitrage a rented pool for the price of the fee, the price
-stays within the fee band of the market whenever arbitrageurs are active. The
-holder chooses the fee and therefore how tight that band is. A holder that sets
-a prohibitive fee makes the pool exclusive in practice; what that costs it is
-described under Economics.
+Anyone can arbitrage a rented pool for the price of the fee, so while
+arbitrageurs are active and the fee is low the price stays within the fee band
+of the market. The holder chooses the fee and therefore how wide that band is,
+with no cap: a prohibitive fee makes the pool exclusive. Swappers must bound
+every swap by fee-inclusive minimum output or maximum input and an expiry, and
+the pool price is not an oracle. See Economics.
 
 ## Rent
 
@@ -128,6 +130,8 @@ periods.
 
 - Rent belongs to liquidity **active over time**. Settling before a price move
   attributes the elapsed interval to the liquidity that was active during it.
+  Before a swap that restores a moved price, that is the liquidity at the moved
+  price; the restored liquidity earns from the swap's timestamp onward.
 - Concentrated pools use Q128 growth, per-tick outside growth, and per-position
   snapshots, following Ve33's external reward accounting. Full-range and
   stableswap pools use global growth, so every position earns pro rata
@@ -175,48 +179,217 @@ In an ordinary pool the loss providers suffer to arbitrageurs when the market
 moves is captured by the arbitrageurs and the block builders they compete
 through; providers keep only the swap fee. Here the exclusive fee-free position
 that lets one party capture that loss is auctioned, and the auction revenue is
-paid to the providers whose liquidity bears it. Paying rent pro rata to active
-liquidity over time matches how that loss is borne. With competitive bidders,
-rent approaches the value of fee-free access plus the fee revenue from other
-swappers, which is why this can pay more than a fixed creator-chosen fee.
+paid to the providers whose liquidity is active while it is rented. With
+competitive bidders, rent can approach the value of fee-free access plus the fee
+revenue from other swappers, which is why this can pay more than a fixed
+creator-chosen fee.
 
-The design choices below each close a way for that revenue to leak:
+That outcome is conditional. The auction is **best-effort and permissionless**:
+it guarantees who holds each paid second and that every obligation is funded,
+not that the pool is available, that competition is meaningful, or that rent
+compensates the providers who bore a given trade. The subsections below state
+what the mechanism does in each case, and
+[Assumptions and accepted residual risks](#assumptions-and-accepted-residual-risks)
+lists what it relies on.
 
-- **Fee-paying outsider swaps** let the holder monetize routed flow and keep
-  the price within the fee band of the market. The holder sets the fee because
-  it earns it and wants it low enough to attract that flow.
-- **Parking is a bounty, not a strategy.** A holder could set a prohibitive fee,
-  deposit dust away from every other position, and move the price there so all
-  rent returns to itself. Doing so fills every position it moved through at
-  above-market prices, so the pool then holds a mispricing worth roughly the
-  traversed range width times the capital in it. Any bidder can claim it by
-  outbidding the holder, waiting one second, and moving the
-  price back with its first swap; its cost is one second of rent, which goes to
-  the providers the parker was starving, and the parker is left holding
-  inventory bought above market. To make that challenge unprofitable the parker
-  would have to make one second of rent exceed the bounty, which no rational
-  bidder does. Providers can also withdraw while parked and keep the premium.
-  And while parked the holder earns nothing else: no outsider swaps at a
-  prohibitive fee, so there is no fee revenue, and no arbitrage flow reaches the
-  pool, so the rent only buys exposure to providers who have no reason to stay.
-- **No reserve rate.** A lone bidder can rent the pool for almost nothing, but
-  providers are not obliged to stay: rent below what the holder's trading costs
-  them is a signal to withdraw, and a thin pool is worth little to rent. A
-  creator-chosen reserve could only add a way for the pool to sit unrented.
-- **No increment, no notice.** Both would only deter behaviour that is
-  irrational anyway: a bidder that flips control pays full rent for every
-  second it holds and gains nothing, and rational competitors jump to their
-  valuation rather than creep. Their absence keeps takeovers and challenges as
-  cheap as the one-second activation allows, which is what makes parking
-  indefensible, and lets a holder whose valuation falls leave at once instead
-  of pricing a lockup into every bid.
+### Paid seconds are not executable blocks
 
-What the mechanism does not do: it does not guarantee retail flow, which
-reaches the pool only through lockers that forward to the extension; it does not
-pay providers whose liquidity is inactive, whatever the cause, so out-of-range
-providers should withdraw rather than wait; and it does not compensate providers
-while the pool is unrented. Bidders bear the exchange
-risk between the bid token and the pool's tokens.
+A bid included in a block with timestamp `t` covers `[t + 1, end)`. It can swap
+only in blocks whose timestamp lies in that interval, and rent accrues for every
+second of it whether or not a block, or a swap, happens in that second. Further
+blocks sharing timestamp `t` do not activate it.
+
+On a chain whose next block after `t` arrives at `t + Δ`, the first block in
+which a new bid can swap is at `t + Δ`, so `end` must be at least `t + Δ + 1`.
+The cheapest usable bid therefore pays `Δ` seconds, `Δ - 1` of them before its
+first swap. A one-second bid (`end = t + 2`) is usable in the next block only
+when `Δ = 1`; with `Δ ≥ 2` it pays one second and never swaps. Missed or delayed
+blocks lengthen `Δ` for that bid.
+
+So a challenger that wants to take over and trade once pays at least `R × Δ`
+rent at rate `R`, plus gas, priority fees, the capital cost of its escrow and
+any inclusion margin, and it succeeds only if its bid and its swap are both
+included in time and it is not outbid first. An opportunity worth `B` is worth
+challenging for only when the expected `B`, weighted by that success
+probability, exceeds these costs net of any refund if it is displaced. On long
+block intervals, opportunities smaller than about `Δ` seconds of the prevailing
+rent are not worth challenging for even with certain inclusion.
+
+### Rent incidence
+
+Rent follows **time active**, not inventory exposure within a block.
+
+- Every swap settles rent before it moves the price, so the interval since the
+  last settlement goes to the liquidity active at the pre-swap price. When a
+  swap restores a moved price, the seconds that elapsed before it, including a
+  challenger's own `Δ - 1` seconds before its first block, go to the liquidity at
+  the moved price, not to the providers the swap brings back into range. Those
+  earn from the restoring swap's timestamp onward.
+- Liquidity that swaps traverse and leave within one timestamp earns nothing for
+  those swaps: a price moved away and back in the same second accrues that
+  second to wherever the price sits when the next settlement runs.
+- A holder that also provides liquidity receives its share `α` of the rent it
+  pays, so the rent it pays to others is `(1 - α) × R`, before gas and capital
+  costs. Where its liquidity is the only active liquidity, `α` is close to one.
+- Rent charged while no liquidity is active is discarded, and any nonzero
+  liquidity change, including a top-up, discards the position's uncollected
+  rent. Both are intentional, following Core swap fees and Ve33 rewards;
+  collect first (see [Rent](#rent)).
+
+Full-range and stableswap pools allocate rent globally and pro rata, so no range
+can be isolated from the rest there; common-control shares still apply.
+
+### The outsider fee is uncapped
+
+The holder chooses the fee that other swappers pay it, up to `1 - 2**-32`. At fee
+`f`, outsiders can profitably arbitrage the pool only outside the band
+`(1 - f) P ≤ p ≤ P / (1 - f)` around the market price `P`, before gas and depth.
+That is `[0.99, 1.0101] P` at 1% and `[2**-32, 2**32] P` at the maximum. The fee
+is therefore **exclusivity-capable**: a holder can make outside trading
+ineffective and the pool price need not track the market.
+
+A fee change applies from the next second, so a quote can be stale by the time a
+swap lands. Traders and integrators must bound every swap by fee-inclusive
+minimum output or maximum input and an expiry; a bounded swap reverts or routes
+elsewhere instead of paying an arbitrary fee. At very high fees an exact-output
+swap's grossed-up input can exceed Core's representable amounts and revert.
+**The pool price is not an oracle.**
+
+### Parking and restoration
+
+A holder can move the price into a range where its own liquidity is the only
+active liquidity, set a prohibitive fee, and receive most of its own rent back.
+Doing so fills the positions it moved through at off-market prices and leaves a
+restoration opportunity in the pool. The mechanism does not guarantee anyone
+claims it:
+
+- A challenger pays at least `Δ` seconds of rent at a rate above the holder's to
+  restore once, and its `Δ - 1` pre-swap seconds go to the parked liquidity.
+- A holder with ordering priority can restore and re-park within one timestamp,
+  which recovers its own parking premium up to rounding.
+- A challenger can add liquidity at the parked price before bidding and, by
+  collecting before withdrawing, recapture its share of that pre-swap rent. That
+  needs inventory held across blocks, exposed to the holder's trades, and
+  competes with other entrants.
+- Providers can withdraw while parked and keep the premium the move paid them,
+  but withdrawal is delayed by observation and inclusion and does not undo
+  earlier losses.
+
+Neither sustained profitable parking nor its impossibility is established; the
+outcome depends on ordering power, liquidity concentration, entry capacity and
+capital. The regression tests pin each mechanical step above.
+
+### Displacement
+
+Displacing a competitor's pending bid obliges the displacer to hold that second
+above the displaced rate (see
+[Pending displacement is binding for one second](#pending-displacement-is-binding-for-one-second)).
+The obligation is one second, not the displaced tenure. A **paid short
+displacement** — a one-second bid one base unit above a longer pending or live
+schedule — ends that schedule at its activation. The displaced bidder is
+credited in full and may re-bid from the next second, but its schedule is not
+restored, and on a chain with `Δ ≥ 2` the displacer may have no executable block
+while the pool is closed at the next block. It costs the displacer
+`(1 - α) × (r + 1)` for rate `r`, plus gas and capital; repeating it requires
+winning ordering each time. It moves no one else's funds: it is paid disruption,
+not theft.
+
+### No reserve, increment, notice or minimum tenure
+
+A lone bidder can rent the pool for almost nothing; providers set the floor by
+withdrawing when rent does not cover what the holder's trading costs them, and a
+thin pool is worth little to rent. There is no minimum increment, notice period
+or minimum tenure, so a holder whose valuation falls can leave at the next
+second instead of pricing a lockup into every bid, and a challenger never waits
+longer than next-second activation. The same absence is what makes the paid
+short displacement above possible and leaves tenure uncertain. These are
+choices of flexibility over guaranteed tenure, not claims that brief control
+is irrational.
+
+### Assumptions and accepted residual risks
+
+The mechanism relies on these assumptions; none is enforced on-chain.
+
+- **Ordering.** Inclusion and ordering of bids and swaps are not guaranteed.
+  Proposers, builders and sequencers can order, delay or exclude transactions,
+  bid themselves, and accept side payments. Repeated displacement or
+  same-timestamp restoration requires winning ordering.
+- **Entry.** Liquidity provision and bidding are permissionless and free to
+  enter and exit. Entrant liquidity and entrant bidders are the counter to
+  parking and to a lone bidder; the mechanism does not supply them.
+- **Capital.** Bids are escrowed in full for their tenure. Counter-parking
+  liquidity must be financed across blocks. Flash liquidity cannot hold a
+  position across timestamps or activate a bid.
+- **Gas.** Every bid, swap, collection and position change costs gas and
+  priority fees. High costs deter small challenges and favour incumbents; low
+  costs make paid disruption cheaper.
+- **Participation.** There is no keeper reward. Price restoration and
+  competition happen only when some party profits from them, and providers
+  must monitor and act for themselves.
+- **Assets.** The bid token is a native token or a standard non-rebasing ERC20.
+  Bidders and providers bear the exchange risk between it and the pool's
+  tokens.
+
+The following are **accepted, priced residual risks** of the best-effort,
+permissionless design:
+
+1. A paid second is not an executable block; bidders pay `Δ - 1` seconds
+   before their first usable block, and a mis-sized bid can pay and never swap.
+2. A paid short displacement can truncate a longer pending or live schedule
+   without restoring it, at the price of one second above its rate.
+3. Pool availability is not guaranteed. The pool does not swap in any second
+   that no bid covers, and there is no fallback schedule.
+4. Economically meaningful competitive tenure is not guaranteed.
+5. The holder's outsider fee is uncapped and can make the pool exclusive.
+6. Rent follows time active, not inventory exposure, so it can go to liquidity
+   other than the liquidity a trade crossed, including the holder's own.
+7. Rent is discarded when no liquidity is active and on any nonzero liquidity
+   change before collection.
+
+Launch claims must not state or imply guaranteed availability, a market-tracking
+price, or full compensation of providers for arbitrage losses.
+
+### Bidder scheduling
+
+Bidders size `end` for the chain they are on. For a chain with block interval
+`Δ` (use a conservative upper bound where it varies or slots can be missed),
+latest acceptable bid inclusion timestamp `t`, `N` blocks of intended use and a
+margin of `M` blocks for late bid or swap inclusion:
+
+```
+end = t + (N + M) × Δ + 1
+```
+
+- A bid included on time at `t` pays `(N + M) × Δ` seconds, `Δ - 1` of them
+  before its first usable block.
+- `end` is absolute. A bid included later has proportionally less tenure, and
+  one included at or after `end - 1` reverts with `InvalidBid`, so `end` also
+  acts as the bid's expiry.
+- The bid cannot swap in its own inclusion block unless its bidder already holds
+  the pool. Submit the swap for a later block.
+- Without margin (`M = 0`), a swap that misses the first usable block finds the
+  pool closed.
+
+| Block interval `Δ` | Minimal usable `end` | Seconds paid | Paid before first swap | Seconds paid with `M = 1` |
+|---|---|---|---|---|
+| 1 s | `t + 2` | 1 | 0 | 2 |
+| 2 s | `t + 3` | 2 | 1 | 4 |
+| 6 s | `t + 7` | 6 | 5 | 12 |
+| 12 s | `t + 13` | 12 | 11 | 24 |
+
+Before displacing another bidder's pending bid, note that the replacement
+cannot be withdrawn within that second. A displaced bidder should watch
+`BidUpdated`, withdraw or reuse its credit, and re-bid; its old schedule does
+not come back. Fee changes apply from the next second. The `test_chainAware_*`
+and `test_economic_*` tests exercise these rules for 1, 2, 6 and 12-second
+intervals.
+
+### What the mechanism does not do
+
+It does not guarantee retail flow, which reaches the pool only through lockers
+that forward to the extension; it does not pay providers whose liquidity is
+inactive, whatever the cause, so out-of-range providers should withdraw rather
+than wait; and it does not compensate providers while the pool is unrented.
 
 ## Architecture
 
@@ -273,7 +446,7 @@ Every update nets `refundable[b]` and moves `cost - credit` through the saved ba
 
   The balance can only exceed this sum, by division dust and by discarded unallocated rent. The per-second reference and escrow fuzzers check this.
 - **Access.** At most one bid holds the pool in any second. A next bid holds it only from its start, and a displaced current bid holds it until then.
-- **Competition.** A bid for `s` beats every other schedule covering `s`. Once a competitor's promise for `s` is displaced, the pool is held during `s` above that promise.
+- **Competition.** A bid for `s` beats every other schedule covering `s`. Once a competitor's promise for `s` is displaced, second `s` is paid for above that promise. A paid second need not contain an executable block.
 - **Rent attribution.** Each interval's rent goes pro rata to the liquidity active at the tick it was spent at. The crossing reference fuzzer checks this.
 - **Isolation.** All pools share one funds saved balance, but every obligation against it is tracked per pool, except bidder credit, which is fungible bid token by design. Swap fees are saved per pool and bidder, in the pool's own token pair.
 
@@ -289,6 +462,53 @@ Every update nets `refundable[b]` and moves `cost - credit` through the saved ba
   - Per-tick `growthOutside`: range-aware attribution needs it.
 
 ## Design decisions
+
+### Availability is best-effort
+
+**Context.** The auction keeps one live and one next-second bid, requires a
+strict outbid, activates bids the next second, credits displaced schedules
+immediately and binds a same-second displacement for one second. It has no
+reserve, increment, notice or minimum tenure. A paid second is therefore not an
+executable block, and a paid short displacement can end a longer schedule.
+
+**Decision.** Keep the mechanism and make no availability guarantee. Pool
+availability and economically meaningful competitive tenure are not
+guaranteed; the residual risks are accepted and priced as listed under
+[Assumptions and accepted residual risks](#assumptions-and-accepted-residual-risks),
+and bidders schedule for their chain as in [Bidder scheduling](#bidder-scheduling).
+
+**Tradeoffs.** Guaranteeing usable tenure would need minimum competitive
+durations, block-based epochs or a recoverable fallback schedule. Each adds
+state and escrow, raises the cost of honest late challenges and of exit, and
+cannot express wall-clock rent in blocks directly. A reserve rate or minimum
+increment would raise the price of disruption without guaranteeing an
+executable window.
+
+### No fee cap
+
+**Decision.** The holder chooses any fee up to `1 - 2**-32`. The fee is
+exclusivity-capable, the pool price is not an oracle, and traders and
+integrators must use fee-inclusive minimum-output or maximum-input bounds and an
+expiry.
+
+**Tradeoffs.** A cap would make outside arbitrage effective within a known band
+but would limit what the holder can charge routed flow and would not by itself
+fix rent incidence. Caps or opt-in fee classes remain possible later designs.
+
+### Rent follows time active
+
+**Decision.** Rent settles before every swap and position change and is
+credited to the liquidity active over the elapsed interval. Before a restoring
+swap, the elapsed rent goes to the liquidity active at the pre-swap price. Rent
+with no active liquidity, and a position's uncollected rent on any nonzero
+liquidity change, is discarded, as Core swap fees and Ve33 rewards are.
+
+**Tradeoffs.** This is the same per-tick growth accounting Core and Ve33 use and
+costs nothing beyond it. Paying for exposure within a block instead, such as by
+giving traversed liquidity a share of swap-time value, would need a different
+accounting and a fresh review of JIT, Sybil and gas costs. Banking uncollected
+rent across liquidity changes would add a write per position change;
+`withdrawAndCollectRent` covers the common case.
 
 ### Pending displacement is binding for one second
 
@@ -309,24 +529,25 @@ the incumbent does not hold the pending slot. An incumbent that displaced a
 challenger by replacing its own bid holds the pending slot and is bound too.
 
 **Preserved invariant.** Once a bidder's pending promise for `s` has been
-displaced, the pool is held during `s` by a bid whose rate exceeds that
-promise. Displacing a competitor cannot preserve a lower-rate schedule or
-leave the pool unrented for that second. Funds are conserved throughout: the
-saved balance equals the unsettled current second, outstanding credits and the
-live and pending schedules.
+displaced, second `s` is paid for by a bid whose rate exceeds that promise.
+Displacing a competitor cannot preserve a lower-rate schedule or leave second
+`s` unpaid. Funds are conserved throughout: the saved balance equals the
+unsettled current second, outstanding credits and the live and pending
+schedules.
 
-**Tradeoffs.** The obligation is one second of rent above the displaced rate,
-not the displaced bidder's full tenure. A bidder with a higher valuation can
-still take the pool briefly and exit by truncation the next second. The
-displaced bidder is refunded but not restored, and must re-bid from the next
-second. The displacing bid still activates and ends the incumbent's schedule,
-crediting its tail. Suppressing a challenger therefore costs the incumbent one
-second above the challenger's rate and its lower-rate tenure, rather than
-nothing.
-Obligating the displaced tenure, or keeping the displaced schedule as a
-recoverable fallback, would need more state and an economic change the board
-has not accepted. Honest bidders give up only same-second cancellation after
-outbidding someone.
+**Tradeoffs.** The obligation is one paid second above the displaced rate, not
+the displaced bidder's full tenure and not an executable block: on a chain with
+blocks more than one second apart, the displacer may never be able to swap. A
+bidder with a higher valuation can take the pool briefly and exit by truncation
+the next second. The displaced bidder is refunded but not restored, and must
+re-bid from the next second. The displacing bid still activates and ends the
+incumbent's schedule, crediting its tail. Suppressing a challenger therefore
+costs the incumbent one second above the challenger's rate and its lower-rate
+tenure, rather than nothing, but it does not stop a paid short displacement
+(see [Displacement](#displacement)). Obligating the displaced tenure, or
+keeping the displaced schedule as a recoverable fallback, would need more
+state and is outside the best-effort decision above. Honest bidders give up
+only same-second cancellation after outbidding someone.
 
 ### Gas-motivated structure
 

@@ -181,13 +181,15 @@ through; providers keep only the swap fee. Here the exclusive fee-free position
 that lets one party capture that loss is auctioned, and the auction revenue is
 paid to the providers whose liquidity is active while it is rented. With
 competitive bidders, rent can approach the value of fee-free access plus the fee
-revenue from other swappers, which is why this can pay more than a fixed
+revenue from other swappers, which is why this can pay more revenue than a fixed
 creator-chosen fee.
 
 That outcome is conditional. The auction is **best-effort and permissionless**:
 it guarantees who holds each paid second and that every obligation is funded,
-not that the pool is available, that competition is meaningful, or that rent
-compensates the providers who bore a given trade. The subsections below state
+not that the pool is available, that competition is meaningful, that rent
+compensates the providers who bore a given trade, or that providers earn more
+net of their trading losses than in a conventional pool
+([Rent is not net yield](#rent-is-not-net-yield)). The subsections below state
 what the mechanism does in each case, and
 [Assumptions and accepted residual risks](#assumptions-and-accepted-residual-risks)
 lists what it relies on.
@@ -279,6 +281,55 @@ Neither sustained profitable parking nor its impossibility is established; the
 outcome depends on ordering power, liquidity concentration, entry capacity and
 capital. The regression tests pin each mechanical step above.
 
+### Dilution and timing
+
+A bid's rate is absolute rent per second, not a rate per unit of liquidity, and
+only its bidder can change it. Liquidity added while a bid runs shares all later
+rent pro rata, so it dilutes the providers already active without raising what
+the holder pays. Rent settles
+before every liquidity change, so an entrant earns nothing for the seconds
+before it entered and existing providers keep everything accrued until then:
+the dilution is prospective, not a retroactive taking of accrued rent.
+
+Because rent follows time active rather than exposure, a provider with favorable
+ordering can keep liquidity active through quiet blocks to collect rent and
+withdraw, or leave range, before a trade it expects to be adverse, leaving other
+liquidity to bear that trade. The holder's parking and a challenger's entry at
+the parked price above are instances. The mechanism neither prevents this nor
+makes it free: it needs ordering, and the entrant's capital is exposed across
+blocks to the holder's trades and to competing entry. A bidder can exit when
+entry changes its valuation, but it has no commitment of liquidity from
+providers, and providers have no commitment of tenure from bidders.
+
+### Rent is not net yield
+
+Rent is gross revenue in the bid token. A provider's net result also includes:
+
+- the mark-to-market change of its inventory, including losses to the holder's
+  and outsiders' trades (adverse selection), which rent need not cover;
+- exchange-rate movement between the bid token and the pool's tokens;
+- gas, priority fees and monitoring costs of depositing, collecting and
+  withdrawing, and rent discarded by an uncollected liquidity change; and
+- the cost of the capital held in the position.
+
+Nothing in this repository measures these or compares providers' net returns
+with a conventional fee pool. The `test_economic_*` and `test_chainAware_*`
+regressions in
+[`test/extensions/ContinuousAuction.t.sol`](test/extensions/ContinuousAuction.t.sol)
+pin the mechanical outcome of fixed scenarios: who receives each interval's
+rent (`test_economic_challengerPreExecutionRentGoesToParkedLiquidity`,
+`test_economic_sameBlockRestoreAndReparkDoesNotRewardTraversedLiquidity`,
+`test_chainAware_preRestorationRentGoesToParkedLiquidity`), how much of its own
+rent a sole active holder recaptures
+(`test_economic_soleActiveHolderRecapturesRaisedGrossRent`), how an entrant
+dilutes parked rent
+(`test_economic_challengerCanDiluteParkedRentBeforeBidding`,
+`test_chainAware_entrantLiquidityRecapturesPreRestorationRent`), and what a bid
+pays before its first usable block. They do not model market prices, inventory
+value, bidder valuations or repeated play, and they establish neither that
+repeated parking is profitable or unprofitable nor that providers do better net
+than in a conventional pool.
+
 ### Displacement
 
 Displacing a competitor's pending bid obliges the displacer to hold that second
@@ -345,9 +396,14 @@ permissionless design:
    other than the liquidity a trade crossed, including the holder's own.
 7. Rent is discarded when no liquidity is active and on any nonzero liquidity
    change before collection.
+8. A bid's absolute rate does not respond to entry, so new active liquidity
+   dilutes existing providers prospectively, and a provider with favorable
+   ordering can collect time-active rent while other liquidity bears the adverse
+   trades.
 
 Launch claims must not state or imply guaranteed availability, a market-tracking
-price, or full compensation of providers for arbitrage losses.
+price, full compensation of providers for arbitrage losses, that rent is net
+provider yield, or that providers earn more net than in a conventional pool.
 
 ### Bidder scheduling
 

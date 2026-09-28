@@ -1159,6 +1159,82 @@ contract ContinuousAuctionTest is FullTest {
         assertEq(_funds(), rent - paid);
     }
 
+    /// forge-config: default.fuzz.runs = 512
+    function testFuzz_crossingsAllocateRentToActiveRangesLikeReference(uint256 seed) public {
+        uint256 n = 5;
+        int32[6] memory lowers;
+        int32[6] memory uppers;
+        uint128[6] memory liqs;
+        uint256[6] memory ids;
+        uint256[6] memory expected;
+        (ids[0], lowers[0], uppers[0], liqs[0]) = (nft, -1600, 1600, liquidity);
+        // A wide range keeps liquidity active everywhere the swaps go.
+        (lowers[1], uppers[1]) = (-163840, 163840);
+        (ids[1], liqs[1]) = _createPosition(key, lowers[1], uppers[1], 1e18, 1e18);
+        for (uint256 i = 2; i <= n; ++i) {
+            seed = uint256(keccak256(abi.encode(seed, i)));
+            // Ranges on the spacing-16 grid spanning up to 80 bitmap words, some bounded at zero.
+            int32 a = int32(int256(seed % 20481)) * 16 - 163840;
+            int32 b = int32(int256((seed >> 16) % 20481)) * 16 - 163840;
+            if ((seed >> 32) % 4 == 0) a = 0;
+            if (a == b) b = a == 163840 ? int32(-163840) : a + 16;
+            (lowers[i], uppers[i]) = a < b ? (a, b) : (b, a);
+            (ids[i], liqs[i]) = _createPosition(key, lowers[i], uppers[i], 1e16, 1e16);
+        }
+        _bid(alice, RATE, 4096, address(executor));
+        _time(101);
+        auction.accrue(key);
+        uint256 now_ = 101;
+        for (uint256 step; step < 12; ++step) {
+            seed = uint256(keccak256(abi.encode(seed, "step", step)));
+            uint256 dt = 1 + seed % 5;
+            now_ += dt;
+            _time(now_);
+            int32 tick = core.poolState(poolId).tick();
+            _allocate(tick, uint256(RATE) * dt, lowers, uppers, liqs, expected);
+            // Targets anywhere in [-160000, 160000], landing on or off the grid, with any skip-ahead.
+            // Half stay near zero so short swaps cross nearby boundaries too.
+            int32 target = (seed >> 40) % 2 == 0
+                ? int32(int256((seed >> 8) % 320001)) - 160000
+                : int32(int256((seed >> 8) % 3201)) - 1600;
+            if (target == tick) continue;
+            executor.swap(
+                key,
+                createSwapParameters({
+                    _amount: 1e30,
+                    _isToken1: target > tick,
+                    _sqrtRatioLimit: tickToSqrtRatio(target),
+                    _skipAhead: (seed >> 24) % 4
+                }),
+                false
+            );
+        }
+        _time(now_ + 1);
+        _allocate(core.poolState(poolId).tick(), uint256(RATE), lowers, uppers, liqs, expected);
+        auction.accrue(key);
+        for (uint256 i; i <= n; ++i) {
+            assertApproxEqAbs(_claim(ids[i], lowers[i], uppers[i]), expected[i], 16);
+        }
+    }
+
+    /// @dev Reference allocation: rent of an interval goes pro rata to ranges containing the tick.
+    function _allocate(
+        int32 tick,
+        uint256 rent,
+        int32[6] memory lowers,
+        int32[6] memory uppers,
+        uint128[6] memory liqs,
+        uint256[6] memory expected
+    ) private pure {
+        uint256 active;
+        for (uint256 i; i < 6; ++i) {
+            if (liqs[i] != 0 && lowers[i] <= tick && tick < uppers[i]) active += liqs[i];
+        }
+        for (uint256 i; i < 6; ++i) {
+            if (liqs[i] != 0 && lowers[i] <= tick && tick < uppers[i]) expected[i] += rent * liqs[i] / active;
+        }
+    }
+
     function testFuzz_escrowConservationAcrossLiquidityGaps(uint256 seed) public {
         uint256[2048] memory rates;
         uint8[2048] memory holders;

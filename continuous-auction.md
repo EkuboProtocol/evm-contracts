@@ -98,8 +98,27 @@ Every operation is constant time.
 
 Bidders are lockers: they call `Core.forward(address(extension))` and settle
 the returned delta in the same lock, paying a positive delta and withdrawing a
-negative one. No bidder periphery is deployed. `test/AuctionPeriphery.sol` is a
-test-only settling locker used by the test suite and gas snapshots.
+negative one.
+
+`src/AuctionExecutor.sol` is the production bidder. Each bidder deploys its own;
+the deployment script does not. It is an owner-only Core locker that bids under
+its own address and names itself as the bid's executor, so only its owner swaps
+fee-free while one of its bids holds a pool. Every operation settles against the
+contract's own balance in the same lock:
+
+- `updateBid(poolKey, salt, rate, end, fee, deadline)` pays the bid from the
+  contract and withdraws refunds to it. It reverts after `deadline`. Set the
+  deadline to at most `end - 1 - minimum usable tenure` (see Bidder scheduling),
+  so a late inclusion fails instead of buying a shorter tenure.
+- `swap(poolKey, params, maxBalanceUpdate, deadline)` swaps through the
+  extension and reverts if the fee-inclusive balance update exceeds
+  `maxBalanceUpdate` in either token (see Swaps).
+- `collectSwapFees(poolKey, salt)` withdraws the bid's fees to the contract.
+
+The owner funds the contract by transfer or call value, and recovers funds with
+the inherited `call`. `multicall` batches operations atomically.
+`test/AuctionPeriphery.sol` is a test-only settling locker that keys bids by
+its caller. The test suite and gas snapshots use it.
 
 ## Swaps
 
@@ -253,7 +272,30 @@ swap lands. Traders and integrators must bound every swap by fee-inclusive
 minimum output or maximum input and an expiry; a bounded swap reverts or routes
 elsewhere instead of paying an arbitrary fee. At very high fees an exact-output
 swap's grossed-up input can exceed Core's representable amounts and revert.
+At the maximum fee the input grosses up by exactly `2**32`, so an exact-output
+swap reverts once its fee-free input reaches `2**95`.
 **The pool price is not an oracle.**
+
+These are the swap paths that bound execution:
+
+- **`AuctionExecutor`** checks `maxBalanceUpdate` against the update the
+  extension returns, after the holder's fee. A positive bound is the most the
+  swapper pays and a negative bound the least it receives. Selling at most `x`
+  token0 for at least `y` token1 is `(x, -y)` for exact input and exact output
+  alike, which also rejects partial fills that breach either bound. The swap
+  reverts after its `deadline`. The bound matters even for a bidder's own
+  executor, which pays the fee once another bid displaces its own.
+- **The Yul router's `forwarded` hop** calls `Core.forward(extension, abi.encode(poolKey, params))`.
+  The payload matches the auction's swap payload, and the router checks its
+  required `calculatedAmountThreshold` against the fee-inclusive amounts the
+  extension returns, so the threshold is a fee-inclusive minimum output or
+  maximum input. The router has no expiry check yet, so traders on this path do
+  not get the expiry this section requires.
+- **The general `Router`** does not route through this extension. It sends
+  auction pools to `Core.swap`, which reverts.
+
+Quotes must include the fee of whichever bid holds the pool when the swap
+lands. A route should skip a pool whose fee makes the bounded swap revert.
 
 ### Parking and restoration
 
@@ -369,6 +411,9 @@ end = t + (N + M) × Δ + 1
   the pool. Submit the swap for a later block.
 - Without margin (`M = 0`), a swap that misses the first usable block finds the
   pool closed.
+- `AuctionExecutor.updateBid` takes an explicit `deadline`. With a minimum
+  usable tenure `U` seconds, `deadline = end - 1 - U` rejects every inclusion
+  that would leave less than `U` seconds.
 
 | Block interval `Δ` | Minimal usable `end` | Seconds paid | Paid before first swap | Seconds paid with `M = 1` |
 |---|---|---|---|---|
@@ -581,5 +626,7 @@ forge script --offline script/DeployContinuousAuction.s.sol:DeployContinuousAuct
 The script command simulates deployment; add `--broadcast` for an approved
 launch. The Core and bid-token bytecode must exist on the target chain (except
 native address zero), and the chain must support transient storage. Initialize pools
-directly through Core, configure a caller-authenticated executor before bidding,
-and note that the general Router does not route through this extension.
+directly through Core and deploy an `AuctionExecutor` per bidder, or another
+caller-authenticated executor, before bidding. The general Router does not route
+through this extension. The Yul router's `forwarded` hop does, but without an
+expiry check (see The outsider fee is uncapped).

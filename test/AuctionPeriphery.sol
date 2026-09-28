@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {BaseLocker} from "./base/BaseLocker.sol";
-import {PayableMulticallable} from "./base/PayableMulticallable.sol";
-import {ContinuousAuction} from "./extensions/ContinuousAuction.sol";
-import {ICore} from "./interfaces/ICore.sol";
-import {ContinuousAuctionLib} from "./libraries/ContinuousAuctionLib.sol";
-import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
-import {NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
-import {PoolKey} from "./types/poolKey.sol";
+import {BaseLocker} from "../src/base/BaseLocker.sol";
+import {PayableMulticallable} from "../src/base/PayableMulticallable.sol";
+import {ContinuousAuction} from "../src/extensions/ContinuousAuction.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
+import {ContinuousAuctionLib} from "../src/libraries/ContinuousAuctionLib.sol";
+import {FlashAccountantLib} from "../src/libraries/FlashAccountantLib.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
+import {PoolKey} from "../src/types/poolKey.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
-/// @notice Token-settling periphery for continuous-auction bidders.
+/// @notice Test-only token-settling locker for continuous-auction bidders. Not deployed; bidders are lockers
+/// that forward to the extension directly.
 /// @dev The extension accounts bids and fees as Core saved balances during `forward`; this contract is the
 /// locker that pays or withdraws the corresponding tokens. Bids are keyed by this contract and a salt derived
 /// from the caller, so each caller controls its own bids. Native bid tokens are paid from ETH sent to this

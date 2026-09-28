@@ -93,16 +93,12 @@ are therefore all the same operation, and several can be batched in one lock.
 The schedule is one live bid plus at most one pending bid placed this second.
 Every operation is constant time.
 
-### Periphery
+### Settlement
 
-`AuctionPeriphery(core, auction)` settles bids for accounts that are not
-lockers. `updateBid(key, salt, rate, end, executor, fee, recipient)` forwards
-under `keccak256(abi.encode(msg.sender, salt))`, pays a positive delta from the
-caller (ERC20 allowance, or ETH sent with the call for a native bid token) and
-withdraws a negative one to `recipient`. `collectSwapFees(key, salt, recipient)`
-withdraws the caller's fees. Batch `refundNativeToken()` in a multicall to
-recover excess ETH. `bidderId(owner, salt)` gives the identity the extension
-uses.
+Bidders are lockers: they call `Core.forward(address(extension))` and settle
+the returned delta in the same lock, paying a positive delta and withdrawing a
+negative one. No bidder periphery is deployed. `test/AuctionPeriphery.sol` is a
+test-only settling locker used by the test suite and gas snapshots.
 
 ## Swaps
 
@@ -265,13 +261,12 @@ outbidding someone.
 ## Deployment and reproducibility
 
 Use `script/DeployContinuousAuction.s.sol` with explicit `CORE_ADDRESS`,
-`BID_TOKEN`, `OWNER_ADDRESS`, and a bytes32 `SALT`. It deploys the extension,
-`AuctionPositions`, and `AuctionPeriphery`.
+`BID_TOKEN`, `OWNER_ADDRESS`, and a bytes32 `SALT`. It deploys the extension
+and `AuctionPositions`.
 `BID_TOKEN=0x0000000000000000000000000000000000000000` selects native rent. The
 script uses the repository's canonical CREATE2 deployer and mines the required
-extension address prefix (`0x51`). Optional `AUCTION_ADDRESS`,
-`AUCTION_POSITIONS_ADDRESS`, and `AUCTION_PERIPHERY_ADDRESS` variables assert the
-predicted addresses. Repeated
+extension address prefix (`0x51`). Optional `AUCTION_ADDRESS` and
+`AUCTION_POSITIONS_ADDRESS` variables assert the predicted addresses. Repeated
 execution reuses the same deployments. The metadata owner can subsequently call
 the manager's inherited `setMetadata`.
 

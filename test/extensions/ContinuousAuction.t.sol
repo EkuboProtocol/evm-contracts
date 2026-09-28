@@ -5,7 +5,7 @@ import {FullTest} from "../FullTest.sol";
 import {TestToken} from "../TestToken.sol";
 import {ContinuousAuction, continuousAuctionCallPoints} from "../../src/extensions/ContinuousAuction.sol";
 import {AuctionPositions} from "../../src/AuctionPositions.sol";
-import {AuctionPeriphery} from "../../src/AuctionPeriphery.sol";
+import {AuctionPeriphery} from "../AuctionPeriphery.sol";
 import {
     AUCTION_FUNDS_SAVED_BALANCE_ID,
     AUCTION_SAVED_BALANCE_PAIR_TOKEN

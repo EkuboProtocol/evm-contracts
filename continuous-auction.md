@@ -218,6 +218,76 @@ providers should withdraw rather than wait; and it does not compensate providers
 while the pool is unrented. Bidders bear the exchange
 risk between the bid token and the pool's tokens.
 
+## Architecture
+
+### State
+
+Per pool, in the extension:
+
+| State | Meaning |
+|---|---|
+| `bids[2]`, `currentIndex` | The current bid is `bids[currentIndex]`. It covers `[start, end)`, and `start <= lastSettled` once it is current. |
+| `hasNext` | `bids[currentIndex ^ 1]` is a next bid placed during second `lastSettled`, starting at `lastSettled + 1`. Otherwise that slot is stale and never read. |
+| `lastSettled`, `accrualRemainder`, `growth` | The settlement clock, the Q128 rent growth per unit of active liquidity, and the carried division remainder. These pack with `currentIndex` and `hasNext` into one slot, except `growth`. |
+| `pendingFloor` | The rate and start of the latest displaced next bid. It binds only while `start == block.timestamp + 1`. |
+| `growthOutside[tick]` | Rent growth on the far side of each initialized boundary of a concentrated pool. |
+
+Per bidder (`keccak256(locker, salt)`): `refundable`, credit netted into its next bid update.
+Per position: `positionRentSnapshot`.
+
+In Core:
+- One saved balance of this extension holds every bid-token unit.
+- Per-pool, per-bidder saved balances hold outsider swap fees.
+- The Core position liquidity is the only record of provider principal.
+
+### Transitions
+
+`_accrue` runs first in every operation that reads or changes auction state. It settles `[lastSettled, now)`:
+
+| Before settlement | Effect |
+|---|---|
+| `now == lastSettled` | Nothing. |
+| No next bid | Rent of the current bid over the interval accrues to active liquidity. |
+| Next bid | Rent of the current bid up to the handover, plus the next bid from the handover. The current bid's tail after the handover is credited to its owner, and the next bid becomes current by flipping `currentIndex`. |
+| Rent with zero active liquidity | Discarded and logged as `RentUnallocated`. |
+
+A bid update by bidder `b` with start `s = now + 1`, after settlement:
+
+| Case | Condition | Effect |
+|---|---|---|
+| New or raised bid | `rate > 0`; beats another bidder's next bid, the current bid when it covers `s` and is not `b`'s, and the floor for `s` | Writes the next slot. `b`'s own next bid is credited in full. `b`'s own current bid is truncated to `s` with its tail credited. Another bidder's next bid is credited in full and becomes the floor for `s`. |
+| Cancel next bid | `rate == 0`, `b` owns the next bid, no floor for `s` | The next bid is credited in full, and the pool keeps the current bid. |
+| Cancel a bound next bid | `rate == 0`, `b` owns the next bid, floor for `s` | Reverts `BidTooLow`. |
+| Exit | `rate == 0`, `b` owns the current bid | The current bid is truncated to `s` and its tail credited. Another bidder's next bid is untouched. |
+| Withdraw credit | `rate == 0`, nothing of `b`'s scheduled | Only `refundable[b]` is withdrawn. |
+
+Every update nets `refundable[b]` and moves `cost - credit` through the saved balance in the same lock. Swaps revert unless the current bid covers `now`. The executor swaps fee-free; anyone else pays the holder's fee. Position changes on concentrated pools flip boundary ticks and re-snapshot. Swaps flip `growthOutside` for every initialized tick crossed.
+
+### Invariants
+
+- **Escrow.** The funds saved balance equals the sum of:
+  - accrued, uncollected rent;
+  - the unsettled rent of the current bid, which is its schedule from `lastSettled` to `end`;
+  - the next bid's full schedule;
+  - all `refundable` credit.
+
+  The balance can only exceed this sum, by division dust and by discarded unallocated rent. The per-second reference and escrow fuzzers check this.
+- **Access.** At most one bid holds the pool in any second. A next bid holds it only from its start, and a displaced current bid holds it until then.
+- **Competition.** A bid for `s` beats every other schedule covering `s`. Once a competitor's promise for `s` is displaced, the pool is held during `s` above that promise.
+- **Rent attribution.** Each interval's rent goes pro rata to the liquidity active at the tick it was spent at. The crossing reference fuzzer checks this.
+- **Isolation.** All pools share one funds saved balance, but every obligation against it is tracked per pool, except bidder credit, which is fungible bid token by design. Swap fees are saved per pool and bidder, in the pool's own token pair.
+
+### Why each piece of state exists
+
+- **Two bid slots.** Access and handover need them. One slot plus a start time cannot tell a next bid from an extension of the current one without truncating the incumbent at placement. That would make cancelling harmful and let a pending bid veto the holder's exit.
+- **`hasNext` separate from the stale slot.** Clearing the slot costs three zeroing writes per activation and three dirty writes per placement. A flag in the already-written settlement slot costs about 100 gas.
+- **`pendingFloor`.** It is the only memory of a displaced promise, which the P1 binding needs. Keying it by start makes it expire without clearing.
+- **`refundable`.** A displaced bidder is not the caller, so its funds cannot move in the same lock. Credit cannot be pushed to it without an external call.
+- **Rejected removals.**
+  - `accrualRemainder`: removing it would strand rent at fine settlement cadence.
+  - `lastSettled` as a timestamp rather than a flag: rent is proportional to elapsed time.
+  - Per-tick `growthOutside`: range-aware attribution needs it.
+
 ## Design decisions
 
 ### Pending displacement is binding for one second
@@ -257,6 +327,17 @@ Obligating the displaced tenure, or keeping the displaced schedule as a
 recoverable fallback, would need more state and an economic change the board
 has not accepted. Honest bidders give up only same-second cancellation after
 outbidding someone.
+
+### Gas-motivated structure
+
+The two-slot bids and the batched LP reads do not alter behavior. The reference fuzzers cover them, and `snapshots/ContinuousAuctionTest.json` records their gas.
+
+- **Two-slot bids with an index flip.** Activation flips `currentIndex`. A placement overwrites the stale slot. This replaces copying three slots and deleting three.
+  - Recurring saving: about 69k per bid lifecycle (steady-state placement plus activation) before refunds, and at least 54.8k after the 14.4k the old deletion could refund.
+  - Rejected: bid structs smaller than three slots. The rate, executor, fee and times do not fit in two words alongside a 32-byte bidder id.
+- **Crossing follows Ve33.** After a swap, `_cross` walks Core's `prevInitializedTick` or `nextInitializedTick` from the old tick to the new one, passing the swap's `skipAhead` as the search hint, and flips `growthOutside` at each initialized tick it passes. It is the same walk `Ve33` uses. It costs one Core call per crossed tick or searched bitmap word.
+  - Rejected: reading Core's bitmap words directly, in batches, and scanning their bits locally. It saved about 2k per crossed tick and more on long swaps across empty words, but it needed raw calldata assembly and a dependency on Core's bitmap layout.
+- **Batched LP reads.** Position updates read the pool state and both boundary ticks in one Core call. Collection reads the pool state and the position together and computes the in-range growth once.
 
 ## Deployment and reproducibility
 

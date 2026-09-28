@@ -1,16 +1,15 @@
 # ContinuousAuction launch review
 
 Status: **superseded**. The mechanism reviewed below was redesigned after an
-economic review found that a holder of a concentrated pool could park the price
-in its own dust range and recapture all rent, that the auction had no reserve,
-no minimum increment, and no exit, and that the pool was closed to everyone but
-the holder. The current design is described in `continuous-auction.md`: rented
-pools accept fee-paying swaps from anyone, pools carry immutable terms (fee,
-reserve rate, notice period, minimum increment), the TWAMM time grid and funded
-tails were removed in favour of a single live bid plus extend/shorten, and the
-holder collects outsider swap fees through Core saved balances. The source
-hashes, gas figures, and finding assessments below apply to the earlier
-revision only. The redesigned contracts have not been externally reviewed.
+economic review found three problems. A holder of a concentrated pool could park the price
+in its own dust range and recapture all rent. The auction had no reserve,
+no minimum increment, and no exit. And the pool was closed to everyone but
+the holder. An intermediate redesign with immutable per-pool terms (fee,
+reserve rate, notice period, minimum increment) was itself replaced. The
+current design has no pool terms at all and is described, with its
+architecture, invariants and decisions, only in `continuous-auction.md`. The
+source hashes, gas figures, and finding assessments below apply to the
+earliest revision only, and certify nothing about the current contracts.
 
 ## Scope
 

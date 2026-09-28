@@ -595,7 +595,8 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
         emit RentCollected(poolId, owner, positionId, amount);
     }
 
-    /// @notice Claimable rent using already-accrued state. Call accrue first to include elapsed rent.
+    /// @notice Rent the position would collect in this block: settles the elapsed interval in memory,
+    /// exactly as a collection would, so the quote is never stale.
     function getPositionRent(PoolKey calldata key, address owner, PositionId positionId)
         external
         view
@@ -603,11 +604,41 @@ contract ContinuousAuction is IContinuousAuction, BaseExtension, BaseForwardee, 
     {
         _validate(key);
         PoolId poolId = key.toPoolId();
-        amount = _earned(
-            _inside(poolId, key.config, positionId, CORE.poolState(poolId).tick()),
-            positionRentSnapshot[poolId][owner][positionId],
-            ContinuousAuctionLib.positionLiquidity(CORE, poolId, owner, positionId)
+        (bytes32 packed, bytes32 position) = CORE.sload(
+            StorageSlot.unwrap(CoreStorageLayout.poolStateSlot(poolId)),
+            StorageSlot.unwrap(CoreStorageLayout.poolPositionsSlot(poolId, owner, positionId))
         );
+        PoolState state = PoolState.wrap(packed);
+        int32 tick = state.tick();
+        uint256 inside = _inside(poolId, key.config, positionId, tick);
+        // Settlement adds the step to global growth, which only moves growth inside an active range.
+        if (key.config.isStableswap() || (positionId.tickLower() <= tick && tick < positionId.tickUpper())) {
+            unchecked {
+                inside += _unsettledGrowth(_auctions[poolId], state.liquidity());
+            }
+        }
+        amount = _earned(inside, positionRentSnapshot[poolId][owner][positionId], uint128(uint256(position) >> 128));
+    }
+
+    /// @dev The growth step `_accrue` would add now for the given active liquidity.
+    function _unsettledGrowth(Auction storage auction, uint128 liquidity) private view returns (uint256) {
+        uint48 now_ = uint48(block.timestamp);
+        uint48 from = auction.lastSettled;
+        if (now_ <= from || liquidity == 0) return 0;
+        uint256 index = auction.currentIndex;
+        Bid storage current = auction.bids[index];
+        uint256 rent;
+        if (auction.hasNext) {
+            Bid storage next = auction.bids[index ^ 1];
+            rent = _rentBetween(current, from, next.start) + _rentBetween(next, from, now_);
+        } else {
+            rent = _rentBetween(current, from, now_);
+        }
+        if (rent == 0) return 0;
+        unchecked {
+            // rent < 2**128, see _checkEnd.
+            return ((rent << 128) + auction.accrualRemainder) / liquidity;
+        }
     }
 
     // Mirrors Ve33's range-aware external-reward accounting, including nonzero tick sentinels.

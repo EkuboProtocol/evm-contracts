@@ -142,9 +142,10 @@ periods.
 - Position changes advance the position's snapshot when liquidity actually changes.
   Like Core swap fees and Ve33 rewards, rent is computed from the snapshot and
   never banked, so uncollected rent is discarded on any nonzero liquidity change.
-  Collect first — `withdrawAndCollectRent` collects and withdraws atomically.
+  `AuctionPositions` therefore collects before every deposit and withdrawal.
   `AUCTION_COLLECT_RENT` moves the position owner's rent to its locker;
-  `getPositionRent` quotes already-accrued rent.
+  `getPositionRent` quotes the rent a collection in the current block would pay,
+  settling the elapsed interval in memory.
 - Integer rounding favors solvency; the scaled remainder of each global growth
   update is carried to the next settlement so settlement cadence cannot strand
   rent, while per-position checkpoint dust remains in the extension. There is no
@@ -156,22 +157,39 @@ periods.
 this extension's pools, without protocol fees, that also collects rent:
 
 ```solidity
+deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity, rentRecipient)
+withdraw(id, poolKey, tickLower, tickUpper, liquidity, recipient)
 collectRent(id, poolKey, tickLower, tickUpper, recipient)
-withdrawAndCollectRent(id, poolKey, tickLower, tickUpper, liquidity, recipient)
+withdrawForfeitingRent(id, poolKey, tickLower, tickUpper, liquidity, recipient)
 getPositionRentAndLiquidity(id, poolKey, tickLower, tickUpper)
 ```
 
-The NFT owner and approved operators may collect; the overloads without a
-recipient pay the caller. The metadata owner receives no right to other users' rent.
-Uncollected rent is discarded on any liquidity change, so collect before depositing
-more or withdrawing — `withdrawAndCollectRent` does both atomically. Claimability
-travels with the NFT on transfer. Collect all
-balances before burning the NFT. The original minter can
-recreate the same deterministic NFT ID and thereby regain control of any value
-left under that ID after an authorized burn.
+The NFT owner and approved operators may deposit, withdraw and collect; the
+overloads without a recipient pay the caller. The metadata owner receives no
+right to other users' rent. The manager accepts only this extension's pools.
 
-Use `mintAndDeposit`, `deposit`, and `withdraw` for principal. The manager
-accepts only this extension's pools.
+The extension discards a position's uncollected rent on any
+nonzero liquidity change, so `deposit` (including a top-up) and `withdraw`
+collect the position's rent in the same lock before changing its liquidity and
+return it. A deposit into a position without liquidity skips the collection:
+it has earned nothing. `withdrawForfeitingRent` is the only path that discards
+rent. It exists so principal stays withdrawable independently of the rent
+collection path and should not be offered as a default action.
+
+`getPositionRentAndLiquidity` and the extension's `getPositionRent` settle the
+elapsed interval in memory, so in any block they equal what collecting in that
+block pays. Integrators should display that value, not a figure derived from
+the last settlement.
+
+Claimability travels with the NFT on transfer. Burning does not settle Core
+positions or rent, and the original minter can recreate the same deterministic
+NFT ID and thereby regain control of any value left under that ID. Burning a
+funded NFT is not blocked on chain, as in the other Ekubo position managers:
+the manager does not track which positions an ID holds, and doing so would add
+a storage write to every position opening and closing. Exit with one
+`multicall` that withdraws every position of the ID, which collects its rent,
+and then burns; interfaces must warn before a burn of an ID with liquidity or
+rent.
 
 ## Economics
 
@@ -233,8 +251,9 @@ Rent follows **time active**, not inventory exposure within a block.
   costs. Where its liquidity is the only active liquidity, `α` is close to one.
 - Rent charged while no liquidity is active is discarded, and any nonzero
   liquidity change, including a top-up, discards the position's uncollected
-  rent. Both are intentional, following Core swap fees and Ve33 rewards;
-  collect first (see [Rent](#rent)).
+  rent. Both are intentional, following Core swap fees and Ve33 rewards.
+  `AuctionPositions` deposits and withdrawals collect first; only its
+  `withdrawForfeitingRent` escape hatch discards (see [AuctionPositions](#auctionpositions)).
 
 Full-range and stableswap pools allocate rent globally and pro rata, so no range
 can be isolated from the rest there; common-control shares still apply.
@@ -344,7 +363,8 @@ permissionless design:
 6. Rent follows time active, not inventory exposure, so it can go to liquidity
    other than the liquidity a trade crossed, including the holder's own.
 7. Rent is discarded when no liquidity is active and on any nonzero liquidity
-   change before collection.
+   change before collection. `AuctionPositions` collects before every deposit
+   and withdrawal; other lockers must do the same.
 
 Launch claims must not state or imply guaranteed availability, a market-tracking
 price, or full compensation of providers for arbitrage losses.
@@ -508,7 +528,8 @@ costs nothing beyond it. Paying for exposure within a block instead, such as by
 giving traversed liquidity a share of swap-time value, would need a different
 accounting and a fresh review of JIT, Sybil and gas costs. Banking uncollected
 rent across liquidity changes would add a write per position change;
-`withdrawAndCollectRent` covers the common case.
+`AuctionPositions` instead collects in the same lock before every deposit and
+withdrawal, which costs a forward only when the position already has liquidity.
 
 ### Pending displacement is binding for one second
 

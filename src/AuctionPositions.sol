@@ -23,10 +23,11 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @notice Position NFTs for continuous-auction pools with owner/approved-operator collection of rent.
 /// @dev No protocol fees. Rent is computed from a per-position snapshot and never banked, mirroring
-/// Core fee and Ve33 reward accounting: uncollected rent is discarded on any liquidity change, so
-/// collect (or use `withdrawAndCollectRent`) before modifying a position. Rent travels with the NFT
-/// on transfer; collect it before burning. Burning does not settle Core positions or rent, and the
-/// original minter can recreate the same deterministic NFT ID.
+/// Core fee and Ve33 reward accounting: the extension discards uncollected rent on any nonzero
+/// liquidity change. `deposit` and `withdraw` therefore collect the position's rent in the same lock
+/// before changing its liquidity; only `withdrawForfeitingRent` skips it. Rent travels with the NFT
+/// on transfer. Burning does not settle Core positions or rent, and the original minter can recreate
+/// the same deterministic NFT ID, so withdraw every position before burning.
 contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNonfungibleToken {
     using CoreLib for *;
     using FlashAccountantLib for *;
@@ -34,7 +35,7 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
     uint256 private constant CALL_TYPE_DEPOSIT = 0;
     uint256 private constant CALL_TYPE_WITHDRAW = 1;
     uint256 private constant CALL_TYPE_COLLECT_RENT = 2;
-    uint256 private constant CALL_TYPE_WITHDRAW_AND_COLLECT_RENT = 3;
+    uint256 private constant CALL_TYPE_WITHDRAW_FORFEITING_RENT = 3;
 
     ContinuousAuction public immutable auction;
     address public immutable bidToken;
@@ -64,7 +65,8 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
         return createPositionId(bytes24(uint192(id)), tickLower, tickUpper);
     }
 
-    /// @notice Position liquidity, principal, and rent claimable using already-accrued state.
+    /// @notice Position liquidity, principal, and the rent `collectRent` would pay in this block,
+    /// including rent not yet settled into the pool's growth.
     function getPositionRentAndLiquidity(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper)
         external
         view
@@ -83,6 +85,8 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
         rent = auction.getPositionRent(poolKey, address(this), positionId_);
     }
 
+    /// @notice Adds liquidity paid by the caller. If the position already has liquidity, its rent is
+    /// collected to `rentRecipient` in the same lock first, since the liquidity change would discard it.
     function deposit(
         uint256 id,
         PoolKey memory poolKey,
@@ -90,9 +94,10 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
         int32 tickUpper,
         uint128 maxAmount0,
         uint128 maxAmount1,
-        uint128 minLiquidity
-    ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1) {
-        (liquidity, amount0, amount1) = abi.decode(
+        uint128 minLiquidity,
+        address rentRecipient
+    ) public payable authorizedForNft(id) returns (uint128 liquidity, uint128 amount0, uint128 amount1, uint256 rent) {
+        (liquidity, amount0, amount1, rent) = abi.decode(
             lock(
                 abi.encode(
                     CALL_TYPE_DEPOSIT,
@@ -103,37 +108,30 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
                     tickUpper,
                     maxAmount0,
                     maxAmount1,
-                    minLiquidity
+                    minLiquidity,
+                    rentRecipient
                 )
             ),
-            (uint128, uint128, uint128)
+            (uint128, uint128, uint128, uint256)
         );
     }
 
-    function withdraw(
+    /// @notice Adds liquidity, collecting any rent of the existing position to the caller first.
+    function deposit(
         uint256 id,
         PoolKey memory poolKey,
         int32 tickLower,
         int32 tickUpper,
-        uint128 liquidity,
-        address recipient
-    ) public payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
-        (amount0, amount1) = abi.decode(
-            lock(abi.encode(CALL_TYPE_WITHDRAW, id, poolKey, tickLower, tickUpper, liquidity, recipient)),
-            (uint128, uint128)
-        );
+        uint128 maxAmount0,
+        uint128 maxAmount1,
+        uint128 minLiquidity
+    ) external payable returns (uint128 liquidity, uint128 amount0, uint128 amount1, uint256 rent) {
+        (liquidity, amount0, amount1, rent) =
+            deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity, msg.sender);
     }
 
-    function withdraw(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
-        external
-        payable
-        returns (uint128 amount0, uint128 amount1)
-    {
-        (amount0, amount1) = withdraw(id, poolKey, tickLower, tickUpper, liquidity, msg.sender);
-    }
-
-    /// @notice Withdraws liquidity and collects rent in one lock.
-    function withdrawAndCollectRent(
+    /// @notice Collects the position's rent and removes liquidity in one lock, paying both to recipient.
+    function withdraw(
         uint256 id,
         PoolKey memory poolKey,
         int32 tickLower,
@@ -142,21 +140,36 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
         address recipient
     ) public payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1, uint256 rent) {
         (amount0, amount1, rent) = abi.decode(
-            lock(
-                abi.encode(CALL_TYPE_WITHDRAW_AND_COLLECT_RENT, id, poolKey, tickLower, tickUpper, liquidity, recipient)
-            ),
+            lock(abi.encode(CALL_TYPE_WITHDRAW, id, poolKey, tickLower, tickUpper, liquidity, recipient)),
             (uint128, uint128, uint256)
         );
     }
 
-    function withdrawAndCollectRent(
+    function withdraw(uint256 id, PoolKey memory poolKey, int32 tickLower, int32 tickUpper, uint128 liquidity)
+        external
+        payable
+        returns (uint128 amount0, uint128 amount1, uint256 rent)
+    {
+        (amount0, amount1, rent) = withdraw(id, poolKey, tickLower, tickUpper, liquidity, msg.sender);
+    }
+
+    /// @notice Removes liquidity without collecting rent. A nonzero withdrawal DISCARDS the position's
+    /// uncollected rent. Only an escape hatch that keeps principal withdrawable independently of rent
+    /// collection; use `withdraw` otherwise.
+    function withdrawForfeitingRent(
         uint256 id,
         PoolKey memory poolKey,
         int32 tickLower,
         int32 tickUpper,
-        uint128 liquidity
-    ) external payable returns (uint128 amount0, uint128 amount1, uint256 rent) {
-        (amount0, amount1, rent) = withdrawAndCollectRent(id, poolKey, tickLower, tickUpper, liquidity, msg.sender);
+        uint128 liquidity,
+        address recipient
+    ) external payable authorizedForNft(id) returns (uint128 amount0, uint128 amount1) {
+        (amount0, amount1) = abi.decode(
+            lock(
+                abi.encode(CALL_TYPE_WITHDRAW_FORFEITING_RENT, id, poolKey, tickLower, tickUpper, liquidity, recipient)
+            ),
+            (uint128, uint128)
+        );
     }
 
     /// @notice Collects bid-token rent to recipient. Only the NFT owner or an approved operator may collect.
@@ -202,7 +215,8 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
         uint128 minLiquidity
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         id = mint();
-        (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
+        (liquidity, amount0, amount1,) =
+            deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity, msg.sender);
     }
 
     function mintAndDepositWithSalt(
@@ -215,7 +229,9 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
         uint128 minLiquidity
     ) external payable returns (uint256 id, uint128 liquidity, uint128 amount0, uint128 amount1) {
         id = mint(salt);
-        (liquidity, amount0, amount1) = deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity);
+        // A salt reused after an authorized burn recreates the ID; any rent left under it goes to the minter.
+        (liquidity, amount0, amount1,) =
+            deposit(id, poolKey, tickLower, tickUpper, maxAmount0, maxAmount1, minLiquidity, msg.sender);
     }
 
     /// @inheritdoc BaseLocker
@@ -232,8 +248,9 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
                 int32 tickUpper,
                 uint128 maxAmount0,
                 uint128 maxAmount1,
-                uint128 minLiquidity
-            ) = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128, uint128, uint128));
+                uint128 minLiquidity,
+                address rentRecipient
+            ) = abi.decode(data, (uint256, address, uint256, PoolKey, int32, int32, uint128, uint128, uint128, address));
 
             _validateAuctionPool(poolKey);
             SqrtRatio sqrtRatio = CORE.poolState(poolKey.toPoolId()).sqrtRatio();
@@ -250,6 +267,11 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
             uint128 existingLiquidity = ContinuousAuctionLib.positionLiquidity(CORE, poolId, address(this), positionId_);
             if (existingLiquidity > uint128(type(int128).max) - liquidity) revert DepositOverflow();
 
+            // Collect before the liquidity change discards the rent. A position without liquidity has
+            // earned nothing since its snapshot, so fresh deposits skip the forward.
+            uint256 rent;
+            if (existingLiquidity != 0) rent = _accrueRent(poolKey, positionId_);
+
             PoolBalanceUpdate balanceUpdate = CORE.updatePosition(poolKey, positionId_, int128(liquidity));
             uint128 amount0 = uint128(balanceUpdate.delta0());
             uint128 amount1 = uint128(balanceUpdate.delta1());
@@ -262,9 +284,10 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
                 if (amount0 != 0) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), amount0);
                 if (amount1 != 0) ACCOUNTANT.payFrom(caller, poolKey.token1, amount1);
             }
+            if (rent != 0) ACCOUNTANT.withdraw(bidToken, rentRecipient, SafeCastLib.toUint128(rent));
 
-            result = abi.encode(liquidity, amount0, amount1);
-        } else if (callType == CALL_TYPE_WITHDRAW || callType == CALL_TYPE_WITHDRAW_AND_COLLECT_RENT) {
+            result = abi.encode(liquidity, amount0, amount1, rent);
+        } else if (callType == CALL_TYPE_WITHDRAW || callType == CALL_TYPE_WITHDRAW_FORFEITING_RENT) {
             (
                 ,
                 uint256 id,
@@ -283,9 +306,7 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
             // drained position and cannot redirect principal after an NFT sale. This matches the
             // ordering in BasePositions and Ve33Positions.
             uint256 rent;
-            if (callType == CALL_TYPE_WITHDRAW_AND_COLLECT_RENT) {
-                rent = _accrueRent(poolKey, positionId_);
-            }
+            if (callType == CALL_TYPE_WITHDRAW) rent = _accrueRent(poolKey, positionId_);
 
             uint128 amount0;
             uint128 amount1;
@@ -300,7 +321,7 @@ contract AuctionPositions is UsesCore, PayableMulticallable, BaseLocker, BaseNon
                 ACCOUNTANT.withdrawTwo(poolKey.token0, poolKey.token1, recipient, amount0, amount1);
             }
 
-            result = callType == CALL_TYPE_WITHDRAW ? abi.encode(amount0, amount1) : abi.encode(amount0, amount1, rent);
+            result = callType == CALL_TYPE_WITHDRAW ? abi.encode(amount0, amount1, rent) : abi.encode(amount0, amount1);
         } else if (callType == CALL_TYPE_COLLECT_RENT) {
             (, PoolKey memory poolKey, PositionId positionId_, address recipient) =
                 abi.decode(data, (uint256, PoolKey, PositionId, address));

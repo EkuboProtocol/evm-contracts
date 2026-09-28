@@ -65,6 +65,45 @@ contract AuctionExecutor is BaseLocker {
     }
 }
 
+/// @dev A Core locker that holds a position directly, bypassing AuctionPositions, and pays with its owner's tokens.
+contract PositionToucher is BaseLocker {
+    using CoreLib for *;
+    using FlashAccountantLib for *;
+
+    ICore private immutable core;
+    ContinuousAuction private immutable auction;
+    address private immutable owner;
+
+    constructor(ICore c, ContinuousAuction a) BaseLocker(c) {
+        core = c;
+        auction = a;
+        owner = msg.sender;
+    }
+
+    function update(PoolKey memory key, int32 lower, int32 upper, int128 delta) external {
+        lock(abi.encode(false, key, lower, upper, delta));
+    }
+
+    function collect(PoolKey memory key, int32 lower, int32 upper) external returns (uint256 rent) {
+        rent = abi.decode(lock(abi.encode(true, key, lower, upper, int128(0))), (uint256));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (bool collectRent, PoolKey memory key, int32 lower, int32 upper, int128 delta) =
+            abi.decode(data, (bool, PoolKey, int32, int32, int128));
+        if (collectRent) {
+            uint256 rent = ContinuousAuctionLib.collectRent(
+                core, address(auction), key, createPositionId(bytes24(0), lower, upper)
+            );
+            if (rent != 0) ACCOUNTANT.withdraw(auction.bidToken(), owner, uint128(rent));
+            return abi.encode(rent);
+        }
+        PoolBalanceUpdate update_ = core.updatePosition(key, createPositionId(bytes24(0), lower, upper), delta);
+        ACCOUNTANT.payTwoFrom(owner, key.token0, key.token1, uint128(update_.delta0()), uint128(update_.delta1()));
+        return "";
+    }
+}
+
 contract TaxedAuctionToken is TestToken {
     constructor(address recipient) TestToken(recipient) {}
 
@@ -299,21 +338,39 @@ contract ContinuousAuctionTest is FullTest {
         uint256 entrantRent = _claim(entrant, 3200, 3216);
         assertApproxEqAbs(entrantRent, intervalRent * entrantLiquidity / (uint256(entrantLiquidity) + dustLiquidity), 1);
         assertGt(entrantRent, intervalRent * 99 / 100);
-        manager.withdrawAndCollectRent(entrant, key, 3200, 3216, entrantLiquidity, address(this));
+        manager.withdraw(entrant, key, 3200, 3216, entrantLiquidity, address(this));
         outsider.swap(key, _params(5e18, false, 0), false);
         assertEq(core.poolState(poolId).tick(), 0);
     }
 
-    function test_economic_nonzeroTopUpDiscardsAllUncollectedRent() public {
+    function test_economic_nonzeroTopUpCollectsUncollectedRentFirst() public {
         _bid(alice, RATE, 512, address(executor));
         _time(201);
-        auction.accrue(key);
+        uint256 quoted = auction.getPositionRent(key, address(manager), manager.positionId(nft, -1600, 1600));
+        assertApproxEqAbs(quoted, uint256(RATE) * 100, 1);
+        uint256 savedBefore = _funds();
+        uint256 balanceBefore = address(this).balance;
+        (uint128 added,,, uint256 rent) = manager.deposit(nft, key, -1600, 1600, 1000, 1000, 0);
+        assertGt(added, 0);
+        assertEq(rent, quoted);
+        assertEq(address(this).balance, balanceBefore + rent);
+        assertEq(_funds(), savedBefore - rent);
+        assertEq(_claim(nft, -1600, 1600), 0);
+    }
+
+    /// @dev The extension still discards uncollected rent on a raw nonzero change, reachable through the
+    /// manager only via the explicit escape hatch.
+    function test_economic_withdrawForfeitingRentDiscardsAllUncollectedRent() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
         assertApproxEqAbs(
             auction.getPositionRent(key, address(manager), manager.positionId(nft, -1600, 1600)), uint256(RATE) * 100, 1
         );
         uint256 savedBefore = _funds();
-        (uint128 added,,) = manager.deposit(nft, key, -1600, 1600, 1000, 1000, 0);
-        assertGt(added, 0);
+        uint256 balanceBefore = address(this).balance;
+        (uint128 amount0,) = manager.withdrawForfeitingRent(nft, key, -1600, 1600, liquidity / 2, address(this));
+        assertGt(amount0, 0);
+        assertEq(address(this).balance, balanceBefore);
         assertEq(_claim(nft, -1600, 1600), 0);
         assertEq(_funds(), savedBefore);
     }
@@ -494,8 +551,7 @@ contract ContinuousAuctionTest is FullTest {
             _bid(bob, 2 * RATE, _usableEnd(t, gap, 1, 0), address(outsider));
             _time(t + gap);
             uint256 intervalRent = uint256(RATE) + uint256(2 * RATE) * (gap - 1);
-            (,, uint256 entrantRent) =
-                manager.withdrawAndCollectRent(entrant, key, 3200, 3216, entrantLiquidity, address(this));
+            (,, uint256 entrantRent) = manager.withdraw(entrant, key, 3200, 3216, entrantLiquidity, address(this));
             assertApproxEqAbs(
                 entrantRent, intervalRent * entrantLiquidity / (uint256(entrantLiquidity) + dustLiquidity), 1
             );
@@ -1251,11 +1307,10 @@ contract ContinuousAuctionTest is FullTest {
     function test_rentOwnerAuthorizationTransferAndFullWithdrawal() public {
         _bid(alice, RATE, 512, alice);
         _time(200);
-        // Collect before withdrawing: uncollected rent is discarded on any liquidity change,
-        // mirroring Core fee and Ve33 reward accounting.
         uint256 earned = _claim(nft, -1600, 1600);
         assertApproxEqAbs(earned, uint256(RATE) * 99, 1);
-        manager.withdraw(nft, key, -1600, 1600, liquidity);
+        (,, uint256 rent) = manager.withdraw(nft, key, -1600, 1600, liquidity);
+        assertEq(rent, 0);
         _time(300);
         vm.prank(bob);
         vm.expectRevert();
@@ -1270,19 +1325,55 @@ contract ContinuousAuctionTest is FullTest {
     }
 
     function test_zeroDeltaTouchPreservesAccruedRent() public {
+        PositionToucher toucher = new PositionToucher(core, auction);
+        token0.approve(address(toucher), type(uint256).max);
+        token1.approve(address(toucher), type(uint256).max);
+        toucher.update(key, -1600, 1600, 1e18);
         _bid(alice, RATE, 512, alice);
         _time(201);
-        // A zero-delta deposit modifies nothing and must not discard accrued rent.
-        (uint128 added,,) = manager.deposit(nft, key, -1600, 1600, 0, 0, 0);
-        assertEq(added, 0);
+        // A zero-delta Core update modifies nothing and must not discard accrued rent.
+        toucher.update(key, -1600, 1600, 0);
+        uint256 collected = toucher.collect(key, -1600, 1600);
+        assertGt(collected, 0);
+        assertApproxEqAbs(collected + _claim(nft, -1600, 1600), uint256(RATE) * 100, 2);
+    }
+
+    function test_depositCollectsExistingRentToRecipient() public {
+        _bid(alice, RATE, 512, alice);
+        _time(201);
+        (uint128 added,,, uint256 rent) = manager.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0, carol);
+        assertGt(added, 0);
+        assertApproxEqAbs(rent, uint256(RATE) * 100, 1);
+        assertEq(carol.balance, rent);
+        // The rent was collected, so the grown position starts earning from zero.
+        assertEq(_claim(nft, -1600, 1600), 0);
+        _time(301);
         assertApproxEqAbs(_claim(nft, -1600, 1600), uint256(RATE) * 100, 1);
     }
 
-    function test_withdrawAndCollectRentInOneLock() public {
+    function test_zeroDepositCollectsRent() public {
         _bid(alice, RATE, 512, alice);
         _time(201);
-        (uint128 amount0, uint128 amount1, uint256 rent) =
-            manager.withdrawAndCollectRent(nft, key, -1600, 1600, liquidity, carol);
+        (uint128 added,,, uint256 rent) = manager.deposit(nft, key, -1600, 1600, 0, 0, 0);
+        assertEq(added, 0);
+        assertApproxEqAbs(rent, uint256(RATE) * 100, 1);
+        assertEq(_claim(nft, -1600, 1600), 0);
+    }
+
+    function test_freshDepositCollectsNothing() public {
+        _bid(alice, RATE, 512, alice);
+        _time(201);
+        uint256 id = manager.mint();
+        uint256 balanceBefore = address(this).balance;
+        (,,, uint256 rent) = manager.deposit(id, key, -1600, 1600, 1e18, 1e18, 0);
+        assertEq(rent, 0);
+        assertEq(address(this).balance, balanceBefore);
+    }
+
+    function test_withdrawCollectsRentInOneLock() public {
+        _bid(alice, RATE, 512, alice);
+        _time(201);
+        (uint128 amount0, uint128 amount1, uint256 rent) = manager.withdraw(nft, key, -1600, 1600, liquidity, carol);
         assertGt(amount0, 0);
         assertGt(amount1, 0);
         assertApproxEqAbs(rent, uint256(RATE) * 100, 1);
@@ -1321,8 +1412,7 @@ contract ContinuousAuctionTest is FullTest {
     function test_reinitializedTicksDoNotGiveAwayHistoricalRent() public {
         _bid(alice, RATE, 512, alice);
         _time(201);
-        // Collect before withdrawing: withdrawing discards uncollected rent instead of banking it.
-        (,, uint256 kept) = manager.withdrawAndCollectRent(nft, key, -1600, 1600, liquidity, address(this));
+        (,, uint256 kept) = manager.withdraw(nft, key, -1600, 1600, liquidity, address(this));
         assertApproxEqAbs(kept, uint256(RATE) * 100, 1);
         _time(301);
         (uint256 other,) = _createPosition(key, -1600, 1600, 1e18, 1e18);
@@ -1373,6 +1463,120 @@ contract ContinuousAuctionTest is FullTest {
         uint256 amount = manager.collectRent(nft, key, -1600, 1600, alice);
         assertApproxEqAbs(amount, uint256(RATE) * 100, 1);
         assertEq(alice.balance, amount);
+    }
+
+    function test_getPositionRentIncludesUnsettledRent() public {
+        _bid(alice, RATE, 512, alice);
+        _time(201);
+        uint256 quoted = auction.getPositionRent(key, address(manager), manager.positionId(nft, -1600, 1600));
+        (,,, uint256 viaManager) = manager.getPositionRentAndLiquidity(nft, key, -1600, 1600);
+        assertEq(viaManager, quoted);
+        assertApproxEqAbs(quoted, uint256(RATE) * 100, 1);
+        assertEq(_claim(nft, -1600, 1600), quoted);
+    }
+
+    function test_getPositionRentIncludesPendingActivationAndOutOfRange() public {
+        (uint256 upper,) = _createPosition(key, 1600, 3200, 0, 1e18);
+        _bid(alice, RATE, 512, alice);
+        _time(150);
+        // A higher bid placed now is pending until next second; the quote must include its handover.
+        _bid(bob, RATE * 3, 700, bob);
+        _time(201);
+        uint256 quoted = auction.getPositionRent(key, address(manager), manager.positionId(nft, -1600, 1600));
+        assertApproxEqAbs(quoted, uint256(RATE) * 50 + uint256(RATE) * 3 * 50, 1);
+        assertEq(auction.getPositionRent(key, address(manager), manager.positionId(upper, 1600, 3200)), 0);
+        assertEq(_claim(nft, -1600, 1600), quoted);
+        assertEq(_claim(upper, 1600, 3200), 0);
+    }
+
+    function test_getPositionRentIncludesUnsettledStableswapRent() public {
+        PoolKey memory stable =
+            createPool(address(token0), address(token1), 0, createStableswapPoolConfig(0, 20, 0, address(auction)));
+        (int32 lower, int32 upper) = stable.config.stableswapActiveLiquidityTickRange();
+        (uint256 id,) = _createPosition(stable, lower, upper, 1e18, 1e18);
+        _bid(stable, alice, RATE, 512, address(executor));
+        _time(101);
+        executor.swap(stable, _params(3e18, true, upper + 5000), false);
+        _time(201);
+        uint256 quoted = auction.getPositionRent(stable, address(manager), manager.positionId(id, lower, upper));
+        assertApproxEqAbs(quoted, uint256(RATE) * 100, 1);
+        assertEq(manager.collectRent(id, stable, lower, upper, address(this)), quoted);
+    }
+
+    /// @dev The quote in any block equals what collecting in that block pays, across settlements with
+    /// carried remainders, pending activations, price moves and liquidity changes.
+    function testFuzz_getPositionRentEqualsCollectInSameBlock(uint256 seed) public {
+        (uint256 upper,) = _createPosition(key, 0, 3200, 0, 1e18);
+        uint256[2] memory ids = [nft, upper];
+        int32[2] memory lowers = [int32(-1600), int32(0)];
+        int32[2] memory uppers = [int32(1600), int32(3200)];
+        _bid(alice, RATE, 2000, address(executor));
+        uint256 now_ = 100;
+        for (uint256 i; i < 12; ++i) {
+            seed = uint256(keccak256(abi.encode(seed, i)));
+            now_ += 1 + seed % 30;
+            _time(now_);
+            uint256 action = (seed >> 8) % 6;
+            if (action == 0) {
+                address bidder = address(uint160(1000 + i));
+                _bid(
+                    bidder,
+                    uint96(RATE * (2 + i) + (seed >> 16) % 997),
+                    uint64(now_ + 2 + (seed >> 32) % 400),
+                    address(executor)
+                );
+            } else if (action == 1 && auction.executorAt(poolId) == address(executor)) {
+                executor.swap(
+                    key,
+                    _params(
+                        int128(int256(1e15 + (seed >> 16) % 1e17)),
+                        (seed >> 80) % 2 == 0,
+                        (seed >> 80) % 2 == 0 ? int32(3100) : int32(-1500)
+                    ),
+                    false
+                );
+            } else if (action == 2) {
+                auction.accrue(key);
+            } else if (action == 3) {
+                manager.deposit(upper, key, 0, 3200, 0, uint128(1e15 + (seed >> 16) % 1e16), 0);
+            } else if (action == 4) {
+                (uint128 current,,,) = manager.getPositionRentAndLiquidity(upper, key, 0, 3200);
+                manager.withdraw(upper, key, 0, 3200, current / 2);
+            }
+            uint256 j = (seed >> 120) % 2;
+            uint256 quoted =
+                auction.getPositionRent(key, address(manager), manager.positionId(ids[j], lowers[j], uppers[j]));
+            assertEq(_claim(ids[j], lowers[j], uppers[j]), quoted);
+            // A second quote in the same block after collection is zero.
+            assertEq(
+                auction.getPositionRent(key, address(manager), manager.positionId(ids[j], lowers[j], uppers[j])), 0
+            );
+        }
+    }
+
+    /// @dev Burning does not settle anything, so the safe exit is withdrawing every position (which
+    /// collects its rent) and burning in one multicall.
+    function test_multicallWithdrawAllAndBurnLeavesNothingBehind() public {
+        _bid(alice, RATE, 512, alice);
+        _time(201);
+        uint256 balanceBefore = address(this).balance;
+        bytes[] memory calls = new bytes[](2);
+        calls[0] = abi.encodeWithSignature(
+            "withdraw(uint256,(address,address,bytes32),int32,int32,uint128)",
+            nft,
+            key,
+            int32(-1600),
+            int32(1600),
+            liquidity
+        );
+        calls[1] = abi.encodeWithSelector(manager.burn.selector, nft);
+        manager.multicall(calls);
+        assertApproxEqAbs(address(this).balance - balanceBefore, uint256(RATE) * 100, 1);
+        (uint128 remaining,,, uint256 rent) = manager.getPositionRentAndLiquidity(nft, key, -1600, 1600);
+        assertEq(remaining, 0);
+        assertEq(rent, 0);
+        vm.expectRevert();
+        manager.ownerOf(nft);
     }
 
     function test_getPositionRentMatchesClaimAfterAccrue() public {
@@ -1609,10 +1813,10 @@ contract ContinuousAuctionTest is FullTest {
             _time(now_);
             if ((seed >> 16) % 2 == 1) {
                 if (hasLiquidity) {
-                    (,, uint256 rent) = manager.withdrawAndCollectRent(nft, key, -1600, 1600, liquidity, address(this));
+                    (,, uint256 rent) = manager.withdraw(nft, key, -1600, 1600, liquidity, address(this));
                     collected += rent;
                 } else {
-                    (liquidity,,) = manager.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0);
+                    (liquidity,,,) = manager.deposit(nft, key, -1600, 1600, 1e18, 1e18, 0);
                 }
                 hasLiquidity = !hasLiquidity;
             }
@@ -1975,12 +2179,28 @@ contract ContinuousAuctionTest is FullTest {
         vm.snapshotGasLastCall("AuctionPositions#mintAndDepositNewRange");
     }
 
-    function test_gas_withdrawAndCollectRentAll() public {
+    function test_gas_withdrawAll() public {
         _bid(alice, RATE, 512, address(executor));
         _time(201);
         _cold();
-        manager.withdrawAndCollectRent(nft, key, -1600, 1600, liquidity, address(this));
-        vm.snapshotGasLastCall("AuctionPositions#withdrawAndCollectRentAll");
+        manager.withdraw(nft, key, -1600, 1600, liquidity, address(this));
+        vm.snapshotGasLastCall("AuctionPositions#withdrawAll");
+    }
+
+    function test_gas_withdrawForfeitingRent() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        manager.withdrawForfeitingRent(nft, key, -1600, 1600, liquidity / 2, address(this));
+        vm.snapshotGasLastCall("AuctionPositions#withdrawForfeitingRentHalf");
+    }
+
+    function test_gas_getPositionRentUnsettled() public {
+        _bid(alice, RATE, 512, address(executor));
+        _time(201);
+        _cold();
+        auction.getPositionRent(key, address(manager), manager.positionId(nft, -1600, 1600));
+        vm.snapshotGasLastCall("ContinuousAuction#getPositionRentUnsettled");
     }
 
     function test_gas_collectRentSettled() public {

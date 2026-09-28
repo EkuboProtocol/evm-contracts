@@ -25,10 +25,12 @@
   "AuctionPeriphery#removeBidAndWithdraw": "97378",
   "AuctionPeriphery#replaceOwnBid": "139930",
   "AuctionPeriphery#replaceOwnSettledBid": "59389",
-  "AuctionPositions#collectRent": "78628",
-  "AuctionPositions#collectRentNoActivation": "55787",
-  "AuctionPositions#deposit": "152662",
-  "AuctionPositions#mintAndDepositNewRange": "453961",
-  "AuctionPositions#withdrawAndCollectRentAll": "192082",
-  "AuctionPositions#withdrawHalf": "139578"
+  "AuctionPositions#collectRent": "78697",
+  "AuctionPositions#collectRentNoActivation": "55856",
+  "AuctionPositions#deposit": "176692",
+  "AuctionPositions#mintAndDepositNewRange": "454202",
+  "AuctionPositions#withdrawAll": "192079",
+  "AuctionPositions#withdrawForfeitingRentHalf": "139903",
+  "AuctionPositions#withdrawHalf": "163385",
+  "ContinuousAuction#getPositionRentUnsettled": "25565"
 }

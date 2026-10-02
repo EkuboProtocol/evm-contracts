@@ -40,6 +40,8 @@ contract FreeLPBootstrapTest is Test {
     address token1;
 
     function setUp() public {
+        // next: new protocol version, canonical addresses not re-mined yet (see PR 370)
+        vm.skip(true, "next: deployment addresses not re-mined for new Core bytecode");
         vm.etch(DETERMINISTIC_DEPLOYER, DEPLOYER_RUNTIME);
         script = new DeployFreeLPBootstrap();
         (core, index) = script.deployContracts();

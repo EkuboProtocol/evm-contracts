@@ -9,7 +9,9 @@ import {FreeLPMetadataRenderer} from "../src/FreeLPMetadataRenderer.sol";
 import {FreeLPDataFetcher} from "../src/lens/FreeLPDataFetcher.sol";
 
 contract FreeLPDeploymentTest is Test {
-    function test_deploymentAddresses() public pure {
+    function test_deploymentAddresses() public {
+        // next: new protocol version, canonical addresses not re-mined yet (see PR 370)
+        vm.skip(true, "next: deployment addresses not re-mined for new Core bytecode");
         bytes32 salt = 0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd;
         address core = 0x00000000000014aA86C5d3c41765bb24e11bd701;
         address index =

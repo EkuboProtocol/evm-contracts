@@ -161,7 +161,7 @@ contract ScheduledLaunchTest is FullTest {
     uint64 constant INITIAL_FEE = uint64(uint256(1 << 64) / 10);
     uint64 constant FINAL_FEE = uint64(uint256(1 << 64) / 100);
 
-    function setUp() public override {
+    function setUp() public virtual override {
         super.setUp();
         vm.warp(1);
         address target = address(uint160(scheduledLaunchCallPoints().toUint8()) << 152);

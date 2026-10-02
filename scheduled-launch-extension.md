@@ -36,7 +36,9 @@ spacing. Migration bounds need not align with launch spacing. Choose bounds that
 reflect acceptable migration prices: unrestricted bounds do not protect against
 migration at a manipulated price.
 
-Supply must be positive and supply/seed must fit a positive int128. Fees are below
+Supply must be positive and supply/seed must fit a positive int128. At least one raw
+token unit must be sellable at the `upperTick` price without overflowing quote
+accounting, which rejects ranges ending within about 0.7 million ticks of `MAX_TICK`. Fees are below
 100% by construction and must satisfy `initialFee >= finalFee`. Metadata inherits
 `MintableERC20`'s 31-byte name/symbol limits. Creation deploys a fresh token through
 the extension's immutable liquidity contract, mints inventory to the extension, and
@@ -72,6 +74,16 @@ price is above it, then add feasible balances in the launch sell-side range. At 
 below target, skip selling and add token-side liquidity. Unreleased tokens cannot be
 used to pair quote proceeds. Excess quote remains reserved.
 
+External buys stop at the top of the launch range (`upperTick`): a price limit
+beyond it, including the default limit, is replaced by the top. Above the range the
+pool holds nothing of the launch's, and an empty pool (for example in the
+start-timestamp block, before any release) would let a buy move the price to the
+maximum for free. From there no release could be sold back toward the target and
+released inventory would never be offered. Bounding buys keeps the price at or below
+the top, where every release can sell at least one unit back toward the target, so
+releases are always offered. Exact-input buys larger than the offered inventory fill
+partially. Sells are not bounded; releases below the target add token-side liquidity.
+
 The creator fee applies to the **calculated side** of the actual fill:
 
 - Exact input: deduct the fee from output.
@@ -79,7 +91,11 @@ The creator fee applies to the **calculated side** of the actual fill:
 
 This preserves the specified amount and handles partial fills. The forwarding
 router must settle the returned deltas and enforce the user's slippage constraints
-against those fee-inclusive deltas. Raw Core swap events exclude the extension fee.
+against those fee-inclusive deltas. Raw Core swap events exclude the extension fee
+and show the extension as locker, so every external swap also emits
+`LaunchSwapped(poolId, locker, delta0, delta1, feeAmount, feeIsToken1)` with the
+original forwarding locker, the fee-inclusive deltas returned to it, and the creator
+fee. Internal release sales emit no `LaunchSwapped`.
 
 Internal release sales never pass through this fee-charging path. Their Core pool
 fee is zero. Creator fees are saved separately using `creatorFeeSalt(launchPoolId)`;
@@ -115,9 +131,12 @@ The destination key uses the same token pair,
 stableswap configuration, with XYK price movement, no initialized-tick traversal,
 and the TWAMM extension enabled. `TWAMM` is immutable per extension deployment.
 Each launch receives its own full-range position owned by the liquidity contract.
-Migration swaps and position updates on the terminal pool execute pending TWAMM
-virtual orders first, through Core's nested-lock support; with no open orders this
-is a no-op beyond virtual-order bookkeeping.
+Each migration attempt first executes the terminal pool's pending TWAMM virtual
+orders through Core's nested-lock support, then reads the price. The bounds check
+and the balancing trade use that executed price, and the bounds are checked again
+immediately before the deposit. If the executed price is outside the bounds the
+attempt defers and principal stays locked; it never reverts because of pending
+orders. With no open orders execution is a no-op beyond virtual-order bookkeeping.
 
 **Existing liquidity:** use its current liquidity and square-root price to solve the
 fee-adjusted XYK balancing trade. For token0 input `x`, liquidity `L`, and square-root
@@ -178,8 +197,27 @@ Use `getLaunch`, `released`, `feeAt`, and `terminalPool` on the extension. Use
 with the holder contract, token pair, and launch pool-ID salt for principal; use
 that holder's `creatorFeeSalt` for creator fees. Query the terminal position's Core
 liquidity to distinguish a pending migration from an established position.
-`LaunchCreated`, `LaunchAdvanced`, `PrincipalReceived`, `LiquidityLocked`, and fee
-claim events accompany Core's normal pool, swap, and position events.
+`LaunchCreated`, `LaunchAdvanced`, `LaunchSwapped`, `PrincipalReceived`,
+`LiquidityLocked`, and fee claim events accompany Core's normal pool, swap, and
+position events. `LaunchRouter` adds `LaunchRouted(poolId, payer, recipient)` for
+each routed create, swap, and fund.
+
+## Launch router
+
+`LaunchRouter` is the periphery for creating, trading, and funding launches.
+`msg.sender` pays every amount owed, native surplus is refunded before each call
+returns, and the router holds no tokens or approvals between calls.
+
+- `create(config, deadline)` pays `quoteAmount` and returns the pool key and token.
+- `swap(key, params, calculatedAmountThreshold, recipient, deadline)` forwards a launch
+  swap and sends output to the explicit, nonzero recipient. The threshold bounds the
+  fee-inclusive calculated amount from the swapper's side, as in `Router`: minimum
+  output for exact input, negated maximum input for exact output. Exact-output swaps
+  must fill; exact-input swaps may fill partially at the top of the range.
+- `quote(key, params)` runs the same forwarded swap inside a reverting lock and returns
+  the fee-inclusive deltas with the fee rate at that block. Call it with `eth_call`.
+- `fund(launchId, amount0, amount1, deadline)` adds counterpart assets to locked
+  principal for the next migration.
 
 ## Deployment and validation
 
@@ -188,6 +226,11 @@ and deploys it with its immutable liquidity contract. Configure `CORE_ADDRESS`,
 `TWAMM_ADDRESS`, optional starting `SALT`, and optional expected
 `SCHEDULED_LAUNCH_ADDRESS`. Use `forge script --offline`; broadcasting is a
 separate action. No existing deployed contract source is modified.
+
+`script/launchpad-local.sh` starts an anvil fork, deploys the extension, its
+liquidity contract, and `LaunchRouter` with `script/DeployLaunchpadLocal.s.sol`, and
+writes `launchpad-manifest.json` with addresses, runtime code hashes, fork block, and
+git revision. It is for local forks only and signs with anvil's development key.
 
 Tests cover fee decay and fee-inclusive fills, internal-fee exemption, atomic
 creation, ownership, both token orders, native quote assets, source and destination

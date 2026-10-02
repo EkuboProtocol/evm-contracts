@@ -28,7 +28,8 @@ Forward calls decode:
 `SignedSwapMeta` packs:
 - `authorizedLockerLow128` (lower 128 bits of locker address, `0` means any locker),
 - `deadline` (32 bits),
-- `fee` (32 bits, Q32 fee rate),
+- reserved (16 bits, must be 0),
+- `fee` (16 bits, Q16 fee rate),
 - `nonce` (64 bits).
 
 The signature is EIP-712 over this exact type:
@@ -58,7 +59,7 @@ where:
    - locker authorization from `meta`,
    - signature against the pool controller stored in per-pool state.
    (The nonce is not pre-checked on the forward path; reuse is rejected when the nonce is consumed in step 4.)
-3. Extension executes `CORE.swap(...)`, passing `fee` (a Q32 rate, widened to Core's Q64) as that swap's minimum fee. Core charges the greater of the pool's configured fee and that minimum; the pool's fee is required to be zero here, so the signed fee is exactly what is charged. It comes off the input token in both directions, moves the price less, and is credited to the LPs that were in range for each step of the swap.
+3. Extension executes `CORE.swap(...)` with `fee` (a Q16 rate, the same domain as Core's fee) as that swap's minimum fee. Core charges the greater of the pool's configured fee and that minimum; the pool's fee is required to be zero here, so the signed fee is exactly what is charged. It comes off the input token in both directions, moves the price less, and is credited to the LPs that were in range for each step of the swap.
 4. Extension checks `actualBalanceUpdate >= minBalanceUpdate` component-wise (`delta0` and `delta1`). Because the fee is now inside the Core swap, the bound applies to what the swapper actually pays and receives.
 5. Extension consumes the nonce. This happens only after the bounds check passes, so a swap that violates its bounds costs less gas and does not burn the nonce.
 

@@ -68,7 +68,7 @@ Each auction is keyed by:
 - Auction cannot be newly funded once `block.timestamp > startTime`.
 - Completion is blocked before `endTime`.
 - `auctionDuration` must produce a non-zero sale rate for the funded amount.
-- Graduation pool tick spacing must be in `(0, MAX_TICK_SPACING]`.
+- Graduation pool tick spacing exponent must be in `[0, MAX_TICK_SPACING_EXP]` (spacing is `1 << exp`).
 - `minBoostDuration` must be `<= 180 days`.
 
 ## Proceeds and Incentives Semantics

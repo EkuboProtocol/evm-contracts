@@ -28,7 +28,7 @@ struct Ve33EmissionState {
 
 struct Ve33QuoteData {
     QuoteData quoteData;
-    uint64 swapFee;
+    uint16 swapFee;
 }
 
 contract Ve33DataFetcher is QuoteDataFetcher {
@@ -65,10 +65,10 @@ contract Ve33DataFetcher is QuoteDataFetcher {
     }
 
     /// @notice Returns the current voted swap fee for each requested pool.
-    /// @dev The returned fees use the same Q64 fixed-point representation consumed by Ve33 swaps.
-    function getPoolSwapFees(PoolId[] calldata poolIds) external view returns (uint64[] memory swapFees) {
+    /// @dev The returned fees use the same Q16 fixed-point representation consumed by Ve33 swaps.
+    function getPoolSwapFees(PoolId[] calldata poolIds) external view returns (uint16[] memory swapFees) {
         Ve33 ve33 = VE33_EXTENSION;
-        swapFees = new uint64[](poolIds.length);
+        swapFees = new uint16[](poolIds.length);
 
         for (uint256 i = 0; i < poolIds.length; i++) {
             swapFees[i] = ve33.poolSwapFeeState(poolIds[i]).swapFee();

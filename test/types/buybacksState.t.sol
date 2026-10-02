@@ -6,6 +6,11 @@ import {BuybacksState, createBuybacksState} from "../../src/types/buybacksState.
 
 contract BuybacksStateTest is Test {
     function test_conversionToAndFrom(BuybacksState state) public pure {
+        // fee fields are 16 bits; clear the non-representable bits first since construction zeroes them
+        uint256 raw = uint256(BuybacksState.unwrap(state));
+        raw &= ~(uint256(0xffffffffffff0000) << 64);
+        raw &= ~(uint256(0xffffffffffff0000) << 192);
+        state = BuybacksState.wrap(bytes32(raw));
         assertEq(
             BuybacksState.unwrap(
                 createBuybacksState({
@@ -24,10 +29,10 @@ contract BuybacksStateTest is Test {
     function test_conversionFromAndTo(
         uint32 targetOrderDuration,
         uint32 minOrderDuration,
-        uint64 fee,
+        uint16 fee,
         uint32 lastEndTime,
         uint32 lastOrderDuration,
-        uint64 lastFee
+        uint16 lastFee
     ) public pure {
         BuybacksState state = createBuybacksState({
             _targetOrderDuration: targetOrderDuration,
@@ -49,10 +54,10 @@ contract BuybacksStateTest is Test {
     function test_parse(
         uint32 targetOrderDuration,
         uint32 minOrderDuration,
-        uint64 fee,
+        uint16 fee,
         uint32 lastEndTime,
         uint32 lastOrderDuration,
-        uint64 lastFee
+        uint16 lastFee
     ) public pure {
         BuybacksState state = createBuybacksState({
             _targetOrderDuration: targetOrderDuration,
@@ -66,10 +71,10 @@ contract BuybacksStateTest is Test {
         (
             uint32 parsedTargetOrderDuration,
             uint32 parsedMinOrderDuration,
-            uint64 parsedFee,
+            uint16 parsedFee,
             uint32 parsedLastEndTime,
             uint32 parsedLastOrderDuration,
-            uint64 parsedLastFee
+            uint16 parsedLastFee
         ) = state.parse();
 
         assertEq(parsedTargetOrderDuration, targetOrderDuration);
@@ -90,10 +95,10 @@ contract BuybacksStateTest is Test {
     ) public pure {
         uint32 targetOrderDuration;
         uint32 minOrderDuration;
-        uint64 fee;
+        uint16 fee;
         uint32 lastEndTime;
         uint32 lastOrderDuration;
-        uint64 lastFee;
+        uint16 lastFee;
 
         assembly ("memory-safe") {
             targetOrderDuration := targetOrderDurationDirty

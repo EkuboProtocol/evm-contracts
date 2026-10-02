@@ -91,7 +91,7 @@ It does not transfer stake tokens for these stake operations. The calling repres
 
 ## Voting
 
-`Ve33.vote` assigns one stake id's full current voting power to one pool and accepts an explicit `uint64` swap fee. Fees are 0.64 fixed point, so `1 << 64` is 100%. The optional `VeToken` wrapper exposes `vote(veId, poolKey, swapFee)`, `clearVote(veId)`, `splitStake(veId, amount)`, deterministic salt overloads for stake creation and splitting, `stakeAndVote(amount, end, salt, poolKey, swapFee)`, and `mergeStakes(fromVeId, toVeId)`.
+`Ve33.vote` assigns one stake id's full current voting power to one pool and accepts an explicit `uint16` swap fee. Fees are 0.16 fixed point, so `1 << 16` is 100%. The optional `VeToken` wrapper exposes `vote(veId, poolKey, swapFee)`, `clearVote(veId)`, `splitStake(veId, amount)`, deterministic salt overloads for stake creation and splitting, `stakeAndVote(amount, end, salt, poolKey, swapFee)`, and `mergeStakes(fromVeId, toVeId)`.
 
 Each pool tracks active vote weight, voter fee growth, a snapshot of global emission growth, and the weighted fee sum. When votes change, the pool fee is computed as `feeWeightSum / weight`; integer division rounds down. With no active votes, this EVM `div` returns zero, so the pool has no extension swap fee.
 

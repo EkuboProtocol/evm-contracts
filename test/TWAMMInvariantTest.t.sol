@@ -110,10 +110,10 @@ contract Handler is StdUtils, StdAssertions {
         vm.warp(vm.getBlockTimestamp() + by);
     }
 
-    function createNewPool(uint64 fee, int32 tick) public {
+    function createNewPool(uint16 fee, int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
-            address(token0), address(token1), createFullRangePoolConfig(fee, address(orders.TWAMM_EXTENSION()))
+            address(token0), address(token1), createFullRangePoolConfig(fee, address(orders.TWAMM_EXTENSION()), 0)
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);

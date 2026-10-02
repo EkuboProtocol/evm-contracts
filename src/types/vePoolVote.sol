@@ -17,9 +17,9 @@ function weight(VePoolVote vote) pure returns (uint128 value) {
 }
 
 /// @notice Returns the fee selected by the stake for this pool.
-function swapFee(VePoolVote vote) pure returns (uint64 value) {
+function swapFee(VePoolVote vote) pure returns (uint16 value) {
     assembly ("memory-safe") {
-        value := shr(128, vote)
+        value := and(shr(128, vote), 0xffff)
     }
 }
 
@@ -31,19 +31,19 @@ function timestamp(VePoolVote vote) pure returns (uint64 value) {
 }
 
 /// @notice Returns all fields in the packed vote.
-function parse(VePoolVote vote) pure returns (uint128 weight_, uint64 swapFee_, uint64 timestamp_) {
+function parse(VePoolVote vote) pure returns (uint128 weight_, uint16 swapFee_, uint64 timestamp_) {
     assembly ("memory-safe") {
         weight_ := vote
-        swapFee_ := shr(128, vote)
+        swapFee_ := and(shr(128, vote), 0xffff)
         timestamp_ := shr(192, vote)
     }
 }
 
 /// @notice Creates a packed ve pool vote.
-function createVePoolVote(uint128 weight_, uint64 swapFee_, uint64 timestamp_) pure returns (VePoolVote vote) {
+function createVePoolVote(uint128 weight_, uint16 swapFee_, uint64 timestamp_) pure returns (VePoolVote vote) {
     assembly ("memory-safe") {
         vote := or(
-            or(and(weight_, 0xffffffffffffffffffffffffffffffff), shl(128, and(swapFee_, 0xffffffffffffffff))),
+            or(and(weight_, 0xffffffffffffffffffffffffffffffff), shl(128, and(swapFee_, 0xffff))),
             shl(192, and(timestamp_, 0xffffffffffffffff))
         )
     }

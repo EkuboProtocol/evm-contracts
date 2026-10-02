@@ -66,11 +66,11 @@ abstract contract BaseOracleTest is FullTest {
     }
 
     function createOraclePool(address quoteToken, int32 tick) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, createFullRangePoolConfig(0, address(oracle)));
+        poolKey = createPool(NATIVE_TOKEN_ADDRESS, quoteToken, tick, createFullRangePoolConfig(0, address(oracle), 0));
     }
 
     function updateOraclePoolLiquidity(address token, uint128 liquidityNext) internal returns (uint128) {
-        PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, createFullRangePoolConfig(0, address(oracle)));
+        PoolKey memory pk = PoolKey(NATIVE_TOKEN_ADDRESS, token, createFullRangePoolConfig(0, address(oracle), 0));
 
         (SqrtRatio sqrtRatio,, uint128 liquidityBefore) = core.poolState(pk.toPoolId()).parse();
 
@@ -543,13 +543,13 @@ contract OracleTest is BaseOracleTest {
 
     function test_createPool_beforeInitializePool_reverts() public {
         vm.expectRevert(IOracle.PairsWithNativeTokenOnly.selector);
-        createPool(address(token0), address(token1), 0, createFullRangePoolConfig(0, address(oracle)));
+        createPool(address(token0), address(token1), 0, createFullRangePoolConfig(0, address(oracle), 0));
 
         vm.expectRevert(IOracle.FullRangePoolOnly.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createStableswapPoolConfig(0, 15, 0, address(oracle)));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 20, createStableswapPoolConfig(0, 15, 0, address(oracle), 0));
 
         vm.expectRevert(IOracle.FeeMustBeZero.selector);
-        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createStableswapPoolConfig(1, 0, 0, address(oracle)));
+        createPool(NATIVE_TOKEN_ADDRESS, address(token1), 20, createStableswapPoolConfig(1, 0, 0, address(oracle), 0));
     }
 
     function test_createPosition(uint256 startTime) public {
@@ -863,7 +863,7 @@ contract OracleTest is BaseOracleTest {
         );
 
         vm.expectRevert(UsesCore.CoreOnly.selector);
-        oracle.beforeSwap(Locker.wrap(bytes32(0)), poolKey, createSwapParameters(SqrtRatio.wrap(0), 0, false, 0));
+        oracle.beforeSwap(Locker.wrap(bytes32(0)), poolKey, createSwapParameters(SqrtRatio.wrap(0), 0, false, 0, 0));
     }
 
     /// forge-config: default.isolate = true

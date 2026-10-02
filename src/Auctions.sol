@@ -15,7 +15,7 @@ import {UsesCore} from "./base/UsesCore.sol";
 import {SaleRateOverflow, computeSaleRate} from "./math/twamm.sol";
 import {computeFee} from "./math/fee.sol";
 import {nextValidTime, MAX_ABS_VALUE_SALE_RATE_DELTA} from "./math/time.sol";
-import {NATIVE_TOKEN_ADDRESS, MAX_TICK_SPACING} from "./math/constants.sol";
+import {NATIVE_TOKEN_ADDRESS, MAX_TICK_SPACING_EXP} from "./math/constants.sol";
 import {BoostedFeesLib} from "./libraries/BoostedFeesLib.sol";
 import {TWAMMLib} from "./libraries/TWAMMLib.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
@@ -58,8 +58,8 @@ contract Auctions is IAuctions, UsesCore, BaseLocker, BaseNonfungibleToken, Paya
         payable
         authorizedForNft(tokenId)
     {
-        uint32 graduationPoolTickSpacing = auctionKey.config.graduationPoolTickSpacing();
-        if (graduationPoolTickSpacing == 0 || graduationPoolTickSpacing > MAX_TICK_SPACING) {
+        uint8 graduationPoolTickSpacingExp = auctionKey.config.graduationPoolTickSpacing();
+        if (graduationPoolTickSpacingExp > MAX_TICK_SPACING_EXP) {
             revert InvalidGraduationPoolTickSpacing();
         }
 
@@ -252,8 +252,7 @@ contract Auctions is IAuctions, UsesCore, BaseLocker, BaseNonfungibleToken, Paya
                 uint128 auctionProceeds = CORE.collectProceeds(TWAMM, orderSalt, auctionKey.toOrderKey());
                 if (auctionProceeds == 0) revert NoProceedsToCompleteAuction();
 
-                uint128 creatorAmount =
-                    computeFee({amount: auctionProceeds, fee: uint64(auctionKey.config.creatorFee()) << 32});
+                uint128 creatorAmount = computeFee({amount: auctionProceeds, fee: auctionKey.config.creatorFee()});
                 uint128 boostAmount = auctionProceeds - creatorAmount;
 
                 if (creatorAmount != 0) {

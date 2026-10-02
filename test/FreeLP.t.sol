@@ -135,9 +135,7 @@ contract FreeLPTest is FullTest {
         lp = new FreeLP(core, index, new FreeLPMetadataRenderer());
         reader = new FreeLPDataFetcher(core);
         d = FreeLPDataFetcher.Descriptor(
-            PoolKey(address(token0), address(token1), createConcentratedPoolConfig(1 << 60, 10, address(0))),
-            -1000,
-            1000
+            PoolKey(address(token0), address(token1), createConcentratedPoolConfig(4096, 1, address(0), 0)), -1000, 1000
         );
         token0.approve(address(lp), type(uint256).max);
         token1.approve(address(lp), type(uint256).max);
@@ -191,7 +189,7 @@ contract FreeLPTest is FullTest {
         FreeLPDataFetcher fetcher = new FreeLPDataFetcher(core);
         PoolKey[] memory keys = new PoolKey[](1);
         keys[0] = d.poolKey;
-        QuoteData[] memory quotes = fetcher.getQuoteData(keys, 1);
+        QuoteData[] memory quotes = fetcher.getQuoteData(keys, 4);
         (uint256 ratio,, uint128 liquidity) = reader.poolState(lp, d.poolKey);
         assertEq(quotes.length, 1);
         assertEq(quotes[0].sqrtRatio.toFixed(), ratio);
@@ -495,7 +493,7 @@ contract FreeLPTest is FullTest {
         vm.expectRevert(BoundsOrder.selector);
         lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 100, 100, 1);
         d.tickUpper = 1000;
-        d.poolKey.config = createConcentratedPoolConfig(0, 10, address(0));
+        d.poolKey.config = createConcentratedPoolConfig(0, 1, address(0), 0);
         lp.maybeInitializePool(d.poolKey, 0);
         vm.expectRevert(FreeLP.Slippage.selector);
         lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 0, 0, 0);
@@ -505,7 +503,7 @@ contract FreeLPTest is FullTest {
         amplification = uint8(bound(amplification, 0, 26));
         center = int32(bound(center, -1000000, 1000000)) / 16 * 16;
         address extension = address(createAndRegisterExtension());
-        d.poolKey.config = createStableswapPoolConfig(type(uint64).max / 1000, amplification, center, extension);
+        d.poolKey.config = createStableswapPoolConfig(type(uint16).max / 1000, amplification, center, extension, 0);
         (d.tickLower, d.tickUpper) = d.poolKey.config.stableswapActiveLiquidityTickRange();
         lp.maybeInitializePool(d.poolKey, center);
         (uint256 id, uint128 liquidity,,) = lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 1 ether, 1 ether, 1);
@@ -515,7 +513,7 @@ contract FreeLPTest is FullTest {
     }
 
     function test_concentratedWithExtension() public {
-        d.poolKey.config = createConcentratedPoolConfig(123456789, 10, address(createAndRegisterExtension()));
+        d.poolKey.config = createConcentratedPoolConfig(12345, 1, address(createAndRegisterExtension()), 0);
         (uint256 id, uint128 liquidity) = create(1 ether);
         assertEq(abi.encode(reader.descriptor(lp, id)), abi.encode(d));
         lp.withdraw(id, liquidity, address(this));
@@ -523,7 +521,7 @@ contract FreeLPTest is FullTest {
 
     function test_stableswapFeesRemainOwedOutsideActiveRange() public {
         d.poolKey.config =
-            createStableswapPoolConfig(type(uint64).max / 100, 10, 0, address(createAndRegisterExtension()));
+            createStableswapPoolConfig(type(uint16).max / 100, 10, 0, address(createAndRegisterExtension()), 0);
         (d.tickLower, d.tickUpper) = d.poolKey.config.stableswapActiveLiquidityTickRange();
         (uint256 id,) = create(1 ether);
         token0.approve(address(router), 10 ether);
@@ -538,7 +536,7 @@ contract FreeLPTest is FullTest {
     }
 
     function test_stableswapRejectsPartialRange() public {
-        d.poolKey.config = createStableswapPoolConfig(0, 10, 0, address(0));
+        d.poolKey.config = createStableswapPoolConfig(0, 10, 0, address(0), 0);
         lp.maybeInitializePool(d.poolKey, 0);
         vm.expectRevert(StableswapMustBeFullRange.selector);
         lp.createPosition(d.poolKey, d.tickLower, d.tickUpper, 1000, 1000, 1);
@@ -622,7 +620,7 @@ contract FreeLPTest is FullTest {
         ReentrantBurnExtension extension = ReentrantBurnExtension(address(uint160(16) << 152));
         vm.etch(address(extension), address(implementation).code);
         extension.register(core);
-        d.poolKey.config = createConcentratedPoolConfig(123456789, 10, address(extension));
+        d.poolKey.config = createConcentratedPoolConfig(12345, 1, address(extension), 0);
         (uint256 id, uint128 liquidity) = create(1 ether);
         lp.setApprovalForAll(address(extension), true);
         extension.arm(lp, id, address(this));

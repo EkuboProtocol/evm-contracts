@@ -21,43 +21,20 @@ contract MinimumFeeSwapper is BaseLocker {
 
     constructor(ICore core) BaseLocker(core) {}
 
-    function swap(PoolKey memory poolKey, SwapParameters params, uint64 minimumFee, address payer)
-        external
-        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
-    {
-        (balanceUpdate, stateAfter) = swap(poolKey, params, minimumFee, payer, false);
-    }
-
-    /// @notice Swaps with the trailing fee word always present and set to an arbitrary 256-bit
-    /// value, which is the only way to reach Core with a fee wider than a 0.64 number
-    function swapRaw(PoolKey memory poolKey, SwapParameters params, uint256 feeWord, address payer)
+    function swap(PoolKey memory poolKey, SwapParameters params, uint16 minimumFee, address payer)
         external
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
         (balanceUpdate, stateAfter) =
-            abi.decode(lock(abi.encode(poolKey, params, feeWord, payer, true)), (PoolBalanceUpdate, PoolState));
-    }
-
-    function swap(PoolKey memory poolKey, SwapParameters params, uint64 minimumFee, address payer, bool sendRaw)
-        public
-        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
-    {
-        (balanceUpdate, stateAfter) = abi.decode(
-            lock(abi.encode(poolKey, params, uint256(minimumFee), payer, sendRaw)), (PoolBalanceUpdate, PoolState)
-        );
+            abi.decode(lock(abi.encode(poolKey, params, minimumFee, payer)), (PoolBalanceUpdate, PoolState));
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory result) {
-        (PoolKey memory poolKey, SwapParameters params, uint256 feeWord, address payer, bool sendRaw) =
-            abi.decode(data, (PoolKey, SwapParameters, uint256, address, bool));
+        (PoolKey memory poolKey, SwapParameters params, uint16 minimumFee, address payer) =
+            abi.decode(data, (PoolKey, SwapParameters, uint16, address));
 
-        PoolBalanceUpdate balanceUpdate;
-        PoolState stateAfter;
-        if (sendRaw) {
-            (balanceUpdate, stateAfter) = _swapWithFeeWord(address(ACCOUNTANT), poolKey, params, feeWord);
-        } else {
-            (balanceUpdate, stateAfter) = ICore(payable(address(ACCOUNTANT))).swap(0, poolKey, params, uint64(feeWord));
-        }
+        (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) =
+            ICore(payable(address(ACCOUNTANT))).swap(0, poolKey, params.withMinFee(minimumFee));
 
         if (balanceUpdate.delta0() > 0) {
             ACCOUNTANT.payFrom(payer, poolKey.token0, uint128(balanceUpdate.delta0()));
@@ -73,34 +50,13 @@ contract MinimumFeeSwapper is BaseLocker {
 
         result = abi.encode(balanceUpdate, stateAfter);
     }
-
-    function _swapWithFeeWord(address core, PoolKey memory poolKey, SwapParameters params, uint256 feeWord)
-        private
-        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
-    {
-        assembly ("memory-safe") {
-            let free := mload(0x40)
-            mstore(free, 0)
-            mcopy(add(free, 4), poolKey, 96)
-            mstore(add(free, 100), params)
-            mstore(add(free, 132), feeWord)
-
-            if iszero(call(gas(), core, 0, free, 164, free, 64)) {
-                returndatacopy(free, 0, returndatasize())
-                revert(free, returndatasize())
-            }
-
-            balanceUpdate := mload(free)
-            stateAfter := mload(add(free, 32))
-        }
-    }
 }
 
 contract MinimumFeeTest is FullTest {
     using CoreLib for *;
 
-    // 0.3% as a 0.64 number
-    uint64 internal constant THREE_BIPS = uint64((uint256(3) << 64) / 1000);
+    // 0.3% as a 0.16 number
+    uint16 internal constant THREE_BIPS = uint16((uint256(3) << 16) / 1000);
 
     /// @dev `initializePool` seeds both fees-per-liquidity slots with 1
     uint256 internal constant INITIAL_FEES_PER_LIQUIDITY = 1;
@@ -122,20 +78,20 @@ contract MinimumFeeTest is FullTest {
 
     /// @dev Runs against a freshly created pool and rolls the chain back afterwards, so callers can
     /// compare independent fee configurations without the pools colliding on their pool id.
-    function swapOnce(uint64 poolFee, uint64 minimumFee, int128 amount, bool isToken1)
+    function swapOnce(uint16 poolFee, uint16 minimumFee, int128 amount, bool isToken1)
         internal
         returns (SwapOutcome memory outcome)
     {
         uint256 snapshot = vm.snapshotState();
 
-        PoolKey memory poolKey = createPool(0, poolFee, 20_000);
+        PoolKey memory poolKey = createPool(0, poolFee, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         (outcome.balanceUpdate,) = swapper.swap(
             poolKey,
             createSwapParameters({
-                    _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-                }).withDefaultSqrtRatioLimit(),
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
+            }).withDefaultSqrtRatioLimit(),
             minimumFee,
             address(this)
         );
@@ -157,8 +113,7 @@ contract MinimumFeeTest is FullTest {
 
     /// @dev Paying a minimum fee of `f` has to be indistinguishable from swapping a pool whose own
     /// fee is `f`, however the two are arranged.
-    function test_minimum_fee_is_equivalent_to_pool_fee(uint64 fee, int128 amount, bool isToken1) public {
-        fee = uint64(bound(fee, 0, type(uint64).max / 2));
+    function test_minimum_fee_is_equivalent_to_pool_fee(uint16 fee, int128 amount, bool isToken1) public {
         amount = int128(bound(amount, -100_000, 100_000));
         vm.assume(amount != 0);
 
@@ -177,8 +132,8 @@ contract MinimumFeeTest is FullTest {
 
     /// @dev The caller's number is a floor, not an increment, so a minimum under the pool's own fee
     /// changes nothing and can never be stacked into a larger charge.
-    function test_minimum_fee_below_pool_fee_is_a_noop(uint64 minimumFee, int128 amount, bool isToken1) public {
-        minimumFee = uint64(bound(minimumFee, 0, THREE_BIPS));
+    function test_minimum_fee_below_pool_fee_is_a_noop(uint16 minimumFee, int128 amount, bool isToken1) public {
+        minimumFee = uint16(bound(minimumFee, 0, THREE_BIPS));
         amount = int128(bound(amount, -100_000, 100_000));
         vm.assume(amount != 0);
 
@@ -214,49 +169,15 @@ contract MinimumFeeTest is FullTest {
         assertGt(withFee.feesPerLiquidity.value1, INITIAL_FEES_PER_LIQUIDITY);
     }
 
-    /// @dev A fee wider than a 0.64 number would underflow `amountBeforeFee`'s divisor and hand an
-    /// exact-output swapper a near-zero input, so it has to revert rather than be masked away.
-    function test_revert_minimum_fee_too_large(uint256 feeWord, int128 amount) public {
-        feeWord = bound(feeWord, uint256(type(uint64).max) + 1, type(uint256).max);
-        amount = int128(bound(amount, -100_000, 100_000));
-        vm.assume(amount != 0);
-
-        PoolKey memory poolKey = createPool(0, THREE_BIPS, 20_000);
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
-
-        vm.expectRevert(ICore.FeeTooLarge.selector);
-        swapper.swapRaw(
-            poolKey,
-            createSwapParameters({_isToken1: false, _amount: amount, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0})
-                .withDefaultSqrtRatioLimit(),
-            feeWord,
-            address(this)
-        );
-    }
-
-    /// @dev The minimum fee is a trailing calldata word, so a caller that omits it entirely must be
-    /// treated as having passed zero. This is what keeps every pre-existing caller working.
-    function test_omitted_minimum_fee_word_is_zero(int128 amount, bool isToken1) public {
+    /// @dev The minimum fee is a 16-bit field, so any representable value is a valid fee and no
+    /// range check is needed. This pins that `withMinFee` round-trips through the parameters.
+    function test_min_fee_round_trips_through_params(uint16 minimumFee, int128 amount, bool isToken1) public {
         amount = int128(bound(amount, -100_000, 100_000));
         vm.assume(amount != 0);
 
         SwapParameters params = createSwapParameters({
-                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
-
-        uint256 snapshot = vm.snapshotState();
-
-        PoolKey memory poolKey = createPool(0, THREE_BIPS, 20_000);
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
-        (PoolBalanceUpdate omitted,) = swapper.swap(poolKey, params, 0, address(this), false);
-
-        vm.revertToState(snapshot);
-
-        poolKey = createPool(0, THREE_BIPS, 20_000);
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
-        (PoolBalanceUpdate explicitZero,) = swapper.swap(poolKey, params, 0, address(this), true);
-
-        assertEq(omitted.delta0(), explicitZero.delta0(), "delta0");
-        assertEq(omitted.delta1(), explicitZero.delta1(), "delta1");
+            _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
+        }).withMinFee(minimumFee);
+        assertEq(params.minFee(), minimumFee);
     }
 }

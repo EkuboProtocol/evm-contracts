@@ -40,7 +40,7 @@ abstract contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnab
     }
 
     /// @inheritdoc IRevenueBuybacks
-    function collect(address token, uint64 fee, uint64 endTime) external returns (uint128 proceeds) {
+    function collect(address token, uint16 fee, uint64 endTime) external returns (uint128 proceeds) {
         proceeds = ORDERS.collectProceeds(NFT_ID, _createOrderKey(token, fee, 0, endTime), owner());
     }
 
@@ -113,7 +113,7 @@ abstract contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnab
     }
 
     /// @inheritdoc IRevenueBuybacks
-    function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee)
+    function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint16 fee)
         external
         onlyOwner
     {
@@ -143,7 +143,7 @@ abstract contract RevenueBuybacks is IRevenueBuybacks, ExposedStorage, BaseOwnab
         emit Configured(token, state);
     }
 
-    function _createOrderKey(address token, uint64 fee, uint64 startTime, uint64 endTime)
+    function _createOrderKey(address token, uint16 fee, uint64 startTime, uint64 endTime)
         internal
         view
         returns (OrderKey memory key)

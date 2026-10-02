@@ -54,7 +54,7 @@ function toLaunchPoolKey(AuctionKey memory auctionKey, address twamm) pure retur
     poolKey = PoolKey({
         token0: auctionKey.token0,
         token1: auctionKey.token1,
-        config: createFullRangePoolConfig({_fee: 0, _extension: twamm})
+        config: createFullRangePoolConfig({_fee: 0, _extension: twamm, _salt: 0})
     });
 }
 
@@ -64,7 +64,7 @@ function toGraduationPoolKey(AuctionKey memory auctionKey, address boostedFees) 
         token0: auctionKey.token0,
         token1: auctionKey.token1,
         config: createConcentratedPoolConfig(
-            auctionKey.config.graduationPoolFee(), auctionKey.config.graduationPoolTickSpacing(), boostedFees
+            auctionKey.config.graduationPoolFee(), auctionKey.config.graduationPoolTickSpacing(), boostedFees, 0
         )
     });
 }

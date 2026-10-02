@@ -2,7 +2,7 @@
 pragma solidity =0.8.33;
 
 import {Test} from "forge-std/Test.sol";
-import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
+import {SwapParameters, SkipAheadTooLarge, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {isPriceIncreasing} from "../../src/math/isPriceIncreasing.sol";
@@ -15,7 +15,8 @@ contract SwapParametersTest is Test {
                     _sqrtRatioLimit: params.sqrtRatioLimit(),
                     _amount: params.amount(),
                     _isToken1: params.isToken1(),
-                    _skipAhead: params.skipAhead()
+                    _skipAhead: params.skipAhead(),
+                    _minFee: params.minFee()
                 })
             ),
             SwapParameters.unwrap(params)
@@ -50,67 +51,105 @@ contract SwapParametersTest is Test {
 
     function test_withDefaultSqrtRatioLimit() public pure {
         assertEq(
-            createSwapParameters({_amount: 1, _isToken1: false, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)})
+            createSwapParameters({_amount: 1, _isToken1: false, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0), _minFee: 0})
                 .withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
             MIN_SQRT_RATIO.toFixed()
         );
         assertEq(
-            createSwapParameters({_amount: 1, _isToken1: true, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)})
+            createSwapParameters({_amount: 1, _isToken1: true, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0), _minFee: 0})
                 .withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
             MAX_SQRT_RATIO.toFixed()
         );
         assertEq(
-            createSwapParameters({_amount: -1, _isToken1: false, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)})
+            createSwapParameters({_amount: -1, _isToken1: false, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0), _minFee: 0})
                 .withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
             MAX_SQRT_RATIO.toFixed()
         );
         assertEq(
-            createSwapParameters({_amount: -1, _isToken1: true, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0)})
+            createSwapParameters({_amount: -1, _isToken1: true, _skipAhead: 0, _sqrtRatioLimit: SqrtRatio.wrap(0), _minFee: 0})
                 .withDefaultSqrtRatioLimit().sqrtRatioLimit().toFixed(),
             MIN_SQRT_RATIO.toFixed()
         );
     }
 
-    function test_conversionFromAndTo(SqrtRatio sqrtRatioLimit, int128 amount, bool isToken1, uint256 skipAhead)
-        public
-        pure
-    {
-        skipAhead = bound(skipAhead, 0, type(uint32).max >> 1);
+    function test_conversionFromAndTo(
+        SqrtRatio sqrtRatioLimit,
+        int128 amount,
+        bool isToken1,
+        uint256 skipAhead,
+        uint16 minFee
+    ) public pure {
+        skipAhead = bound(skipAhead, 0, 0x7fff);
         SwapParameters params = createSwapParameters({
-            _sqrtRatioLimit: sqrtRatioLimit, _amount: amount, _isToken1: isToken1, _skipAhead: skipAhead
+            _sqrtRatioLimit: sqrtRatioLimit,
+            _amount: amount,
+            _isToken1: isToken1,
+            _skipAhead: skipAhead,
+            _minFee: minFee
         });
         assertEq(SqrtRatio.unwrap(params.sqrtRatioLimit()), SqrtRatio.unwrap(sqrtRatioLimit));
         assertEq(params.amount(), amount);
         assertEq(params.isToken1(), isToken1);
         assertEq(params.skipAhead(), skipAhead);
+        assertEq(params.minFee(), minFee);
+    }
+
+    function test_conversion_reverts_when_skip_ahead_too_large(uint256 skipAhead) public {
+        skipAhead = bound(skipAhead, 0x8000, type(uint256).max);
+        vm.expectRevert(SkipAheadTooLarge.selector);
+        this.createSwapParametersExternal(SqrtRatio.wrap(0), 0, false, skipAhead, 0);
     }
 
     function test_conversionFromAndToDirtyBits(
         bytes32 sqrtRatioLimitDirty,
         bytes32 amountDirty,
         bytes32 isToken1Dirty,
-        bytes32 skipAheadDirty
+        bytes32 skipAheadDirty,
+        bytes32 minFeeDirty
     ) public pure {
         SqrtRatio sqrtRatioLimit;
         int128 amount;
         bool isToken1;
         uint256 skipAhead;
+        uint16 minFee;
 
         assembly ("memory-safe") {
             sqrtRatioLimit := sqrtRatioLimitDirty
             amount := amountDirty
             isToken1 := isToken1Dirty
             skipAhead := skipAheadDirty
+            minFee := minFeeDirty
         }
 
-        vm.assume(skipAhead <= 0xFFFFFF);
+        vm.assume(skipAhead <= 0x7fff);
 
         SwapParameters params = createSwapParameters({
-            _sqrtRatioLimit: sqrtRatioLimit, _amount: amount, _isToken1: isToken1, _skipAhead: skipAhead
+            _sqrtRatioLimit: sqrtRatioLimit,
+            _amount: amount,
+            _isToken1: isToken1,
+            _skipAhead: skipAhead,
+            _minFee: minFee
         });
         assertEq(SqrtRatio.unwrap(params.sqrtRatioLimit()), SqrtRatio.unwrap(sqrtRatioLimit), "sqrtRatioLimit");
         assertEq(params.amount(), amount, "amount");
         assertEq(params.isToken1(), isToken1, "isToken1");
         assertEq(params.skipAhead(), skipAhead, "skipAhead");
+        assertEq(params.minFee(), minFee, "minFee");
+    }
+
+    function createSwapParametersExternal(
+        SqrtRatio sqrtRatioLimit,
+        int128 amount,
+        bool isToken1,
+        uint256 skipAhead,
+        uint16 minFee
+    ) external pure returns (SwapParameters) {
+        return createSwapParameters({
+            _sqrtRatioLimit: sqrtRatioLimit,
+            _amount: amount,
+            _isToken1: isToken1,
+            _skipAhead: skipAhead,
+            _minFee: minFee
+        });
     }
 }

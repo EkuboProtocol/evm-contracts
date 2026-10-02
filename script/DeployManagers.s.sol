@@ -27,20 +27,20 @@ contract DeployManagers is Script {
         string memory positionsBaseUrl = _envStringOr("POSITIONS_BASE_URL", "https://prod-api.ekubo.org/positions/");
         string memory ordersBaseUrl = _envStringOr("ORDERS_BASE_URL", "https://prod-api.ekubo.org/orders/");
 
-        uint64 swapProtocolFeeX64 = uint64(vm.envOr("SWAP_PROTOCOL_FEE_X64", uint256(1844674407370955161)));
+        uint16 swapProtocolFeeX16 = uint16(vm.envOr("SWAP_PROTOCOL_FEE_X16", uint256(7)));
         uint64 withdrawalProtocolFeeDenominator = uint64(vm.envOr("WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR", uint256(0)));
 
         vm.startBroadcast();
 
         bytes memory positionsInitCode;
         string memory positionsName;
-        if (swapProtocolFeeX64 == 0 && withdrawalProtocolFeeDenominator == 0) {
+        if (swapProtocolFeeX16 == 0 && withdrawalProtocolFeeDenominator == 0) {
             positionsInitCode = abi.encodePacked(type(FreePositions).creationCode, abi.encode(core, deployer));
             positionsName = "FreePositions";
         } else {
             positionsInitCode = abi.encodePacked(
                 type(Positions).creationCode,
-                abi.encode(core, deployer, swapProtocolFeeX64, withdrawalProtocolFeeDenominator)
+                abi.encode(core, deployer, swapProtocolFeeX16, withdrawalProtocolFeeDenominator)
             );
             positionsName = "Positions";
         }

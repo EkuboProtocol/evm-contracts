@@ -92,7 +92,7 @@ function computeNextSqrtRatio(
     uint256 saleRateToken0,
     uint256 saleRateToken1,
     uint256 timeElapsed,
-    uint64 fee
+    uint16 fee
 ) pure returns (SqrtRatio sqrtRatioNext) {
     unchecked {
         // assumed:

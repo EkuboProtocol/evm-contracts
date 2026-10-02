@@ -7,7 +7,7 @@ import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolConfig, createConcentratedPoolConfig, createStableswapPoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolId} from "../../src/types/poolId.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING_EXP} from "../../src/math/constants.sol";
 import {FullTest} from "../FullTest.sol";
 import {MEVCapture, mevCaptureCallPoints} from "../../src/extensions/MEVCapture.sol";
 import {IMEVCapture} from "../../src/interfaces/extensions/IMEVCapture.sol";
@@ -33,12 +33,15 @@ abstract contract BaseMEVCaptureTest is FullTest {
         vm.cool(address(mevCapture));
     }
 
-    function createMEVCapturePool(uint64 fee, uint32 tickSpacing, int32 tick)
+    function createMEVCapturePool(uint16 fee, uint8 tickSpacingExp, int32 tick)
         internal
         returns (PoolKey memory poolKey)
     {
         poolKey = createPool(
-            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, tickSpacing, address(mevCapture))
+            address(token0),
+            address(token1),
+            tick,
+            createConcentratedPoolConfig(fee, tickSpacingExp, address(mevCapture), 0)
         );
     }
 }
@@ -55,15 +58,15 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         state = MEVCapturePoolState.wrap(mevCapture.sload(PoolId.unwrap(poolId)));
     }
 
-    function test_pool_initialization_success(uint256 time, uint64 fee, uint32 tickSpacing, int32 tick, uint32 warp)
+    function test_pool_initialization_success(uint256 time, uint16 fee, uint8 tickSpacingExp, int32 tick, uint32 warp)
         public
     {
         vm.warp(time);
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        fee = uint64(bound(fee, 1, type(uint64).max));
-        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
+        fee = uint16(bound(fee, 1, type(uint16).max));
+        tickSpacingExp = uint8(bound(tickSpacingExp, 0, MAX_TICK_SPACING_EXP));
 
-        PoolKey memory poolKey = createMEVCapturePool({fee: fee, tickSpacing: tickSpacing, tick: tick});
+        PoolKey memory poolKey = createMEVCapturePool({fee: fee, tickSpacingExp: tickSpacingExp, tick: tick});
 
         MEVCapturePoolState state = getPoolState(poolKey.toPoolId());
         assertEq(state.lastUpdateTime(), uint32(vm.getBlockTimestamp()));
@@ -94,7 +97,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         assertEq(state.tickLast(), 0);
     }
 
-    function test_pool_initialization_validation(uint64 fee, uint8 amplification, int32 centerTick) public {
+    function test_pool_initialization_validation(uint16 fee, uint8 amplification, int32 centerTick) public {
         amplification = uint8(bound(amplification, 0, 26));
         centerTick = int32(bound(centerTick, MIN_TICK, MAX_TICK));
 
@@ -105,7 +108,11 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             tick: 0,
             // full range is included because
             config: createStableswapPoolConfig({
-                _fee: fee, _amplification: amplification, _centerTick: centerTick, _extension: address(mevCapture)
+                _fee: fee,
+                _amplification: amplification,
+                _centerTick: centerTick,
+                _extension: address(mevCapture),
+                _salt: 0
             })
         });
 
@@ -114,113 +121,115 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             _token0: address(token0),
             _token1: address(token1),
             tick: 0,
-            config: createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(mevCapture)})
+            config: createConcentratedPoolConfig({
+                _fee: 0, _tickSpacingExp: 0, _extension: address(mevCapture), _salt: 0
+            })
         });
     }
 
     /// forge-config: default.isolate = true
     function test_swap_input_token0_no_movement() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("input_token0_no_movement");
 
         assertEq(balanceUpdate.delta0(), 100_000);
-        assertEq(balanceUpdate.delta1(), -98_049);
+        assertEq(balanceUpdate.delta1(), -97_963);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, -9634);
+        assertEq(tick, -9475);
     }
 
     function test_quote() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         (PoolBalanceUpdate balanceUpdate,) = router.quote({
             poolKey: poolKey, isToken1: false, amount: 100_000, sqrtRatioLimit: SqrtRatio.wrap(0), skipAhead: 0
         });
 
         assertEq(balanceUpdate.delta0(), 100_000);
-        assertEq(balanceUpdate.delta1(), -98_049);
+        assertEq(balanceUpdate.delta1(), -97_963);
     }
 
     /// forge-config: default.isolate = true
     function test_swap_output_token0_no_movement() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false, _amount: -100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: false, _amount: -100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("output_token0_no_movement");
 
         assertEq(balanceUpdate.delta0(), -100_000);
-        assertEq(balanceUpdate.delta1(), 102_001);
+        assertEq(balanceUpdate.delta1(), 102_090);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, 9777);
+        assertEq(tick, 9615);
     }
 
     /// forge-config: default.isolate = true
     function test_swap_input_token1_no_movement() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: true, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: true, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("input_token1_no_movement");
 
-        assertEq(balanceUpdate.delta0(), -98_049);
+        assertEq(balanceUpdate.delta0(), -97_963);
         assertEq(balanceUpdate.delta1(), 100_000);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, 9633);
+        assertEq(tick, 9474);
     }
 
     /// forge-config: default.isolate = true
     function test_swap_output_token1_no_movement() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: true, _amount: -100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: true, _amount: -100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("output_token1_no_movement");
 
-        assertEq(balanceUpdate.delta0(), 102_001);
+        assertEq(balanceUpdate.delta0(), 102_090);
         assertEq(balanceUpdate.delta1(), -100_000);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, -9778);
+        assertEq(tick, -9616);
     }
 
     /// now tests with movement more than one tick spacing
@@ -228,100 +237,100 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     /// forge-config: default.isolate = true
     function test_swap_input_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false, _amount: 500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: false, _amount: 500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("input_token0_move_tick_spacings");
 
         assertEq(balanceUpdate.delta0(), 500_000);
-        assertEq(balanceUpdate.delta1(), -471_801);
+        assertEq(balanceUpdate.delta1(), -469_680);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, -47710);
+        assertEq(tick, -46930);
     }
 
     /// forge-config: default.isolate = true
     function test_swap_output_token0_move_tick_spacings() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false, _amount: -500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: false, _amount: -500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("output_token0_move_tick_spacings");
 
         assertEq(balanceUpdate.delta0(), -500_000);
-        assertEq(balanceUpdate.delta1(), 530_648);
+        assertEq(balanceUpdate.delta1(), 533_086);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, 49375);
+        assertEq(tick, 48548);
     }
 
     /// forge-config: default.isolate = true
     function test_swap_input_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: true, _amount: 500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: true, _amount: 500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("input_token1_move_tick_spacings");
 
-        assertEq(balanceUpdate.delta0(), -471_801);
+        assertEq(balanceUpdate.delta0(), -469_680);
         assertEq(balanceUpdate.delta1(), 500_000);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, 47709);
+        assertEq(tick, 46929);
     }
 
     /// forge-config: default.isolate = true
     function test_swap_output_token1_move_tick_spacings() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: true, _amount: -500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: true, _amount: -500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("output_token1_move_tick_spacings");
 
-        assertEq(balanceUpdate.delta0(), 530_648);
+        assertEq(balanceUpdate.delta0(), 533_086);
         assertEq(balanceUpdate.delta1(), -500_000);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, -49376);
+        assertEq(tick, -48549);
     }
 
     /// forge-config: default.isolate = true
     function test_extra_fees_are_accumulated_in_next_block() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 0});
-        (uint256 id,) = createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 0});
+        (uint256 id,) = createPosition(poolKey, -98304, 98304, 1_000_000, 1_000_000);
 
         token0.approve(address(router), type(uint256).max);
         router.swapAllowPartialFill({
@@ -332,17 +341,17 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             skipAhead: 0,
             recipient: address(this)
         });
-        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, -100_000, 100_000);
-        assertEq(amount0, 4999);
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id, poolKey, -98304, 98304);
+        assertEq(amount0, 4997);
         assertEq(amount1, 0);
 
         advanceTime(1);
-        (amount0, amount1) = positions.collectFees(id, poolKey, -100_000, 100_000);
+        (amount0, amount1) = positions.collectFees(id, poolKey, -98304, 98304);
         assertEq(amount0, 0);
-        assertEq(amount1, 11528);
+        assertEq(amount1, 13840);
 
         advanceTime(1);
-        (amount0, amount1) = positions.collectFees(id, poolKey, -100_000, 100_000);
+        (amount0, amount1) = positions.collectFees(id, poolKey, -98304, 98304);
         assertEq(amount0, 0);
         assertEq(amount1, 0);
     }
@@ -350,54 +359,54 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     /// forge-config: default.isolate = true
     function test_swap_initial_tick_far_from_zero_no_additional_fees() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("initial_tick_far_from_zero_no_additional_fees");
 
         assertEq(balanceUpdate.delta0(), 100_000);
-        assertEq(balanceUpdate.delta1(), -197_432);
+        assertEq(balanceUpdate.delta1(), -197_011);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, 690_300);
+        assertEq(tick, 689343);
     }
 
     /// forge-config: default.isolate = true
     function test_swap_initial_tick_far_from_zero_no_additional_fees_output() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
         coolAllContracts();
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false, _amount: -100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: false, _amount: -100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("initial_tick_far_from_zero_no_additional_fees_output");
 
         assertEq(balanceUpdate.delta0(), -100_000);
-        assertEq(balanceUpdate.delta1(), 205_416);
+        assertEq(balanceUpdate.delta1(), 205_856);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, 709_845);
+        assertEq(tick, 710822);
     }
 
     /// forge-config: default.isolate = true
     function test_second_swap_with_additional_fees_gas_price() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         router.swapAllowPartialFill({
@@ -412,23 +421,23 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false, _amount: 300_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: false, _amount: 300_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
         vm.snapshotGasLastCall("second_swap_with_additional_fees_gas_price");
 
         assertEq(balanceUpdate.delta0(), 300_000);
-        assertEq(balanceUpdate.delta1(), -556_308);
+        assertEq(balanceUpdate.delta1(), -548_415);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, 642_496);
+        assertEq(tick, 636893);
     }
 
     /// forge-config: default.isolate = true
     function test_second_swap_after_some_time_gas_price() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         token1.approve(address(router), type(uint256).max);
@@ -455,7 +464,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _isToken1: false, _amount: 500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
+                _isToken1: false, _amount: 500_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _minFee: 0
             }),
             recipient: address(this)
         });
@@ -465,8 +474,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
     /// forge-config: default.isolate = true
     function test_withdraw_after_fees_accumulated() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        (uint256 id, uint128 liquidity) = createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        (uint256 id, uint128 liquidity) = createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         token1.approve(address(router), type(uint256).max);
@@ -493,8 +502,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         positions.withdraw({
             id: id,
             poolKey: poolKey,
-            tickLower: 600_000,
-            tickUpper: 800_000,
+            tickLower: 589824,
+            tickUpper: 802816,
             liquidity: liquidity,
             withFees: true,
             recipient: address(this)
@@ -504,8 +513,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
     function test_swap_max_fee_token0_input() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
@@ -517,16 +526,16 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
 
-        assertEq(balanceUpdate.delta0(), 1_054_639);
-        assertEq(balanceUpdate.delta1(), 0);
+        assertEq(balanceUpdate.delta0(), 1_060_013);
+        assertEq(balanceUpdate.delta1(), -30);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MIN_TICK - 1);
     }
 
     function test_swap_max_fee_token1_input() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
@@ -538,16 +547,16 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
 
-        assertEq(balanceUpdate.delta0(), 0);
-        assertEq(balanceUpdate.delta1(), 2_123_781);
+        assertEq(balanceUpdate.delta0(), -14);
+        assertEq(balanceUpdate.delta1(), 1_988_312);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MAX_TICK);
     }
 
     function test_swap_max_fee_token0_output() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token1.approve(address(router), type(uint256).max);
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
@@ -559,16 +568,16 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
 
-        assertEq(balanceUpdate.delta0(), -993_170);
-        assertEq(balanceUpdate.delta1(), 38785072624969501783380726); // divided by 2**64 (max fee) this is ~ 2e6
+        assertEq(balanceUpdate.delta0(), -928_516);
+        assertEq(balanceUpdate.delta1(), 129003638177); // divided by 2**64 (max fee) this is ~ 2e6
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MAX_TICK);
     }
 
     function test_swap_max_fee_token1_output() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill({
@@ -580,7 +589,7 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
             recipient: address(this)
         });
 
-        assertEq(balanceUpdate.delta0(), 19260097913407553165863219); // divided by 2**64 (max fee) this is ~ 1e6
+        assertEq(balanceUpdate.delta0(), 68774668643); // divided by 2**16 (max fee) this is ~ 1e6
         assertEq(balanceUpdate.delta1(), -1_999_999);
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
         assertEq(tick, MIN_TICK - 1);
@@ -588,8 +597,8 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
 
     function test_new_position_does_not_get_fees() public {
         PoolKey memory poolKey =
-            createMEVCapturePool({fee: uint64(uint256(1 << 64) / 100), tickSpacing: 20_000, tick: 700_000});
-        (uint256 id1,) = createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+            createMEVCapturePool({fee: uint16(uint256(1 << 16) / 100), tickSpacingExp: 14, tick: 700_000});
+        (uint256 id1,) = createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
         token0.approve(address(router), type(uint256).max);
         token1.approve(address(router), type(uint256).max);
@@ -611,17 +620,17 @@ contract MEVCaptureTest is BaseMEVCaptureTest {
         });
 
         int32 tick = core.poolState(poolKey.toPoolId()).tick();
-        assertEq(tick, 748_511);
+        assertEq(tick, 753369);
 
         advanceTime(1);
-        (uint256 id2,) = createPosition(poolKey, 600_000, 800_000, 1_000_000, 2_000_000);
+        (uint256 id2,) = createPosition(poolKey, 589824, 802816, 1_000_000, 2_000_000);
 
-        (uint128 amount0, uint128 amount1) = positions.collectFees(id2, poolKey, 600_000, 800_000);
+        (uint128 amount0, uint128 amount1) = positions.collectFees(id2, poolKey, 589824, 802816);
         assertEq(amount0, 0);
         assertEq(amount1, 0);
 
-        (amount0, amount1) = positions.collectFees(id1, poolKey, 600_000, 800_000);
-        assertEq(amount0, 28_842);
-        assertEq(amount1, 43_371);
+        (amount0, amount1) = positions.collectFees(id1, poolKey, 589824, 802816);
+        assertEq(amount0, 36_988);
+        assertEq(amount1, 51_202);
     }
 }

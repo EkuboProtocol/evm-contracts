@@ -10,21 +10,23 @@ import {StorageSlot} from "../types/storageSlot.sol";
 uint256 constant TICK_BITMAP_STORAGE_OFFSET = 89421695;
 
 // Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
-// Always rounds the tick down to the nearest multiple of tickSpacing
-function tickToBitmapWordAndIndex(int32 tick, uint32 tickSpacing) pure returns (uint256 word, uint256 index) {
+// Always rounds the tick down to the nearest multiple of tickSpacing (which is `1 << tickSpacingExp`)
+// @dev `sar` rounds toward negative infinity, which is exactly the floor needed here,
+//   replacing the `sdiv` + negative-remainder adjustment the arbitrary-spacing version required
+function tickToBitmapWordAndIndex(int32 tick, uint8 tickSpacingExp) pure returns (uint256 word, uint256 index) {
     assembly ("memory-safe") {
-        let rawIndex := add(sub(sdiv(tick, tickSpacing), slt(smod(tick, tickSpacing), 0)), TICK_BITMAP_STORAGE_OFFSET)
+        let rawIndex := add(sar(tickSpacingExp, tick), TICK_BITMAP_STORAGE_OFFSET)
         word := shr(8, rawIndex)
         index := and(rawIndex, 0xff)
     }
 }
 
 // Returns the index of the word and the index _in_ that word which contains the bit representing whether the tick is initialized
-/// @dev This function is only safe if tickSpacing is between 1 and MAX_TICK_SPACING, and word/index correspond to the results of tickToBitmapWordAndIndex for a tick between MIN_TICK and MAX_TICK
-function bitmapWordAndIndexToTick(uint256 word, uint256 index, uint32 tickSpacing) pure returns (int32 tick) {
+/// @dev This function is only safe if tickSpacingExp is at most MAX_TICK_SPACING_EXP, and word/index correspond to the results of tickToBitmapWordAndIndex for a tick between MIN_TICK and MAX_TICK
+function bitmapWordAndIndexToTick(uint256 word, uint256 index, uint8 tickSpacingExp) pure returns (int32 tick) {
     assembly ("memory-safe") {
         let rawIndex := add(shl(8, word), index)
-        tick := mul(sub(rawIndex, TICK_BITMAP_STORAGE_OFFSET), tickSpacing)
+        tick := shl(tickSpacingExp, sub(rawIndex, TICK_BITMAP_STORAGE_OFFSET))
     }
 }
 
@@ -33,13 +35,13 @@ function loadBitmap(StorageSlot slot, uint256 word) view returns (Bitmap bitmap)
 }
 
 // Flips the tick in the bitmap from true to false or vice versa
-function flipTick(StorageSlot slot, int32 tick, uint32 tickSpacing) {
-    (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacing);
+function flipTick(StorageSlot slot, int32 tick, uint8 tickSpacingExp) {
+    (uint256 word, uint256 index) = tickToBitmapWordAndIndex(tick, tickSpacingExp);
     StorageSlot wordSlot = slot.add(word);
     wordSlot.store(wordSlot.load() ^ bytes32(1 << index));
 }
 
-function findNextInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+function findNextInitializedTick(StorageSlot slot, int32 fromTick, uint8 tickSpacingExp, uint256 skipAhead)
     view
     returns (int32 nextTick, bool isInitialized)
 {
@@ -48,7 +50,8 @@ function findNextInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSp
 
         while (true) {
             // convert the given tick to the bitmap position of the next nearest potential initialized tick
-            (uint256 word, uint256 index) = tickToBitmapWordAndIndex(nextTick + int32(tickSpacing), tickSpacing);
+            (uint256 word, uint256 index) =
+                tickToBitmapWordAndIndex(nextTick + int32(uint32(uint256(1) << tickSpacingExp)), tickSpacingExp);
 
             Bitmap bitmap = loadBitmap(slot, word);
 
@@ -57,12 +60,12 @@ function findNextInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSp
 
             // if we found one, return it
             if (nextIndex != 0) {
-                (nextTick, isInitialized) = (bitmapWordAndIndexToTick(word, nextIndex - 1, tickSpacing), true);
+                (nextTick, isInitialized) = (bitmapWordAndIndexToTick(word, nextIndex - 1, tickSpacingExp), true);
                 break;
             }
 
             // otherwise, return the tick of the most significant bit in the word
-            nextTick = bitmapWordAndIndexToTick(word, 255, tickSpacing);
+            nextTick = bitmapWordAndIndexToTick(word, 255, tickSpacingExp);
 
             if (nextTick >= MAX_TICK) {
                 nextTick = MAX_TICK;
@@ -79,7 +82,7 @@ function findNextInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSp
     }
 }
 
-function findPrevInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+function findPrevInitializedTick(StorageSlot slot, int32 fromTick, uint8 tickSpacingExp, uint256 skipAhead)
     view
     returns (int32 prevTick, bool isInitialized)
 {
@@ -88,7 +91,7 @@ function findPrevInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSp
 
         while (true) {
             // convert the given tick to its bitmap position
-            (uint256 word, uint256 index) = tickToBitmapWordAndIndex(prevTick, tickSpacing);
+            (uint256 word, uint256 index) = tickToBitmapWordAndIndex(prevTick, tickSpacingExp);
 
             Bitmap bitmap = loadBitmap(slot, word);
 
@@ -96,11 +99,11 @@ function findPrevInitializedTick(StorageSlot slot, int32 fromTick, uint32 tickSp
             uint256 prevIndex = bitmap.leSetBit(uint8(index));
 
             if (prevIndex != 0) {
-                (prevTick, isInitialized) = (bitmapWordAndIndexToTick(word, prevIndex - 1, tickSpacing), true);
+                (prevTick, isInitialized) = (bitmapWordAndIndexToTick(word, prevIndex - 1, tickSpacingExp), true);
                 break;
             }
 
-            prevTick = bitmapWordAndIndexToTick(word, 0, tickSpacing);
+            prevTick = bitmapWordAndIndexToTick(word, 0, tickSpacingExp);
 
             if (prevTick <= MIN_TICK) {
                 prevTick = MIN_TICK;

@@ -140,9 +140,8 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
         PoolId poolId = poolKey.toPoolId();
         _validateSignature(poolId, meta, minBalanceUpdate, signature);
 
-        // the signed fee is a 0.32 number, and Core takes a 0.64 number
-        (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) =
-            CORE.swap(0, poolKey, params, uint64(meta.fee()) << 32);
+        // the signed fee is a 0.16 number, matching Core's fee domain exactly
+        (PoolBalanceUpdate balanceUpdate, PoolState stateAfter) = CORE.swap(0, poolKey, params.withMinFee(meta.fee()));
 
         if (balanceUpdate.delta0() < minBalanceUpdate.delta0() || balanceUpdate.delta1() < minBalanceUpdate.delta1()) {
             revert MinBalanceUpdateNotMet(minBalanceUpdate, balanceUpdate);
@@ -187,6 +186,7 @@ contract SignedExclusiveSwap is ISignedExclusiveSwap, BaseExtension, BaseForward
 
     function _validateMetaForUse(SignedSwapMeta meta, uint32 currentTimestamp) internal pure {
         if (meta.isExpired(currentTimestamp)) revert SignatureExpired();
+        if (meta.reservedFeeBits() != 0) revert InvalidMetaReservedBits();
         unchecked {
             if ((meta.deadline() - currentTimestamp) > _MAX_DEADLINE_FUTURE_WINDOW) revert DeadlineTooFar();
         }

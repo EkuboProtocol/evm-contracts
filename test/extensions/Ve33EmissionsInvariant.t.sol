@@ -184,7 +184,7 @@ contract Ve33EmissionsInvariantHandler is StdUtils, StdAssertions {
         if (amount == 0) return;
 
         SwapParameters params = createSwapParameters({
-            _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: amount, _isToken1: isToken1, _skipAhead: 0
+            _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: amount, _isToken1: isToken1, _skipAhead: 0, _minFee: 0
         });
 
         try router.swapAllowPartialFill{gas: 15_000_000}(poolKey, params, address(this)) returns (PoolBalanceUpdate) {}
@@ -507,14 +507,14 @@ contract Ve33EmissionsInvariantTest is FullTest {
         stakeToken.approve(address(veToken), type(uint256).max);
         stakeToken.approve(address(periphery), type(uint256).max);
 
-        PoolKey memory pool0 = createPool({tick: 0, fee: 0, tickSpacing: 64, extension: address(ve33)});
-        PoolKey memory pool1 = createPool({tick: 0, fee: 0, tickSpacing: 256, extension: address(ve33)});
+        PoolKey memory pool0 = createPool({tick: 0, fee: 0, tickSpacingExp: 6, extension: address(ve33)});
+        PoolKey memory pool1 = createPool({tick: 0, fee: 0, tickSpacingExp: 8, extension: address(ve33)});
 
         uint64 stakeEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         uint256 veId0 = veToken.stake(1e18, stakeEnd);
         uint256 veId1 = veToken.stake(1e18, stakeEnd);
-        veToken.vote(veId0, pool0, uint64(1 << 62));
-        veToken.vote(veId1, pool1, uint64(1 << 62));
+        veToken.vote(veId0, pool0, uint16(16384));
+        veToken.vote(veId1, pool1, uint16(16384));
 
         uint256 emissionEnd = nextValidTime(vm.getBlockTimestamp(), vm.getBlockTimestamp() + 365 days);
         periphery.scheduleEmissions(0, uint64(emissionEnd), uint160(uint256(1e12) << 32));

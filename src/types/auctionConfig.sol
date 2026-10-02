@@ -15,10 +15,10 @@ using {
     endTime
 } for AuctionConfig global;
 
-/// @notice Extracts the creator fee (0.32 fixed-point) from an auction config
-function creatorFee(AuctionConfig config) pure returns (uint32 v) {
+/// @notice Extracts the creator fee (0.16 fixed-point) from an auction config
+function creatorFee(AuctionConfig config) pure returns (uint16 v) {
     assembly ("memory-safe") {
-        v := shr(224, config)
+        v := and(shr(240, config), 0xffff)
     }
 }
 
@@ -36,17 +36,18 @@ function minBoostDuration(AuctionConfig config) pure returns (uint24 v) {
     }
 }
 
-/// @notice Extracts graduation pool fee (0.64 fixed-point) from an auction config
-function graduationPoolFee(AuctionConfig config) pure returns (uint64 v) {
+/// @notice Extracts graduation pool fee (0.16 fixed-point) from an auction config
+function graduationPoolFee(AuctionConfig config) pure returns (uint16 v) {
     assembly ("memory-safe") {
-        v := and(shr(128, config), 0xffffffffffffffff)
+        v := and(shr(128, config), 0xffff)
     }
 }
 
-/// @notice Extracts graduation pool tick spacing from an auction config
-function graduationPoolTickSpacing(AuctionConfig config) pure returns (uint32 v) {
+/// @notice Extracts graduation pool tick spacing exponent from an auction config
+/// @dev The spacing itself is `1 << exp`
+function graduationPoolTickSpacing(AuctionConfig config) pure returns (uint8 v) {
     assembly ("memory-safe") {
-        v := and(shr(96, config), 0xffffffff)
+        v := and(shr(96, config), 0xff)
     }
 }
 
@@ -72,26 +73,24 @@ function endTime(AuctionConfig config) pure returns (uint64 v) {
 }
 
 /// @notice Creates an AuctionConfig from individual components
+/// @dev Bits left unused by the narrowed fee/spacing fields are reserved and must be zero.
 function createAuctionConfig(
-    uint32 _creatorFee,
+    uint16 _creatorFee,
     bool _isSellingToken1,
     uint24 _minBoostDuration,
-    uint64 _graduationPoolFee,
-    uint32 _graduationPoolTickSpacing,
+    uint16 _graduationPoolFee,
+    uint8 _graduationPoolTickSpacingExp,
     uint64 _startTime,
     uint32 _auctionDuration
 ) pure returns (AuctionConfig v) {
     assembly ("memory-safe") {
         v := add(
             add(
-                shl(224, and(_creatorFee, 0xffffffff)),
+                shl(240, and(_creatorFee, 0xffff)),
                 add(shl(216, iszero(iszero(_isSellingToken1))), shl(192, and(_minBoostDuration, 0xffffff)))
             ),
             add(
-                add(
-                    shl(128, and(_graduationPoolFee, 0xffffffffffffffff)),
-                    shl(96, and(_graduationPoolTickSpacing, 0xffffffff))
-                ),
+                add(shl(128, and(_graduationPoolFee, 0xffff)), shl(96, and(_graduationPoolTickSpacingExp, 0xff))),
                 add(shl(32, and(_startTime, 0xffffffffffffffff)), and(_auctionDuration, 0xffffffff))
             )
         )

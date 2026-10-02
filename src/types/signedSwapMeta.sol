@@ -6,12 +6,21 @@ import {Locker} from "./locker.sol";
 /// @notice Signed swap metadata packed into a single word.
 /// @dev Layout:
 /// - bits [255..224]: deadline (uint32)
-/// - bits [223..192]: fee (uint32)
+/// - bits [223..208]: reserved (must be 0)
+/// - bits [207..192]: fee (uint16, 0.16 number)
 /// - bits [191..128]: nonce (uint64)
 /// - bits [127..0]: authorized locker lower 128 bits
 type SignedSwapMeta is uint256;
 
-using {authorizedLockerLow128, isAuthorized, deadline, fee, nonce, isExpired} for SignedSwapMeta global;
+using {
+    authorizedLockerLow128,
+    isAuthorized,
+    deadline,
+    fee,
+    reservedFeeBits,
+    nonce,
+    isExpired
+} for SignedSwapMeta global;
 
 function authorizedLockerLow128(SignedSwapMeta meta) pure returns (uint128 lockerLow128) {
     assembly ("memory-safe") {
@@ -32,9 +41,16 @@ function deadline(SignedSwapMeta meta) pure returns (uint32 value) {
     }
 }
 
-function fee(SignedSwapMeta meta) pure returns (uint32 value) {
+function fee(SignedSwapMeta meta) pure returns (uint16 value) {
     assembly ("memory-safe") {
-        value := and(shr(192, meta), 0xffffffff)
+        value := and(shr(192, meta), 0xffff)
+    }
+}
+
+/// @notice Returns the reserved fee bits, which must be zero for the payload to be valid.
+function reservedFeeBits(SignedSwapMeta meta) pure returns (uint16 value) {
+    assembly ("memory-safe") {
+        value := and(shr(208, meta), 0xffff)
     }
 }
 
@@ -44,7 +60,7 @@ function nonce(SignedSwapMeta meta) pure returns (uint64 value) {
     }
 }
 
-function createSignedSwapMeta(address _authorizedLocker, uint32 _deadline, uint32 _fee, uint64 _nonce)
+function createSignedSwapMeta(address _authorizedLocker, uint32 _deadline, uint16 _fee, uint64 _nonce)
     pure
     returns (SignedSwapMeta meta)
 {

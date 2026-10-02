@@ -101,23 +101,23 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
     }
 
     /// @inheritdoc ICore
-    function prevInitializedTick(PoolId poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function prevInitializedTick(PoolId poolId, int32 fromTick, uint8 tickSpacingExp, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
     {
         (tick, isInitialized) =
-            findPrevInitializedTick(CoreStorageLayout.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
+            findPrevInitializedTick(CoreStorageLayout.tickBitmapsSlot(poolId), fromTick, tickSpacingExp, skipAhead);
     }
 
     /// @inheritdoc ICore
-    function nextInitializedTick(PoolId poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function nextInitializedTick(PoolId poolId, int32 fromTick, uint8 tickSpacingExp, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized)
     {
         (tick, isInitialized) =
-            findNextInitializedTick(CoreStorageLayout.tickBitmapsSlot(poolId), fromTick, tickSpacing, skipAhead);
+            findNextInitializedTick(CoreStorageLayout.tickBitmapsSlot(poolId), fromTick, tickSpacingExp, skipAhead);
     }
 
     /// @inheritdoc ICore
@@ -300,7 +300,7 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
         }
 
         if ((currentLiquidityNet == 0) != (liquidityNetNext == 0)) {
-            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.concentratedTickSpacing());
+            flipTick(CoreStorageLayout.tickBitmapsSlot(poolId), tick, poolConfig.tickSpacingExp());
 
             (StorageSlot fplSlot0, StorageSlot fplSlot1) =
                 CoreStorageLayout.poolTickFeesPerLiquidityOutsideSlot(poolId, tick);
@@ -515,16 +515,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             PoolConfig config;
 
             SwapParameters params;
-            // The minimum fee is an optional trailing calldata word, so callers happy to pay the
-            // pool's own fee may simply omit it and `calldataload` reads it as zero.
-            uint256 minimumFee;
 
             assembly ("memory-safe") {
                 token0 := calldataload(4)
                 token1 := calldataload(36)
                 config := calldataload(68)
                 params := calldataload(100)
-                minimumFee := calldataload(132)
                 calldatacopy(poolKey, 4, 96)
             }
 
@@ -534,23 +530,12 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
             // Every fee computed below uses this, so overpaying is indistinguishable from swapping a
             // pool whose fee is the minimum: it moves the price less and accrues to the LPs. Taking
             // the larger of the two rather than summing them means the caller's number is the total
-            // it agreed to, and that no pair of valid fees can overflow.
-            uint64 swapFee = config.fee();
-            assembly ("memory-safe") {
-                // the pool's own fee is always a valid 0.64 number, so a minimum that does not raise
-                // the fee needs no range check and the common path is a single comparison. A
-                // branchless max costs more here, whether written out or taken from
-                // FixedPointMathLib: the branch is almost never taken, and skipping the range check
-                // under it is worth more than the jump.
-                if gt(minimumFee, swapFee) {
-                    // a fee is a 0.64 number, so anything wider than that is a caller error
-                    if shr(64, minimumFee) {
-                        // FeeTooLarge(), pinned by MinimumFeeTest#test_revert_minimum_fee_too_large
-                        mstore(0, 0xfc5bee12)
-                        revert(0x1c, 0x04)
-                    }
-                    swapFee := minimumFee
-                }
+            // it agreed to. Both are 0.16 numbers, so no pair of valid fees can overflow and no
+            // range check is needed at all.
+            uint16 swapFee = config.fee();
+            uint16 minimumFee = params.minFee();
+            if (minimumFee > swapFee) {
+                swapFee = minimumFee;
             }
 
             Locker locker = _requireLocker();
@@ -630,16 +615,10 @@ contract Core is ICore, FlashAccountant, ExposedStorage {
                         // concentrated liquidity pools use the tick bitmaps
                         (nextTick, isInitialized) = increasing
                             ? findNextInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId),
-                                tick,
-                                config.concentratedTickSpacing(),
-                                params.skipAhead()
+                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, config.tickSpacingExp(), params.skipAhead()
                             )
                             : findPrevInitializedTick(
-                                CoreStorageLayout.tickBitmapsSlot(poolId),
-                                tick,
-                                config.concentratedTickSpacing(),
-                                params.skipAhead()
+                                CoreStorageLayout.tickBitmapsSlot(poolId), tick, config.tickSpacingExp(), params.skipAhead()
                             );
 
                         nextTickSqrtRatio = tickToSqrtRatio(nextTick);

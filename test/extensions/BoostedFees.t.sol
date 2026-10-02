@@ -44,11 +44,11 @@ contract BoostedFeesTest is FullTest {
         deployed = BoostedFees(target);
     }
 
-    function _createStableswapPool(uint64 fee, uint8 amplification, int32 centerTick, address extension)
+    function _createStableswapPool(uint16 fee, uint8 amplification, int32 centerTick, address extension)
         internal
         returns (PoolKey memory poolKey)
     {
-        PoolConfig config = createStableswapPoolConfig(fee, amplification, centerTick, extension);
+        PoolConfig config = createStableswapPoolConfig(fee, amplification, centerTick, extension, 0);
         poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
         core.initializePool(poolKey, 0);
     }
@@ -118,7 +118,7 @@ contract BoostedFeesTest is FullTest {
     }
 
     function test_pool_mustBeInitialized(PoolKey memory otherPoolKey) public {
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         boostedFees.maybeAccumulateFees(poolKey);
 
         vm.assume(
@@ -132,7 +132,7 @@ contract BoostedFeesTest is FullTest {
     function test_pool_extension_mustMatchBoostedFees_evenIfInitialized() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(0)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(0)});
 
         // Core pool is initialized, but BoostedFees has no state for it and the pool's
         // configured extension is not BoostedFees.
@@ -143,7 +143,7 @@ contract BoostedFeesTest is FullTest {
     function test_maybeAccumulateFees_recoversIfLocalStateMissing() public {
         vm.warp(1 << 32);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         PoolId poolId = poolKey.toPoolId();
 
         assertEq(boostedFees.sload(TWAMMStorageLayout.twammPoolStateSlot(poolId)), bytes32(0));
@@ -155,7 +155,7 @@ contract BoostedFeesTest is FullTest {
     function test_boost_reverts_invalidStartTime() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
 
@@ -166,7 +166,7 @@ contract BoostedFeesTest is FullTest {
     function test_boost_reverts_invalidEndTime() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
 
@@ -177,7 +177,7 @@ contract BoostedFeesTest is FullTest {
     function test_boost_reverts_endTimeLessOrEqualStartTime() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
 
@@ -188,7 +188,7 @@ contract BoostedFeesTest is FullTest {
     function test_boost_reverts_endTimeInPast() public {
         vm.warp(512);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
 
@@ -199,7 +199,7 @@ contract BoostedFeesTest is FullTest {
     function test_boost_reverts_maxRateDeltaPerTime() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
 
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
@@ -218,7 +218,7 @@ contract BoostedFeesTest is FullTest {
     function test_maybeAccumulateFees_isNoop_sameTimestamp() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         PoolId poolId = poolKey.toPoolId();
         createPosition(poolKey, -100, 100, 1e18, 1e18);
 
@@ -243,7 +243,7 @@ contract BoostedFeesTest is FullTest {
         vm.warp(1);
 
         vm.recordLogs();
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         Vm.Log[] memory logs = vm.getRecordedLogs();
 
         _assertFeesDonatedLog(logs, address(boostedFees), poolKey.toPoolId(), 0, 0);
@@ -252,7 +252,7 @@ contract BoostedFeesTest is FullTest {
     function test_maybeAccumulateFees_emitsWhenTimeChanges() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         PoolId poolId = poolKey.toPoolId();
 
         vm.warp(2);
@@ -267,7 +267,7 @@ contract BoostedFeesTest is FullTest {
         uint64 currentTime = 1;
         vm.warp(currentTime);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         PoolId poolId = poolKey.toPoolId();
 
         token0.approve(address(periphery), type(uint128).max);
@@ -306,10 +306,10 @@ contract BoostedFeesTest is FullTest {
         assertEq(rate0, rate);
     }
 
-    function test_afterInitializePool_setsState(uint256 time, uint64 fee) public {
+    function test_afterInitializePool_setsState(uint256 time, uint16 fee) public {
         vm.warp(time);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: fee, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: fee, tickSpacingExp: 2, extension: address(boostedFees)});
 
         TwammPoolState state = boostedFees.poolState(poolKey.toPoolId());
         (uint32 lastTime, uint112 rate0, uint112 rate1) = state.parse();
@@ -321,7 +321,7 @@ contract BoostedFeesTest is FullTest {
         assertEq(state.realLastVirtualOrderExecutionTime(), time, "the real virtual execution time is now");
     }
 
-    function test_afterInitializePool_setsState_stableswap(uint256 time, uint64 fee) public {
+    function test_afterInitializePool_setsState_stableswap(uint256 time, uint16 fee) public {
         vm.warp(time);
 
         PoolKey memory poolKey = _createStableswapPool(fee, 1, 0, address(stableswapBoostedFees));
@@ -337,7 +337,7 @@ contract BoostedFeesTest is FullTest {
     }
 
     function test_afterInitializePool_reverts_onStableswap_withConcentratedExtension() public {
-        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(boostedFees));
+        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(boostedFees), 0);
         PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
 
         vm.expectRevert(IBoostedFees.IncorrectPoolType.selector);
@@ -345,7 +345,7 @@ contract BoostedFeesTest is FullTest {
     }
 
     function test_afterInitializePool_reverts_onConcentrated_withStableswapExtension() public {
-        PoolConfig config = createConcentratedPoolConfig(0, 100, address(stableswapBoostedFees));
+        PoolConfig config = createConcentratedPoolConfig(0, 2, address(stableswapBoostedFees), 0);
         PoolKey memory poolKey = PoolKey({token0: address(token0), token1: address(token1), config: config});
 
         vm.expectRevert(IBoostedFees.IncorrectPoolType.selector);
@@ -361,7 +361,7 @@ contract BoostedFeesTest is FullTest {
         rate0 = uint112(bound(rate0, 0, MAX_ABS_VALUE_SALE_RATE_DELTA));
         rate1 = uint112(bound(rate1, 0, MAX_ABS_VALUE_SALE_RATE_DELTA));
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
 
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
@@ -394,7 +394,7 @@ contract BoostedFeesTest is FullTest {
         rate0 = uint112(bound(rate0, 0, MAX_ABS_VALUE_SALE_RATE_DELTA));
         rate1 = uint112(bound(rate1, 0, MAX_ABS_VALUE_SALE_RATE_DELTA));
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
 
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
@@ -417,7 +417,7 @@ contract BoostedFeesTest is FullTest {
     function test_dataFetcher_getPoolState_empty() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         PoolId poolId = poolKey.toPoolId();
 
         BoostedPoolState memory result = dataFetcher.getPoolState(poolKey);
@@ -438,7 +438,7 @@ contract BoostedFeesTest is FullTest {
     function test_dataFetcher_getPoolState_withBoosts() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         PoolId poolId = poolKey.toPoolId();
 
         token0.approve(address(periphery), type(uint128).max);
@@ -471,7 +471,7 @@ contract BoostedFeesTest is FullTest {
         vm.warp(1);
 
         PoolKey memory poolKey = createPool(
-            NATIVE_TOKEN_ADDRESS, address(token1), 0, createConcentratedPoolConfig(0, 100, address(boostedFees))
+            NATIVE_TOKEN_ADDRESS, address(token1), 20, createConcentratedPoolConfig(0, 2, address(boostedFees), 0)
         );
 
         uint64 endTime = 256;
@@ -506,7 +506,7 @@ contract BoostedFeesTest is FullTest {
         uint64 currentTime = uint64(bound(warpTime, 1, type(uint64).max - type(uint32).max));
         vm.warp(currentTime);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         (uint256 positionId,) = createPosition(poolKey, -100, 100, 1e18, 1e18);
 
         token0.approve(address(periphery), type(uint128).max);
@@ -547,7 +547,7 @@ contract BoostedFeesTest is FullTest {
         uint64 currentTime = uint64(bound(warpTime, 1, type(uint64).max - type(uint32).max));
         vm.warp(currentTime);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         (uint256 positionId,) = createPosition(poolKey, -100, 100, 1e18, 1e18);
 
         token0.approve(address(periphery), type(uint128).max);
@@ -588,7 +588,7 @@ contract BoostedFeesTest is FullTest {
     function test_donatesFees_stableswap_outOfRange() public {
         vm.warp(1);
 
-        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(stableswapBoostedFees));
+        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(stableswapBoostedFees), 0);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
 
         int32 outsideTick = upper + 1000;
@@ -614,7 +614,7 @@ contract BoostedFeesTest is FullTest {
     function test_donateFees_maximum_gas_cost() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
 
         createPosition(poolKey, -100, 100, 1e18, 1e18);
 
@@ -642,7 +642,7 @@ contract BoostedFeesTest is FullTest {
     function test_swap_same_token_as_donated() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 1 << 63, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 32768, tickSpacingExp: 2, extension: address(boostedFees)});
         createPosition(poolKey, -100, 100, 1e18, 1e18);
 
         token0.approve(address(periphery), type(uint128).max);
@@ -657,7 +657,7 @@ contract BoostedFeesTest is FullTest {
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: 100, _isToken1: false, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: 100, _isToken1: false, _skipAhead: 0, _minFee: 0
             })
         });
         vm.snapshotGasLastCall("swap token0 (same token donated)");
@@ -667,7 +667,7 @@ contract BoostedFeesTest is FullTest {
     function test_swap_different_token_as_donated() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 1 << 63, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 32768, tickSpacingExp: 2, extension: address(boostedFees)});
         createPosition(poolKey, -100, 100, 1e18, 1e18);
 
         token0.approve(address(periphery), type(uint128).max);
@@ -682,7 +682,7 @@ contract BoostedFeesTest is FullTest {
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: 100, _isToken1: true, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: 100, _isToken1: true, _skipAhead: 0, _minFee: 0
             })
         });
         vm.snapshotGasLastCall("swap token1 (different token donated)");
@@ -693,7 +693,7 @@ contract BoostedFeesTest is FullTest {
         uint64 currentTime = 256;
         vm.warp(currentTime);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
 
         uint64 startTime = 0;
         uint64 endTime = uint64(nextValidTime({currentTime: currentTime, afterTime: currentTime}));
@@ -717,7 +717,7 @@ contract BoostedFeesTest is FullTest {
     function test_maxedEndTimes_donateRateNeverExceedsUint112Max_and_returnsToZero() public {
         vm.warp(1);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         PoolId poolId = poolKey.toPoolId();
 
         token0.approve(address(periphery), type(uint128).max);
@@ -783,7 +783,7 @@ contract BoostedFeesTest is FullTest {
         rate0 = uint112(bound(rate0, 1, MAX_ABS_VALUE_SALE_RATE_DELTA));
         rate1 = uint112(bound(rate1, 1, MAX_ABS_VALUE_SALE_RATE_DELTA));
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
 
@@ -802,7 +802,7 @@ contract BoostedFeesTest is FullTest {
         uint64 currentTime = uint64(bound(warpTime, 1, type(uint32).max - 8192));
         vm.warp(currentTime);
 
-        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacing: 100, extension: address(boostedFees)});
+        PoolKey memory poolKey = createPool({tick: 0, fee: 0, tickSpacingExp: 2, extension: address(boostedFees)});
         token0.approve(address(periphery), type(uint128).max);
         token1.approve(address(periphery), type(uint128).max);
 

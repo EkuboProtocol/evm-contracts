@@ -6,6 +6,8 @@ import {VePoolVote, createVePoolVote} from "../../src/types/vePoolVote.sol";
 
 contract VePoolVoteTest is Test {
     function test_conversionToAndFrom(VePoolVote vote) public pure {
+        // the 48 bits above the fee are reserved and zeroed by construction
+        vm.assume((VePoolVote.unwrap(vote) >> 144) & bytes32(uint256(0xffffffffffff)) == bytes32(0));
         assertEq(
             VePoolVote.unwrap(
                 createVePoolVote({weight_: vote.weight(), swapFee_: vote.swapFee(), timestamp_: vote.timestamp()})
@@ -14,7 +16,7 @@ contract VePoolVoteTest is Test {
         );
     }
 
-    function test_conversionFromAndTo(uint128 weight, uint64 swapFee, uint64 timestamp_) public pure {
+    function test_conversionFromAndTo(uint128 weight, uint16 swapFee, uint64 timestamp_) public pure {
         VePoolVote vote = createVePoolVote({weight_: weight, swapFee_: swapFee, timestamp_: timestamp_});
         assertEq(vote.weight(), weight);
         assertEq(vote.swapFee(), swapFee);
@@ -26,7 +28,7 @@ contract VePoolVoteTest is Test {
         pure
     {
         uint128 weight;
-        uint64 swapFee;
+        uint16 swapFee;
         uint64 timestamp_;
 
         assembly ("memory-safe") {

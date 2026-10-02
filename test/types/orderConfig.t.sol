@@ -17,7 +17,7 @@ contract OrderConfigTest is Test {
         assertEq(recreated.endTime(), config.endTime(), "endTime");
     }
 
-    function test_conversionFromAndTo(uint64 fee, bool isToken1, uint64 startTime, uint64 endTime) public pure {
+    function test_conversionFromAndTo(uint16 fee, bool isToken1, uint64 startTime, uint64 endTime) public pure {
         OrderConfig config =
             createOrderConfig({_fee: fee, _isToken1: isToken1, _startTime: startTime, _endTime: endTime});
         assertEq(config.fee(), fee);
@@ -32,7 +32,7 @@ contract OrderConfigTest is Test {
         bytes32 startTimeDirty,
         bytes32 endTimeDirty
     ) public pure {
-        uint64 fee;
+        uint16 fee;
         bool isToken1;
         uint64 startTime;
         uint64 endTime;

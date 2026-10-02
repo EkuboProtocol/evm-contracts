@@ -11,7 +11,7 @@ import {BaseRouter} from "../src/base/BaseRouter.sol";
 import {Router} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING_EXP} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
@@ -84,21 +84,20 @@ contract Handler is StdUtils, StdAssertions {
         positionId = positions.mint();
     }
 
-    function createNewPool(uint64 fee, uint32 tickSpacing, int32 tick, bool withExtension) public {
-        // Concentrated pools need tick spacing >= 1 to avoid division by zero
-        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
+    function createNewPool(uint16 fee, uint8 tickSpacingExp, int32 tick, bool withExtension) public {
+        tickSpacingExp = uint8(bound(tickSpacingExp, 0, MAX_TICK_SPACING_EXP));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
             address(token0),
             address(token1),
-            createConcentratedPoolConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+            createConcentratedPoolConfig(fee, tickSpacingExp, withExtension ? address(fae) : address(0), 0)
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
         if (initialized) allPoolKeys.push(poolKey);
     }
 
-    function createNewStableswapPool(uint64 fee, int32 tick, uint8 amplification, int32 centerTick, bool withExtension)
+    function createNewStableswapPool(uint16 fee, int32 tick, uint8 amplification, int32 centerTick, bool withExtension)
         public
     {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
@@ -107,7 +106,7 @@ contract Handler is StdUtils, StdAssertions {
         PoolKey memory poolKey = PoolKey(
             address(token0),
             address(token1),
-            createStableswapPoolConfig(fee, amplification, centerTick, withExtension ? address(fae) : address(0))
+            createStableswapPoolConfig(fee, amplification, centerTick, withExtension ? address(fae) : address(0), 0)
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);

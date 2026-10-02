@@ -50,11 +50,11 @@ contract ConfigureSTONX is Script {
     uint128 internal constant INITIAL_EMISSION_AMOUNT = 333_333e18;
     uint128 internal constant REQUIRED_STONX_AMOUNT =
         LIQUIDITY_TOKEN_AMOUNT + STAKE_TOKEN_AMOUNT + INITIAL_EMISSION_AMOUNT;
-    uint32 internal constant TICK_SPACING = 1024;
+    uint8 internal constant TICK_SPACING_EXP = 10;
     // Outermost usable ticks within Core's global bounds for this tick spacing.
     int32 internal constant POSITION_TICK_LOWER = -88_722_432;
     int32 internal constant POSITION_TICK_UPPER = 88_722_432;
-    uint64 internal constant SWAP_FEE = 0;
+    uint16 internal constant SWAP_FEE = 0;
     uint32 internal constant INITIAL_EMISSION_DURATION = 100 days;
     uint32 internal constant INITIAL_EMISSION_END_BUFFER = 6 days;
     uint32 internal constant INITIAL_EMISSION_START_DELAY = 1 hours;
@@ -230,7 +230,8 @@ contract ConfigureSTONX is Script {
 
     function _stonxPoolKey(address stonx, address usdg, address ve33) internal pure returns (PoolKey memory poolKey) {
         (poolKey.token0, poolKey.token1) = stonx < usdg ? (stonx, usdg) : (usdg, stonx);
-        poolKey.config = createConcentratedPoolConfig({_fee: 0, _tickSpacing: TICK_SPACING, _extension: ve33});
+        poolKey.config =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: TICK_SPACING_EXP, _extension: ve33, _salt: 0});
     }
 
     function initialTick(address stonx, uint8 stonxDecimals, address usdg, uint8 usdgDecimals)

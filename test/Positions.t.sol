@@ -45,7 +45,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_mintAndDeposit(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
 
         token0.approve(address(positions), 100);
         token1.approve(address(positions), 100);
@@ -74,7 +74,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_mintAndDeposit_shared_tick_boundary(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
 
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
@@ -96,7 +96,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_collectFees_amount0(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -126,7 +126,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_collectFees_amount1(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -156,7 +156,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_collectFeesAndWithdraw(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -186,7 +186,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_collectFeesAndWithdraw_above_range(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -225,7 +225,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_collectFeesAndWithdraw_below_range(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -264,7 +264,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_collectFeesOnly(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -297,7 +297,7 @@ contract PositionsTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_fees_fullRange_max_price() public {
-        PoolKey memory poolKey = createFullRangePool({tick: MAX_TICK - 1, fee: 1 << 63});
+        PoolKey memory poolKey = createFullRangePool({tick: MAX_TICK - 1, fee: 32768});
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
@@ -326,7 +326,7 @@ contract PositionsTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_fees_fullRange_min_price() public {
-        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK + 1, fee: 1 << 63});
+        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK + 1, fee: 32768});
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
@@ -356,7 +356,7 @@ contract PositionsTest is FullTest {
     function test_feeAccumulation_works_full_range() public {
         MockExtension fae = createAndRegisterExtension();
 
-        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK + 1, fee: 1 << 63, extension: address(fae)});
+        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK + 1, fee: 32768, extension: address(fae)});
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
@@ -377,7 +377,7 @@ contract PositionsTest is FullTest {
     function test_feeAccumulation_zero_liquidity_full_range() public {
         MockExtension fae = createAndRegisterExtension();
 
-        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK + 1, fee: 1 << 63, extension: address(fae)});
+        PoolKey memory poolKey = createFullRangePool({tick: MIN_TICK + 1, fee: 32768, extension: address(fae)});
 
         token0.approve(address(fae), 1000);
         token1.approve(address(fae), 2000);
@@ -395,8 +395,9 @@ contract PositionsTest is FullTest {
     function test_getPositionFeesAndLiquidity_stableswap_returns_fees_outside_range() public {
         MockExtension fae = createAndRegisterExtension();
 
-        PoolConfig config =
-            createStableswapPoolConfig({_fee: 1 << 63, _amplification: 20, _centerTick: 0, _extension: address(fae)});
+        PoolConfig config = createStableswapPoolConfig({
+            _fee: 32768, _amplification: 20, _centerTick: 0, _extension: address(fae), _salt: 0
+        });
         PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
 
@@ -422,7 +423,11 @@ contract PositionsTest is FullTest {
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: type(int128).min, _isToken1: false, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _amount: type(int128).min,
+                _isToken1: false,
+                _skipAhead: 0,
+                _minFee: 0
             })
         });
 
@@ -433,7 +438,11 @@ contract PositionsTest is FullTest {
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: type(int128).min, _isToken1: true, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _amount: type(int128).min,
+                _isToken1: true,
+                _skipAhead: 0,
+                _minFee: 0
             })
         });
 
@@ -448,7 +457,7 @@ contract PositionsTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_mintAndDeposit_gas() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
         token0.approve(address(positions), 100);
         token1.approve(address(positions), 100);
 
@@ -463,7 +472,7 @@ contract PositionsTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_mintAndDeposit_eth_pool_gas() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         token1.approve(address(positions), 100);
 
         coolAllContracts();
@@ -478,7 +487,7 @@ contract PositionsTest is FullTest {
     /// forge-config: default.isolate = true
     function test_mintAndDeposit_eth_pool_gas_free() public {
         positions = Positions(address(new FreePositions(core, address(this))));
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         token1.approve(address(positions), 100);
 
         coolAllContracts();
@@ -499,7 +508,7 @@ contract PositionsTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_gas_full_range_mintAndDeposit() public {
-        PoolKey memory poolKey = createFullRangePool({tick: 0, fee: 1 << 63});
+        PoolKey memory poolKey = createFullRangePool({tick: 0, fee: 32768});
         token0.approve(address(positions), type(uint256).max);
         token1.approve(address(positions), type(uint256).max);
 
@@ -513,20 +522,20 @@ contract PositionsTest is FullTest {
     }
 
     function test_positions_with_any_protocol_fees(
-        uint64 poolFee,
-        uint64 swapProtocolFeeX64,
+        uint16 poolFee,
+        uint16 swapProtocolFeeX16,
         uint64 withdrawalProtocolFeeDenominator,
         uint64 swapFeesAmount0,
         uint64 swapFeesAmount1
     ) public {
         MockExtension fae = createAndRegisterExtension();
 
-        Positions testPositions = new Positions(core, owner, swapProtocolFeeX64, withdrawalProtocolFeeDenominator);
+        Positions testPositions = new Positions(core, owner, swapProtocolFeeX16, withdrawalProtocolFeeDenominator);
 
-        assertEq(testPositions.SWAP_PROTOCOL_FEE_X64(), swapProtocolFeeX64);
+        assertEq(testPositions.SWAP_PROTOCOL_FEE_X16(), swapProtocolFeeX16);
         assertEq(testPositions.WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR(), withdrawalProtocolFeeDenominator);
 
-        PoolKey memory poolKey = createPool(0, poolFee, 100, address(fae));
+        PoolKey memory poolKey = createPool(0, poolFee, 0, address(fae));
 
         // Approve tokens for the test positions contract
         token0.approve(address(testPositions), type(uint256).max);
@@ -555,18 +564,18 @@ contract PositionsTest is FullTest {
         (uint128 protocolFeesAfterCollect0, uint128 protocolFeesAfterCollect1) =
             testPositions.getProtocolFees(address(token0), address(token1));
 
-        uint128 expectedSwapProtocolFee0 = computeFee(swapFeesAmount0, swapProtocolFeeX64);
-        uint128 expectedSwapProtocolFee1 = computeFee(swapFeesAmount1, swapProtocolFeeX64);
+        uint128 expectedSwapProtocolFee0 = computeFee(swapFeesAmount0, swapProtocolFeeX16);
+        uint128 expectedSwapProtocolFee1 = computeFee(swapFeesAmount1, swapProtocolFeeX16);
 
         assertApproxEqAbs(
             protocolFeesAfterCollect0,
-            computeFee(swapFeesAmount0, swapProtocolFeeX64),
+            computeFee(swapFeesAmount0, swapProtocolFeeX16),
             1,
             "Protocol fees 0 should be fraction of swap fees"
         );
         assertApproxEqAbs(
             protocolFeesAfterCollect1,
-            computeFee(swapFeesAmount1, swapProtocolFeeX64),
+            computeFee(swapFeesAmount1, swapProtocolFeeX16),
             1,
             "Protocol fees 1 should be fraction of swap fees"
         );
@@ -577,10 +586,12 @@ contract PositionsTest is FullTest {
         // Test 5: Withdraw liquidity and verify withdrawal fees are handled correctly
         (uint128 withdrawn0, uint128 withdrawn1) = testPositions.withdraw(id, poolKey, -100, 100, liquidity);
 
-        uint256 expectedWithdrawalFee0 =
-            withdrawalProtocolFeeDenominator == 0 ? 0 : computeFee(amount0, poolFee / withdrawalProtocolFeeDenominator);
-        uint256 expectedWithdrawalFee1 =
-            withdrawalProtocolFeeDenominator == 0 ? 0 : computeFee(amount0, poolFee / withdrawalProtocolFeeDenominator);
+        uint256 expectedWithdrawalFee0 = withdrawalProtocolFeeDenominator == 0
+            ? 0
+            : computeFee(amount0, uint16(poolFee / withdrawalProtocolFeeDenominator));
+        uint256 expectedWithdrawalFee1 = withdrawalProtocolFeeDenominator == 0
+            ? 0
+            : computeFee(amount0, uint16(poolFee / withdrawalProtocolFeeDenominator));
 
         assertApproxEqAbs(withdrawn0, amount0 - expectedWithdrawalFee0, 1, "Should receive amount0 minus protocol fee");
         assertApproxEqAbs(withdrawn1, amount1 - expectedWithdrawalFee1, 1, "Should receive amount1 minus protocol fee");
@@ -596,12 +607,12 @@ contract PositionsTest is FullTest {
         );
     }
 
-    function test_free_positions(uint64 poolFee, uint64 swapFeesAmount0, uint64 swapFeesAmount1) public {
+    function test_free_positions(uint16 poolFee, uint64 swapFeesAmount0, uint64 swapFeesAmount1) public {
         MockExtension fae = createAndRegisterExtension();
 
         FreePositions testPositions = new FreePositions(core, owner);
 
-        PoolKey memory poolKey = createPool(0, poolFee, 100, address(fae));
+        PoolKey memory poolKey = createPool(0, poolFee, 0, address(fae));
 
         // Approve tokens for the test positions contract
         token0.approve(address(testPositions), type(uint256).max);
@@ -650,7 +661,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_withdraw_without_fees_burns_fees() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -693,7 +704,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_withdraw_without_fees_multiple_swaps() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -741,7 +752,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_withdraw_without_fees_above_range() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -789,7 +800,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_withdraw_without_fees_below_range() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
 
         (uint256 id, uint128 liquidity) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -837,7 +848,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_partial_withdraw_without_fees_leaves_fees_collectible() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
 
         (uint256 id,) = createPosition(poolKey, -100, 100, 100, 100);
 
@@ -879,7 +890,7 @@ contract PositionsTest is FullTest {
     }
 
     function test_compare_withdraw_with_and_without_fees() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
 
         // Create two identical positions
         (uint256 id1, uint128 liquidity1) = createPosition(poolKey, -100, 100, 100, 100);

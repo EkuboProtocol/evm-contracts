@@ -73,7 +73,9 @@ contract PositionExtraDataTest is Test {
         token1.transfer(address(locker), type(uint128).max);
 
         poolKey = PoolKey({
-            token0: address(token0), token1: address(token1), config: createConcentratedPoolConfig(3000, 60, address(0))
+            token0: address(token0),
+            token1: address(token1),
+            config: createConcentratedPoolConfig(3000, 2, address(0), 0)
         });
 
         core.initializePool(poolKey, 0);

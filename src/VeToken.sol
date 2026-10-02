@@ -222,7 +222,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param poolKey The pool to vote on.
     /// @param swapFee The selected swap fee for the pool.
     /// @return veId The minted ERC721 token id.
-    function stakeAndVote(uint128 amount, uint64 end, bytes32 salt, PoolKey calldata poolKey, uint64 swapFee)
+    function stakeAndVote(uint128 amount, uint64 end, bytes32 salt, PoolKey calldata poolKey, uint16 swapFee)
         external
         payable
         returns (uint256 veId)
@@ -479,7 +479,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     function voteState(uint256 veId)
         external
         view
-        returns (PoolId poolId, uint128 weight, uint64 votedSwapFee, uint128 claimable0, uint128 claimable1)
+        returns (PoolId poolId, uint128 weight, uint16 votedSwapFee, uint128 claimable0, uint128 claimable1)
     {
         StakeId id = stakeId(veId);
         poolId = ve33.votedPool(address(this), id);
@@ -504,7 +504,7 @@ contract VeToken is ERC721, PayableMulticallable, BaseLocker, UsesCore {
     /// @param veId The ERC721 token id and Ve33 stake salt.
     /// @param poolKey The pool to vote on.
     /// @param swapFee The selected swap fee for the pool.
-    function vote(uint256 veId, PoolKey calldata poolKey, uint64 swapFee) public payable authorizedForStake(veId) {
+    function vote(uint256 veId, PoolKey calldata poolKey, uint16 swapFee) public payable authorizedForStake(veId) {
         ve33.vote(stakeId(veId), poolKey, swapFee);
     }
 

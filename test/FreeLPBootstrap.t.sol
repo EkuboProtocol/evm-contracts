@@ -105,12 +105,10 @@ contract FreeLPBootstrapTest is Test {
 
     function fixtureKeys() internal view returns (PoolKey[] memory keys) {
         keys = new PoolKey[](3);
-        keys[0] = PoolKey({token0: token0, token1: token1, config: createConcentratedPoolConfig(0, 100, address(0))});
+        keys[0] = PoolKey({token0: token0, token1: token1, config: createConcentratedPoolConfig(0, 2, address(0), 0)});
         keys[1] = PoolKey({
-            token0: NATIVE_TOKEN_ADDRESS,
-            token1: token1,
-            config: createConcentratedPoolConfig(1 << 32, 1000, address(0))
+            token0: NATIVE_TOKEN_ADDRESS, token1: token1, config: createConcentratedPoolConfig(1, 3, address(0), 0)
         });
-        keys[2] = PoolKey({token0: token0, token1: token1, config: createConcentratedPoolConfig(0, 200, address(0))});
+        keys[2] = PoolKey({token0: token0, token1: token1, config: createConcentratedPoolConfig(0, 3, address(0), 0)});
     }
 }

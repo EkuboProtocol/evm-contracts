@@ -11,8 +11,8 @@ import {computeFee} from "./math/fee.sol";
 /// @notice Tracks liquidity positions in Ekubo Protocol as NFTs
 /// @dev Manages liquidity positions, fee collection, and protocol fees
 contract Positions is BasePositions {
-    /// @notice Protocol fee rate for swaps (as a fraction of 2^64)
-    uint64 public immutable SWAP_PROTOCOL_FEE_X64;
+    /// @notice Protocol fee rate for swaps (as a fraction of 2^16)
+    uint16 public immutable SWAP_PROTOCOL_FEE_X16;
 
     /// @notice Denominator for withdrawal protocol fee calculation
     uint64 public immutable WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR;
@@ -20,12 +20,12 @@ contract Positions is BasePositions {
     /// @notice Constructs the Positions contract
     /// @param core The core contract instance
     /// @param owner The owner of the contract (for access control)
-    /// @param _swapProtocolFeeX64 Protocol fee rate for swaps
+    /// @param _swapProtocolFeeX16 Protocol fee rate for swaps
     /// @param _withdrawalProtocolFeeDenominator Denominator for withdrawal protocol fee
-    constructor(ICore core, address owner, uint64 _swapProtocolFeeX64, uint64 _withdrawalProtocolFeeDenominator)
+    constructor(ICore core, address owner, uint16 _swapProtocolFeeX16, uint64 _withdrawalProtocolFeeDenominator)
         BasePositions(core, owner)
     {
-        SWAP_PROTOCOL_FEE_X64 = _swapProtocolFeeX64;
+        SWAP_PROTOCOL_FEE_X16 = _swapProtocolFeeX16;
         WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR = _withdrawalProtocolFeeDenominator;
     }
 
@@ -41,9 +41,9 @@ contract Positions is BasePositions {
         override
         returns (uint128 protocolFee0, uint128 protocolFee1)
     {
-        if (SWAP_PROTOCOL_FEE_X64 != 0) {
-            protocolFee0 = computeFee(amount0, SWAP_PROTOCOL_FEE_X64);
-            protocolFee1 = computeFee(amount1, SWAP_PROTOCOL_FEE_X64);
+        if (SWAP_PROTOCOL_FEE_X16 != 0) {
+            protocolFee0 = computeFee(amount0, SWAP_PROTOCOL_FEE_X16);
+            protocolFee1 = computeFee(amount1, SWAP_PROTOCOL_FEE_X16);
         }
     }
 
@@ -60,10 +60,10 @@ contract Positions is BasePositions {
         override
         returns (uint128 protocolFee0, uint128 protocolFee1)
     {
-        uint64 fee = poolKey.config.fee();
+        uint16 fee = poolKey.config.fee();
         if (fee != 0 && WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR != 0) {
-            protocolFee0 = computeFee(amount0, fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR);
-            protocolFee1 = computeFee(amount1, fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR);
+            protocolFee0 = computeFee(amount0, uint16(fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR));
+            protocolFee1 = computeFee(amount1, uint16(fee / WITHDRAWAL_PROTOCOL_FEE_DENOMINATOR));
         }
     }
 }

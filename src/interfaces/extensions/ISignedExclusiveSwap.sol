@@ -38,6 +38,9 @@ interface ISignedExclusiveSwap is IExposedStorage, IForwardee, IExtension {
     /// @notice Thrown when the signed payload deadline is too far in the future.
     error DeadlineTooFar();
 
+    /// @notice Thrown when the reserved fee bits of a signed payload are nonzero.
+    error InvalidMetaReservedBits();
+
     /// @notice Thrown when signature verification fails.
     error InvalidSignature();
 

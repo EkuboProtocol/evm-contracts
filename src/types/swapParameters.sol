@@ -10,10 +10,17 @@ using {
     amount,
     isToken1,
     skipAhead,
+    minFee,
+    withMinFee,
     isExactOut,
     isPriceIncreasing,
     withDefaultSqrtRatioLimit
 } for SwapParameters global;
+
+/// @notice Thrown when skip-ahead exceeds the 15-bit field (32767 bitmap words).
+/// @dev Truncation would silently shorten the initialized-tick search and could skip ticks,
+///   so construction reverts instead of masking.
+error SkipAheadTooLarge();
 
 function sqrtRatioLimit(SwapParameters params) pure returns (SqrtRatio r) {
     assembly ("memory-safe") {
@@ -35,25 +42,46 @@ function isToken1(SwapParameters params) pure returns (bool t) {
 
 function skipAhead(SwapParameters params) pure returns (uint256 s) {
     assembly ("memory-safe") {
-        s := and(params, 0x7fffffff)
+        s := and(shr(16, params), 0x7fff)
     }
 }
 
-function createSwapParameters(SqrtRatio _sqrtRatioLimit, int128 _amount, bool _isToken1, uint256 _skipAhead)
-    pure
-    returns (SwapParameters p)
-{
+function minFee(SwapParameters params) pure returns (uint16 f) {
     assembly ("memory-safe") {
-        // p = (sqrtRatioLimit << 160) | (amount << 32) | (isToken1 << 31) | skipAhead
-        // Mask each field to ensure dirty bits don't interfere
+        f := and(params, 0xffff)
+    }
+}
+
+function createSwapParameters(
+    SqrtRatio _sqrtRatioLimit,
+    int128 _amount,
+    bool _isToken1,
+    uint256 _skipAhead,
+    uint16 _minFee
+) pure returns (SwapParameters p) {
+    assembly ("memory-safe") {
+        // p = (sqrtRatioLimit << 160) | (amount << 32) | (isToken1 << 31) | (skipAhead << 16) | minFee
+        // Mask each field to ensure dirty bits don't interfere, except skipAhead which reverts
+        // on overflow: silently shortening the tick search could skip initialized ticks.
         // For isToken1, use iszero(iszero()) to convert any non-zero value to 1
+        if gt(_skipAhead, 0x7fff) {
+            // SkipAheadTooLarge()
+            mstore(0, 0xbc4bee15)
+            revert(0x1c, 0x04)
+        }
         p := or(
             shl(160, _sqrtRatioLimit),
             or(
                 shl(32, and(_amount, 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)),
-                or(shl(31, iszero(iszero(_isToken1))), and(_skipAhead, 0x7fffffff))
+                or(shl(31, iszero(iszero(_isToken1))), or(shl(16, and(_skipAhead, 0x7fff)), and(_minFee, 0xffff)))
             )
         )
+    }
+}
+
+function withMinFee(SwapParameters params, uint16 _minFee) pure returns (SwapParameters updated) {
+    assembly ("memory-safe") {
+        updated := or(and(params, not(0xffff)), and(_minFee, 0xffff))
     }
 }
 

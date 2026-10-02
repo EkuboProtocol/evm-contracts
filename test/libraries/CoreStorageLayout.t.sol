@@ -418,8 +418,9 @@ contract CoreStorageLayoutTest is Test {
     function test_noStorageLayoutCollisions_realisticPoolIds(
         address token0,
         address token1,
-        uint64 fee,
-        uint32 tickSpacing,
+        uint16 fee,
+        uint8 tickSpacingExp,
+        uint64 configSalt,
         address extension,
         int32 tick,
         address owner,
@@ -436,7 +437,9 @@ contract CoreStorageLayoutTest is Test {
 
         // Create a realistic pool key and derive pool ID
         PoolKey memory poolKey = PoolKey({
-            token0: token0, token1: token1, config: createConcentratedPoolConfig(fee, tickSpacing, extension)
+            token0: token0,
+            token1: token1,
+            config: createConcentratedPoolConfig(fee, tickSpacingExp, extension, configSalt & 0xffffffffffff)
         });
         PoolId poolId = poolKey.toPoolId();
 

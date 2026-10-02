@@ -7,7 +7,7 @@ import {PoolConfig, createStableswapPoolConfig} from "../src/types/poolConfig.so
 import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolId} from "../src/types/poolId.sol";
 import {MIN_SQRT_RATIO, MAX_SQRT_RATIO, SqrtRatio} from "../src/types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING_EXP, NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 import {FullTest} from "./FullTest.sol";
 import {BaseRouter, RouteNode, TokenAmount, Swap} from "../src/base/BaseRouter.sol";
@@ -25,7 +25,7 @@ contract RouterTest is FullTest {
 
     function test_noop_sqrt_ratio_limit_equals_price_token0_out(int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
+        PoolKey memory poolKey = createPool({tick: tick, fee: 32768, tickSpacingExp: 2});
 
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
@@ -37,7 +37,7 @@ contract RouterTest is FullTest {
 
     function test_noop_sqrt_ratio_limit_equals_price_token1_out(int32 tick) public {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
-        PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
+        PoolKey memory poolKey = createPool({tick: tick, fee: 32768, tickSpacingExp: 2});
 
         PoolBalanceUpdate balanceUpdate = router.swapAllowPartialFill(
             RouteNode({poolKey: poolKey, sqrtRatioLimit: tickToSqrtRatio(tick), skipAhead: 0}),
@@ -49,7 +49,7 @@ contract RouterTest is FullTest {
 
     function test_reverts_sqrtRatioLimit_wrong_direction(int32 tick) public {
         tick = int32(bound(tick, MIN_TICK + 1, MAX_TICK - 1));
-        PoolKey memory poolKey = createPool({tick: tick, fee: 1 << 63, tickSpacing: 100});
+        PoolKey memory poolKey = createPool({tick: tick, fee: 32768, tickSpacingExp: 2});
 
         vm.expectRevert(ICore.SqrtRatioLimitWrongDirection.selector);
         router.swapAllowPartialFill(
@@ -65,7 +65,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token0_in(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 100);
@@ -84,7 +84,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token0_in_with_recipient(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 100);
@@ -93,7 +93,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token0_out(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 202);
@@ -113,7 +113,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token0_out_with_recipient(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 202);
@@ -123,7 +123,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token1_in(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 100);
@@ -142,7 +142,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token1_out(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 202);
@@ -161,7 +161,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token0_in_slippage_check_failed(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, int256(50), int256(49)));
@@ -173,7 +173,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token0_out_slippage_check_failed(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, int256(-200), int256(-202)));
@@ -213,7 +213,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token1_in_slippage_check_failed(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, int256(50), int256(49)));
@@ -225,7 +225,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_token1_out_slippage_check_failed(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         vm.expectRevert(abi.encodeWithSelector(BaseRouter.SlippageCheckFailed.selector, int256(-200), int256(-202)));
@@ -237,7 +237,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_exactOut(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 202);
@@ -251,7 +251,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_exactIn_partial_swap(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 5000);
@@ -265,7 +265,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_exactOut_partial_swap(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 202);
@@ -279,7 +279,7 @@ contract RouterTest is FullTest {
     }
 
     function test_multihopSwap(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 100);
@@ -297,7 +297,7 @@ contract RouterTest is FullTest {
     }
 
     function test_multihopSwap_exactOut(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
@@ -315,7 +315,7 @@ contract RouterTest is FullTest {
     }
 
     function test_multiMultihopSwap(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
@@ -346,7 +346,7 @@ contract RouterTest is FullTest {
     }
 
     function test_multiMultihopSwap_slippage_input(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
@@ -367,7 +367,7 @@ contract RouterTest is FullTest {
     }
 
     function test_multiMultihopSwap_eth_payment() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         Swap[] memory swaps = new Swap[](2);
@@ -384,7 +384,7 @@ contract RouterTest is FullTest {
     }
 
     function test_multiMultihopSwap_eth_middle_of_route() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         Swap[] memory swaps = new Swap[](2);
@@ -401,7 +401,7 @@ contract RouterTest is FullTest {
     }
 
     function test_multiMultihopSwap_slippage_input_reverts_diff_tokens(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
@@ -420,7 +420,7 @@ contract RouterTest is FullTest {
     }
 
     function test_multiMultihopSwap_slippage_output(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(0, 32768, 1, callPoints);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
@@ -441,7 +441,7 @@ contract RouterTest is FullTest {
     }
 
     function test_validation_Swaps() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
         Swap[] memory swaps = new Swap[](2);
 
         RouteNode[] memory route = new RouteNode[](1);
@@ -455,7 +455,7 @@ contract RouterTest is FullTest {
     }
 
     function test_coreEmitsSwapLogs() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
         (, uint128 liquidity) = createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), type(uint256).max);
@@ -528,7 +528,7 @@ contract RouterTest is FullTest {
     }
 
     function test_basicSwap_price_2x(CallPoints memory callPoints) public {
-        PoolKey memory poolKey = createPool(693147, 1 << 63, 100, callPoints);
+        PoolKey memory poolKey = createPool(693147, 32768, 1, callPoints);
         createPosition(poolKey, 693100, 693200, 1000, 1000);
 
         token0.approve(address(router), 100);
@@ -544,7 +544,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_gas() public {
-        PoolKey memory poolKey = createPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createPool(0, 32768, 1);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token0.approve(address(router), 100);
@@ -559,7 +559,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_token_for_eth_gas() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         token1.approve(address(router), 100);
@@ -574,7 +574,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_cross_two_ticks_eth_for_token1() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         createPosition(poolKey, -100, 100, 1000, 1000);
         createPosition(poolKey, -200, 200, 1000, 1000);
 
@@ -590,7 +590,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_cross_two_ticks_token1_for_eth() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         createPosition(poolKey, -100, 100, 1000, 1000);
         createPosition(poolKey, -200, 200, 1000, 1000);
 
@@ -608,7 +608,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_cross_tick_token1_for_eth() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         createPosition(poolKey, -100, 100, 1000, 1000);
         createPosition(poolKey, -200, 200, 1000, 1000);
 
@@ -626,7 +626,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_cross_tick_eth_for_token1() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         createPosition(poolKey, -100, 100, 1000, 1000);
         createPosition(poolKey, -200, 200, 1000, 1000);
 
@@ -642,7 +642,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_eth_for_token_gas() public {
-        PoolKey memory poolKey = createETHPool(0, 1 << 63, 100);
+        PoolKey memory poolKey = createETHPool(0, 32768, 1);
         createPosition(poolKey, -100, 100, 1000, 1000);
 
         coolAllContracts();
@@ -655,14 +655,14 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_eth_for_token_full_range_pool_gas() public {
-        PoolKey memory poolKey = createFullRangeETHPool(0, 1 << 63);
+        PoolKey memory poolKey = createFullRangeETHPool(0, 32768);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
         // do the swap one time first to set the fees slot
         router.swapAllowPartialFill{value: 100}({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100, _minFee: 0
             })
         });
 
@@ -670,7 +670,7 @@ contract RouterTest is FullTest {
         router.swapAllowPartialFill{value: 100}({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100, _minFee: 0
             })
         });
         vm.snapshotGasLastCall("swap 100 wei of eth for token full range");
@@ -678,7 +678,7 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_token_for_eth_full_range_pool_gas() public {
-        PoolKey memory poolKey = createFullRangeETHPool(0, 1 << 63);
+        PoolKey memory poolKey = createFullRangeETHPool(0, 32768);
         createPosition(poolKey, MIN_TICK, MAX_TICK, 1000, 1000);
 
         token1.approve(address(router), type(uint256).max);
@@ -686,7 +686,7 @@ contract RouterTest is FullTest {
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100, _minFee: 0
             })
         });
 
@@ -694,7 +694,7 @@ contract RouterTest is FullTest {
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100, _minFee: 0
             })
         });
         vm.snapshotGasLastCall("swap 100 wei of token for eth full range");
@@ -702,8 +702,8 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_eth_for_token_stableswap_pool_gas() public {
-        PoolConfig config = createStableswapPoolConfig(1 << 63, 4, 0, address(0));
-        PoolKey memory poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, config);
+        PoolConfig config = createStableswapPoolConfig(32768, 4, 0, address(0), 0);
+        PoolKey memory poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), 20, config);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         createPosition(poolKey, lower, upper, 1000, 1000);
 
@@ -711,7 +711,7 @@ contract RouterTest is FullTest {
         router.swapAllowPartialFill{value: 100}({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100, _minFee: 0
             })
         });
 
@@ -719,7 +719,7 @@ contract RouterTest is FullTest {
         router.swapAllowPartialFill{value: 100}({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: false, _amount: 100, _minFee: 0
             })
         });
         vm.snapshotGasLastCall("swap 100 wei of eth for token stableswap");
@@ -727,8 +727,8 @@ contract RouterTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_swap_token_for_eth_stableswap_pool_gas() public {
-        PoolConfig config = createStableswapPoolConfig(1 << 63, 4, 0, address(0));
-        PoolKey memory poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, config);
+        PoolConfig config = createStableswapPoolConfig(32768, 4, 0, address(0), 0);
+        PoolKey memory poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), 20, config);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         createPosition(poolKey, lower, upper, 1000, 1000);
 
@@ -737,7 +737,7 @@ contract RouterTest is FullTest {
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100, _minFee: 0
             })
         });
 
@@ -745,7 +745,7 @@ contract RouterTest is FullTest {
         router.swapAllowPartialFill({
             poolKey: poolKey,
             params: createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0, _isToken1: true, _amount: 100, _minFee: 0
             })
         });
         vm.snapshotGasLastCall("swap 100 wei of token for eth stableswap");
@@ -795,9 +795,9 @@ contract RouterTest is FullTest {
     }
 
     function test_swap_max_spacing_to_max_price() public {
-        PoolKey memory poolKey = createPool(MAX_TICK - 1, 0, MAX_TICK_SPACING);
+        PoolKey memory poolKey = createPool(0, 0, MAX_TICK_SPACING_EXP);
 
-        (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1, 1e36);
+        (, uint128 liquidity) = createPosition(poolKey, -169 * 524288, 169 * 524288, 1, 1e36);
         assertNotEq(liquidity, 0);
 
         token1.approve(address(router), type(uint256).max);
@@ -806,7 +806,7 @@ contract RouterTest is FullTest {
         });
 
         assertEq(balanceUpdate.delta0(), 0);
-        assertEq(balanceUpdate.delta1(), 499999875000098127000483558015);
+        assertEq(balanceUpdate.delta1(), 17388032373484959158);
 
         // reaches max tick but does not change liquidity
         (SqrtRatio sqrtRatio, int32 tick, uint128 liquidityAfter) = core.poolState(poolKey.toPoolId()).parse();
@@ -816,9 +816,9 @@ contract RouterTest is FullTest {
     }
 
     function test_swap_max_spacing_to_min_price() public {
-        PoolKey memory poolKey = createPool(MIN_TICK + 1, 0, MAX_TICK_SPACING);
+        PoolKey memory poolKey = createPool(0, 0, MAX_TICK_SPACING_EXP);
 
-        (, uint128 liquidity) = createPosition(poolKey, MIN_TICK, MAX_TICK, 1e36, 1);
+        (, uint128 liquidity) = createPosition(poolKey, -169 * 524288, 169 * 524288, 1e36, 1);
         assertNotEq(liquidity, 0);
 
         token0.approve(address(router), type(uint256).max);
@@ -826,7 +826,7 @@ contract RouterTest is FullTest {
             poolKey: poolKey, isToken1: true, amount: -1, sqrtRatioLimit: MIN_SQRT_RATIO, skipAhead: 0
         });
 
-        assertEq(balanceUpdate.delta0(), 499999875000098127108899679808);
+        assertEq(balanceUpdate.delta0(), 17388032373484959160);
         assertEq(balanceUpdate.delta1(), 0);
 
         // reaches max tick but does not change liquidity
@@ -839,7 +839,7 @@ contract RouterTest is FullTest {
 
     function test_stableswap_amplification_26_token0_in() public {
         // Create stableswap pool with high amplification (26)
-        PoolConfig config = createStableswapPoolConfig(0, 26, 0, address(0));
+        PoolConfig config = createStableswapPoolConfig(0, 26, 0, address(0), 0);
         PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         createPosition(poolKey, lower, upper, 1e18, 1e18);
@@ -862,7 +862,7 @@ contract RouterTest is FullTest {
 
     function test_stableswap_amplification_26_token1_in() public {
         // Create stableswap pool with high amplification (26)
-        PoolConfig config = createStableswapPoolConfig(0, 26, 0, address(0));
+        PoolConfig config = createStableswapPoolConfig(0, 26, 0, address(0), 0);
         PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         createPosition(poolKey, lower, upper, 1e18, 1e18);
@@ -885,7 +885,7 @@ contract RouterTest is FullTest {
 
     function test_stableswap_amplification_1_token0_in() public {
         // Create stableswap pool with low amplification (1)
-        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(0));
+        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(0), 0);
         PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         createPosition(poolKey, lower, upper, 1e18, 1e18);
@@ -908,7 +908,7 @@ contract RouterTest is FullTest {
 
     function test_stableswap_amplification_1_token1_in() public {
         // Create stableswap pool with low amplification (1)
-        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(0));
+        PoolConfig config = createStableswapPoolConfig(0, 1, 0, address(0), 0);
         PoolKey memory poolKey = createPool(address(token0), address(token1), 0, config);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
         createPosition(poolKey, lower, upper, 1e18, 1e18);
@@ -932,7 +932,7 @@ contract RouterTest is FullTest {
     function test_stableswap_outside_range_no_liquidity() public {
         // Create stableswap pool with moderate amplification (10) centered at tick 0
         // This creates a limited price range
-        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(0));
+        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(0), 0);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
 
         // Initialize pool outside the liquidity range (at upper + 1000 ticks)
@@ -956,7 +956,7 @@ contract RouterTest is FullTest {
 
     function test_stableswap_swap_through_range_boundary() public {
         // Create stableswap pool with moderate amplification (10) centered at tick 0
-        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(0));
+        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(0), 0);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
 
         // Initialize pool just inside the upper boundary
@@ -986,7 +986,7 @@ contract RouterTest is FullTest {
 
     function test_stableswap_inside_range_has_liquidity() public {
         // Create stableswap pool with moderate amplification (10) centered at tick 0
-        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(0));
+        PoolConfig config = createStableswapPoolConfig(0, 10, 0, address(0), 0);
         (int32 lower, int32 upper) = config.stableswapActiveLiquidityTickRange();
 
         // Initialize pool inside the liquidity range

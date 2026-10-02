@@ -50,7 +50,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         TestToken(token1).transfer(address(core), amount1);
     }
 
-    function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee) internal {
+    function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint16 fee) internal {
         buybacks.configure(token, targetOrderDuration, minOrderDuration, fee);
     }
 
@@ -109,14 +109,14 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_withdraw_protocol_fees_and_roll_with_one_token_configured() public {
-        uint64 poolFee = uint64((uint256(1) << 64) / 100);
+        uint16 poolFee = uint16((uint256(1) << 16) / 100);
 
         configure(address(token0), 3600, 1800, poolFee);
 
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(buybacksToken),
-            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee, _salt: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -134,14 +134,14 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_withdraw_protocol_fees_and_roll_with_token1_configured() public {
-        uint64 poolFee = uint64((uint256(1) << 64) / 100);
+        uint16 poolFee = uint16((uint256(1) << 16) / 100);
 
         configure(address(token1), 3600, 1800, poolFee);
 
         PoolKey memory poolKey = PoolKey({
             token0: address(token1),
             token1: address(buybacksToken),
-            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee, _salt: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -157,7 +157,7 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_withdraw_protocol_fees_and_roll_with_both_tokens_configured(uint80 donate0, uint80 donate1) public {
-        uint64 poolFee = uint64((uint256(1) << 64) / 100);
+        uint16 poolFee = uint16((uint256(1) << 16) / 100);
 
         configure(address(token0), 3600, 1800, poolFee);
         configure(address(token1), 3600, 1800, poolFee);
@@ -165,13 +165,13 @@ contract PositionsRevenueBuybacksTest is BaseOrdersTest {
         PoolKey memory poolKey0 = PoolKey({
             token0: address(token0),
             token1: address(buybacksToken),
-            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee, _salt: 0})
         });
 
         PoolKey memory poolKey1 = PoolKey({
             token0: address(token1),
             token1: address(buybacksToken),
-            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee, _salt: 0})
         });
 
         positions.maybeInitializePool(poolKey0, 0);

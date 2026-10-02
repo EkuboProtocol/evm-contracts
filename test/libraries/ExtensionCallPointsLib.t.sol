@@ -41,7 +41,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createConcentratedPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 2, address(0x3333), 0)
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         int128 liquidityDelta = 1000;
@@ -77,7 +77,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createConcentratedPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 2, address(0x3333), 0)
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         int128 liquidityDelta = 1000;
@@ -126,7 +126,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createConcentratedPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 2, address(0x3333), 0)
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
 
@@ -158,7 +158,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createConcentratedPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 2, address(0x3333), 0)
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         uint128 amount0 = 1000;
@@ -197,7 +197,7 @@ contract ExtensionCallPointsLibTest is Test {
         PoolKey memory poolKey = PoolKey({
             token0: address(0x1111),
             token1: address(0x2222),
-            config: createConcentratedPoolConfig(100, 60, address(0x3333))
+            config: createConcentratedPoolConfig(100, 2, address(0x3333), 0)
         });
         PositionId positionId = createPositionId(bytes24(uint192(0x4444)), -100, 100);
         PoolState stateAfter = createPoolState(SqrtRatio.wrap(100), 1, 1);

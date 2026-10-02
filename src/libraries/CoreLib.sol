@@ -113,32 +113,16 @@ library CoreLib {
     }
 
     /// @notice Executes a swap against the core contract using assembly optimization
-    /// @dev Uses assembly to make direct call to core contract for gas efficiency
+    /// @dev Uses assembly to make direct call to core contract for gas efficiency.
+    ///   The minimum fee travels inside `params`: the swap is charged the greater of the pool's
+    ///   configured fee and that minimum, on the input token, accruing to liquidity providers.
     /// @param core The core contract instance
     /// @param value Native token value to send with the swap
     /// @param poolKey Pool key identifying the pool
-    /// @param params The swap parameters to use
+    /// @param params The swap parameters to use, including the minimum fee
     /// @return balanceUpdate Change to the pool balances that resulted from the swap
     /// @return stateAfter The pool state after the swap
     function swap(ICore core, uint256 value, PoolKey memory poolKey, SwapParameters params)
-        internal
-        returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
-    {
-        (balanceUpdate, stateAfter) = swap(core, value, poolKey, params, 0);
-    }
-
-    /// @notice Executes a swap against the core contract, paying at least `minimumFee`
-    /// @dev The swap is charged the greater of the pool's configured fee and `minimumFee`, so it is
-    /// charged on the input token and accrues to the pool's liquidity providers. Passing a minimum
-    /// below the pool's own fee is a no-op
-    /// @param core The core contract instance
-    /// @param value Native token value to send with the swap
-    /// @param poolKey Pool key identifying the pool
-    /// @param params The swap parameters to use
-    /// @param minimumFee Least fee this swap may be charged, as a 0.64 number
-    /// @return balanceUpdate Change to the pool balances that resulted from the swap
-    /// @return stateAfter The pool state after the swap
-    function swap(ICore core, uint256 value, PoolKey memory poolKey, SwapParameters params, uint64 minimumFee)
         internal
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
@@ -154,12 +138,7 @@ library CoreLib {
             // Add SwapParameters
             mstore(add(free, 100), params)
 
-            // Add the minimum fee, but only extend the calldata to cover it when it is non-zero,
-            // since Core reads a missing trailing word as zero
-            mstore(add(free, 132), minimumFee)
-            let size := add(132, shl(5, iszero(iszero(minimumFee))))
-
-            if iszero(call(gas(), core, value, free, size, free, 64)) {
+            if iszero(call(gas(), core, value, free, 132, free, 64)) {
                 returndatacopy(free, 0, returndatasize())
                 revert(free, returndatasize())
             }

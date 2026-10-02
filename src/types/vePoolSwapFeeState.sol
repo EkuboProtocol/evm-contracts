@@ -11,21 +11,21 @@ function totalWeight(VePoolSwapFeeState state) pure returns (uint128 weight) {
     }
 }
 
-function swapFee(VePoolSwapFeeState state) pure returns (uint64 fee) {
+function swapFee(VePoolSwapFeeState state) pure returns (uint16 fee) {
     assembly ("memory-safe") {
-        fee := and(shr(128, state), 0xffffffffffffffff)
+        fee := and(shr(128, state), 0xffff)
     }
 }
 
-function parse(VePoolSwapFeeState state) pure returns (uint128 weight, uint64 fee) {
+function parse(VePoolSwapFeeState state) pure returns (uint128 weight, uint16 fee) {
     assembly ("memory-safe") {
         weight := and(state, 0xffffffffffffffffffffffffffffffff)
-        fee := and(shr(128, state), 0xffffffffffffffff)
+        fee := and(shr(128, state), 0xffff)
     }
 }
 
-function createVePoolSwapFeeState(uint128 totalWeight_, uint64 swapFee_) pure returns (VePoolSwapFeeState state) {
+function createVePoolSwapFeeState(uint128 totalWeight_, uint16 swapFee_) pure returns (VePoolSwapFeeState state) {
     assembly ("memory-safe") {
-        state := or(and(totalWeight_, 0xffffffffffffffffffffffffffffffff), shl(128, and(swapFee_, 0xffffffffffffffff)))
+        state := or(and(totalWeight_, 0xffffffffffffffffffffffffffffffff), shl(128, and(swapFee_, 0xffff)))
     }
 }

@@ -179,42 +179,42 @@ contract SignedExclusiveSwapTest is FullTest {
         vm.cool(address(harness));
     }
 
-    function signedExclusiveSwapPoolKey(uint32 tickSpacing) internal view returns (PoolKey memory poolKey) {
+    function signedExclusiveSwapPoolKey(uint8 tickSpacingExp) internal view returns (PoolKey memory poolKey) {
         poolKey = PoolKey({
             token0: address(token0),
             token1: address(token1),
             config: createConcentratedPoolConfig({
-                _fee: 0, _tickSpacing: tickSpacing, _extension: address(signedExclusiveSwap)
+                _fee: 0, _tickSpacingExp: tickSpacingExp, _extension: address(signedExclusiveSwap), _salt: 0
             })
         });
     }
 
-    function createSignedExclusiveSwapPool(int32 tick, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
-        poolKey = createSignedExclusiveSwapPool(tick, tickSpacing, controller);
+    function createSignedExclusiveSwapPool(int32 tick, uint8 tickSpacingExp) internal returns (PoolKey memory poolKey) {
+        poolKey = createSignedExclusiveSwapPool(tick, tickSpacingExp, controller);
     }
 
-    function createSignedExclusiveSwapPool(int32 tick, uint32 tickSpacing, ControllerAddress poolController)
+    function createSignedExclusiveSwapPool(int32 tick, uint8 tickSpacingExp, ControllerAddress poolController)
         internal
         returns (PoolKey memory poolKey)
     {
-        poolKey = signedExclusiveSwapPoolKey(tickSpacing);
+        poolKey = signedExclusiveSwapPoolKey(tickSpacingExp);
         vm.prank(admin);
         signedExclusiveSwap.initializePool(poolKey, tick, poolController);
     }
 
     function test_signed_swap_helper_charges_meta_fee_to_lps() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
         token1.approve(address(harness), type(uint256).max);
 
-        uint32 fee = uint32(uint256(1 << 32) / 200); // 0.5%
+        uint16 fee = uint16(uint256(1 << 16) / 200); // 0.5%
         uint32 deadline = uint32(block.timestamp + 1 hours);
         uint32 nonce = 7;
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta = createSignedSwapMeta(address(harness), deadline, fee, nonce);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
@@ -252,8 +252,8 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_hash_signed_swap_payload_matches_solady_eip712() public view {
-        PoolId poolId = signedExclusiveSwapPoolKey(20_000).toPoolId();
-        SignedSwapMeta meta = createSignedSwapMeta(address(harness), uint32(block.timestamp + 1 hours), 1_234_567, 777);
+        PoolId poolId = signedExclusiveSwapPoolKey(5).toPoolId();
+        SignedSwapMeta meta = createSignedSwapMeta(address(harness), uint32(block.timestamp + 1 hours), 12_345, 777);
         PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(123_456, -234_567);
 
         bytes32 structHash = eip712Reference.hashSignedSwapStruct(poolId, meta, minBalanceUpdate);
@@ -271,7 +271,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_gas_signed_swap_token0_input_no_meta_fee() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -279,7 +279,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta = createSignedSwapMeta(address(harness), uint32(block.timestamp + 1 hours), 0, 300);
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
@@ -301,7 +301,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_gas_signed_swap_token0_input_with_meta_fee() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -309,8 +309,8 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
-        uint32 fee = uint32(uint256(1 << 32) / 200); // 0.5%
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
+        uint16 fee = uint16(uint256(1 << 16) / 200); // 0.5%
         SignedSwapMeta meta = createSignedSwapMeta(address(harness), uint32(block.timestamp + 1 hours), fee, 301);
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
@@ -332,7 +332,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_gas_signed_swap_token1_input_with_meta_fee() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -340,8 +340,8 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: true, _amount: 100_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
-        uint32 fee = uint32(uint256(1 << 32) / 200); // 0.5%
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
+        uint16 fee = uint16(uint256(1 << 16) / 200); // 0.5%
         SignedSwapMeta meta = createSignedSwapMeta(address(harness), uint32(block.timestamp + 1 hours), fee, 302);
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
@@ -363,7 +363,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
     /// forge-config: default.isolate = true
     function test_gas_broadcast_signed_swaps_single() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
 
         SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 0, 303);
         PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(10, -20);
@@ -383,7 +383,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_nonce_reuse() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -391,9 +391,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 11);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), 11);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
@@ -424,7 +424,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_nonce_max_not_consumed() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -432,10 +432,10 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         uint64 nonce = type(uint64).max;
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), nonce);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), nonce);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
@@ -469,7 +469,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_unauthorized_locker() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -477,9 +477,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta = createSignedSwapMeta(
-            address(0xBEEF), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 99
+            address(0xBEEF), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), 99
         );
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
@@ -507,7 +507,7 @@ contract SignedExclusiveSwapTest is FullTest {
             deadlineTooFar = currentTimestamp + 30 days + 1;
         }
 
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -515,8 +515,8 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
-        SignedSwapMeta meta = createSignedSwapMeta(address(0), deadlineTooFar, uint32(uint256(1 << 32) / 500), 100);
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
+        SignedSwapMeta meta = createSignedSwapMeta(address(0), deadlineTooFar, uint16(uint256(1 << 16) / 500), 100);
 
         vm.expectRevert(ISignedExclusiveSwap.DeadlineTooFar.selector);
         harness.swapSigned(
@@ -525,14 +525,14 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_direct_core_initialize_pool() public {
-        PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+        PoolKey memory poolKey = signedExclusiveSwapPoolKey(5);
 
         vm.expectRevert(ISignedExclusiveSwap.PoolInitializationDisabled.selector);
         core.initializePool(poolKey, 0);
     }
 
     function test_initialize_pool_emits_pool_controller_updated() public {
-        PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+        PoolKey memory poolKey = signedExclusiveSwapPoolKey(5);
 
         vm.expectEmit(true, false, false, true, address(signedExclusiveSwap));
         emit ISignedExclusiveSwap.PoolControllerUpdated(poolKey.toPoolId(), controller);
@@ -550,7 +550,7 @@ contract SignedExclusiveSwapTest is FullTest {
         }
         ControllerAddress nextController = ControllerAddress.wrap(vm.addr(nextControllerPk));
 
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000, nextController);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5, nextController);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -558,9 +558,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 121);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), 121);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(nextControllerPk, digest);
@@ -586,7 +586,7 @@ contract SignedExclusiveSwapTest is FullTest {
         }
         assertTrue(uint160(address(contractController)) >> 159 == 1);
 
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -597,9 +597,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 131);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), 131);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
@@ -618,7 +618,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_min_balance_update_not_met() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -626,9 +626,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 211);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), 211);
         PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(type(int128).max, type(int128).max);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
@@ -649,7 +649,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_min_balance_update_allows_reasonable_bounds_token0_input() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -657,9 +657,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 212);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), 212);
         PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(50_000, -60_000);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
@@ -682,7 +682,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_min_balance_update_too_strict_pool_output_token0_input() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -690,9 +690,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 213);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), 213);
         PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(50_000, -40_000);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
@@ -713,7 +713,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_min_balance_update_too_strict_pool_output_token1_input() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -721,9 +721,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: true, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 214);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), 214);
         PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(-40_000, 50_000);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
@@ -744,7 +744,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_signature_expired() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -752,9 +752,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: true, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp - 1), uint32(uint256(1 << 32) / 500), 215);
+            createSignedSwapMeta(address(0), uint32(block.timestamp - 1), uint16(uint256(1 << 16) / 500), 215);
         PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(-40_000, 50_000);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdate);
@@ -775,7 +775,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_invalid_signature() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -783,9 +783,9 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: true, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta =
-            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint32(uint256(1 << 32) / 500), 216);
+            createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), uint16(uint256(1 << 16) / 500), 216);
         PoolBalanceUpdate minBalanceUpdateSigned = createPoolBalanceUpdate(-40_000, 50_000);
 
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, minBalanceUpdateSigned);
@@ -806,8 +806,8 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_broadcast_signed_swaps_emits_for_each_valid_signature() public {
-        PoolKey memory firstPoolKey = createSignedExclusiveSwapPool(0, 20_000);
-        PoolKey memory secondPoolKey = createSignedExclusiveSwapPool(0, 10_000);
+        PoolKey memory firstPoolKey = createSignedExclusiveSwapPool(0, 5);
+        PoolKey memory secondPoolKey = createSignedExclusiveSwapPool(0, 4);
 
         SignedSwapMeta firstMeta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 0, 217);
         SignedSwapMeta secondMeta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 1234, 218);
@@ -852,7 +852,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_broadcast_signed_swaps_invalid_signature() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
 
         SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 0, 219);
         PoolBalanceUpdate minBalanceUpdateSigned = createPoolBalanceUpdate(50, -60);
@@ -874,7 +874,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_broadcast_signed_swaps_expired_signature() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
 
         SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp - 1), 0, 220);
         PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(50, -60);
@@ -893,7 +893,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_broadcast_signed_swaps_deadline_too_far() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
 
         SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp + 30 days + 1), 0, 221);
         PoolBalanceUpdate minBalanceUpdate = createPoolBalanceUpdate(50, -60);
@@ -912,7 +912,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_broadcast_signed_swaps_nonce_already_used() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -920,7 +920,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 0, 222);
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
@@ -948,7 +948,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_domain_separator_tracks_chain_id_changes() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -959,7 +959,7 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: 50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
         SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), 0, 223);
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
@@ -980,7 +980,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_initialize_pool_not_owner() public {
-        PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+        PoolKey memory poolKey = signedExclusiveSwapPoolKey(5);
 
         vm.expectRevert(Ownable.Unauthorized.selector);
         signedExclusiveSwap.initializePool(poolKey, 0, controller);
@@ -990,7 +990,7 @@ contract SignedExclusiveSwapTest is FullTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(token1),
-            config: createConcentratedPoolConfig({_fee: 0, _tickSpacing: 20_000, _extension: address(0)})
+            config: createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 5, _extension: address(0), _salt: 0})
         });
 
         vm.prank(admin);
@@ -999,7 +999,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_initialize_pool_zero_controller() public {
-        PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+        PoolKey memory poolKey = signedExclusiveSwapPoolKey(5);
 
         vm.prank(admin);
         vm.expectRevert(ISignedExclusiveSwap.InvalidController.selector);
@@ -1011,7 +1011,7 @@ contract SignedExclusiveSwapTest is FullTest {
         address lowBitContract = address(0x123456);
         vm.etch(lowBitContract, address(codeSource).code);
 
-        PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+        PoolKey memory poolKey = signedExclusiveSwapPoolKey(5);
 
         vm.prank(admin);
         vm.expectRevert(ISignedExclusiveSwap.InvalidController.selector);
@@ -1022,7 +1022,7 @@ contract SignedExclusiveSwapTest is FullTest {
         address highBitNoCode = address(uint160(1) << 159);
         assertEq(highBitNoCode.code.length, 0);
 
-        PoolKey memory poolKey = signedExclusiveSwapPoolKey(20_000);
+        PoolKey memory poolKey = signedExclusiveSwapPoolKey(5);
 
         vm.prank(admin);
         vm.expectRevert(ISignedExclusiveSwap.InvalidController.selector);
@@ -1045,14 +1045,14 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_revert_set_pool_controller_not_owner() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
 
         vm.expectRevert(Ownable.Unauthorized.selector);
         signedExclusiveSwap.setPoolController(poolKey, ControllerAddress.wrap(address(0x1234)));
     }
 
     function test_revert_set_pool_controller_invalid_controller() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
 
         vm.prank(admin);
         vm.expectRevert(ISignedExclusiveSwap.InvalidController.selector);
@@ -1060,7 +1060,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_exact_out_token0_output_charges_meta_fee_on_token1_input() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -1068,8 +1068,8 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: false, _amount: -50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
-        uint32 fee = uint32(uint256(1 << 32) / 100); // 1%
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
+        uint16 fee = uint16(uint256(1 << 16) / 100); // 1%
         SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), fee, 224);
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);
@@ -1096,7 +1096,7 @@ contract SignedExclusiveSwapTest is FullTest {
     }
 
     function test_exact_out_token1_output_charges_meta_fee_on_token0_input() public {
-        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 20_000);
+        PoolKey memory poolKey = createSignedExclusiveSwapPool(0, 5);
         createPosition(poolKey, -100_000, 100_000, 1_000_000, 1_000_000);
 
         token0.approve(address(harness), type(uint256).max);
@@ -1104,8 +1104,8 @@ contract SignedExclusiveSwapTest is FullTest {
 
         SwapParameters params = createSwapParameters({
                 _isToken1: true, _amount: -50_000, _sqrtRatioLimit: SqrtRatio.wrap(0), _skipAhead: 0
-            }).withDefaultSqrtRatioLimit();
-        uint32 fee = uint32(uint256(1 << 32) / 100); // 1%
+            , _minFee: 0}).withDefaultSqrtRatioLimit();
+        uint16 fee = uint16(uint256(1 << 16) / 100); // 1%
         SignedSwapMeta meta = createSignedSwapMeta(address(0), uint32(block.timestamp + 1 hours), fee, 225);
         bytes32 digest = signedExclusiveSwap.hashSignedSwapPayload(poolKey.toPoolId(), meta, MIN_BALANCE_UPDATE);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(controllerPk, digest);

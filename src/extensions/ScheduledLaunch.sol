@@ -101,6 +101,13 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
     event LaunchCreated(PoolId indexed poolId, address indexed token, address indexed owner, LaunchConfig config);
     event LaunchAdvanced(PoolId indexed poolId, uint128 deployed, bool complete);
     event CreatorFeesClaimed(PoolId indexed poolId, address indexed recipient, uint128 amount0, uint128 amount1);
+    /// @notice Emitted for every external forwarded launch swap, after the creator fee is applied.
+    /// @param locker Original locker that forwarded the swap.
+    /// @param delta0 Fee-inclusive pool-perspective delta returned to the locker.
+    /// @param delta1 Fee-inclusive pool-perspective delta returned to the locker.
+    event LaunchSwapped(
+        PoolId indexed poolId, address indexed locker, int128 delta0, int128 delta1, uint128 feeAmount, bool feeIsToken1
+    );
 
     constructor(ICore core, address twamm) BaseExtension(core) BaseForwardee(core) BaseLocker(core) {
         if (twamm == address(0)) revert InvalidTwamm();
@@ -175,7 +182,7 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
 
     /// @dev Forward abi.encode(uint8(0), LaunchConfig) to create, or
     /// abi.encode(uint8(1), PoolKey, SwapParameters) to trade and receive (update, state).
-    function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory) {
+    function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory) {
         uint8 action = abi.decode(data, (uint8));
         if (action == 0) {
             (, LaunchConfig memory config) = abi.decode(data, (uint8, LaunchConfig));
@@ -183,7 +190,7 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
         }
         if (action == 1) {
             (, PoolKey memory key, SwapParameters params) = abi.decode(data, (uint8, PoolKey, SwapParameters));
-            return _swap(key, params);
+            return _swap(original, key, params);
         }
         revert InvalidAction();
     }
@@ -205,18 +212,35 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
         return abi.encode(key);
     }
 
-    function _swap(PoolKey memory key, SwapParameters params) private returns (bytes memory) {
+    function _swap(Locker original, PoolKey memory key, SwapParameters params) private returns (bytes memory) {
         Launch storage launch = _launches[key.toPoolId()];
         if (launch.owner == address(0)) revert UnknownLaunch();
         if (block.timestamp < launch.startTime) revert LaunchNotStarted();
         if (block.timestamp >= launch.endTime) revert LaunchEnded();
         _advance(key);
-        (PoolBalanceUpdate update, PoolState state) = CORE.swap(0, key, params.withDefaultSqrtRatioLimit());
-        update = _chargeFee(key, params, update);
+        (PoolBalanceUpdate update, PoolState state) =
+            CORE.swap(0, key, _withinRange(key, launch, params.withDefaultSqrtRatioLimit()));
+        update = _chargeFee(original, key, params, update);
         return abi.encode(update, state);
     }
 
-    function _chargeFee(PoolKey memory key, SwapParameters params, PoolBalanceUpdate update)
+    /// @dev Buys stop at the top of the launch range. Nothing above it belongs to the launch, and an
+    /// empty range lets a buy move the price there for free. From the extreme price no release could be
+    /// sold back toward the target, so released inventory would never be offered.
+    function _withinRange(PoolKey memory key, Launch storage launch, SwapParameters params)
+        private
+        view
+        returns (SwapParameters)
+    {
+        bool tokenIs1 = launch.token == key.token1;
+        if (params.isPriceIncreasing() == tokenIs1) return params;
+        SqrtRatio top = tickToSqrtRatio(tokenIs1 ? launch.positionId.tickLower() : launch.positionId.tickUpper());
+        SqrtRatio limit = params.sqrtRatioLimit();
+        if (tokenIs1 ? limit >= top : limit <= top) return params;
+        return createSwapParameters(top, params.amount(), params.isToken1(), params.skipAhead());
+    }
+
+    function _chargeFee(Locker original, PoolKey memory key, SwapParameters params, PoolBalanceUpdate update)
         private
         returns (PoolBalanceUpdate)
     {
@@ -229,9 +253,11 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
         uint128 feeAmount = params.isExactOut() ? amountBeforeFee(amount, fee) - amount : computeFee(amount, fee);
         _saveFees(key, calculatedIs1 ? 0 : feeAmount, calculatedIs1 ? feeAmount : 0);
         int128 withFee = SafeCastLib.toInt128(int256(calculated) + int256(uint256(feeAmount)));
-        return calculatedIs1
+        update = calculatedIs1
             ? createPoolBalanceUpdate(update.delta0(), withFee)
             : createPoolBalanceUpdate(withFee, update.delta1());
+        emit LaunchSwapped(key.toPoolId(), original.addr(), update.delta0(), update.delta1(), feeAmount, calculatedIs1);
+        return update;
     }
 
     function _saveFees(PoolKey memory key, uint128 amount0, uint128 amount1) private {
@@ -282,6 +308,9 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
             tokenIs0 ? config.upperTick : -config.targetTick
         );
         positionId.validate(key.config);
+        // Buys stop at the top of the range, so at least one raw unit must be sellable there.
+        SqrtRatio top = tickToSqrtRatio(tokenIs0 ? config.upperTick : -config.upperTick);
+        if (_saleAmount(top, !tokenIs0, 1) == 0) revert InvalidLaunch();
         _launches[key.toPoolId()] = Launch({
             owner: config.owner,
             token: token,

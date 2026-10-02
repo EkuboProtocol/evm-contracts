@@ -14,7 +14,8 @@ import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {TestToken} from "../TestToken.sol";
 
 /// @dev EKU-645 evaluation of PR #371 at 6767d6cc. These pin behavior the launchpad's
-/// provenance, analytics and trade preparation depend on; none of them change the contracts.
+/// provenance, analytics and trade preparation depend on. EKU-657 changed the three stall tests
+/// to assert that the launch keeps selling; the other seven are unchanged.
 contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
     using CoreLib for *;
 
@@ -23,6 +24,13 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
 
     function _quote(bool tokenIs0) internal pure returns (address) {
         return tokenIs0 ? HIGH_QUOTE : LOW_QUOTE;
+    }
+
+    function _assertAtRangeTop(PoolKey memory key, bool tokenIs0) internal view {
+        assertEq(
+            SqrtRatio.unwrap(core.poolState(key.toPoolId()).sqrtRatio()),
+            SqrtRatio.unwrap(tickToSqrtRatio(tokenIs0 ? int32(100_000) : int32(-100_000)))
+        );
     }
 
     function _token(PoolKey memory key) internal view returns (MintableERC20) {
@@ -95,54 +103,48 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         assertGt(bought, 0);
     }
 
-    /// A default-limit buy in the start-timestamp block finds an empty pool and moves its price to the
-    /// maximum for free. From there `_saleAmount` rounds to zero and no token-side liquidity fits, so
-    /// released inventory is never offered until someone deliberately swaps the price back down.
-    function testFuzz_eval_emptyPoolPricePushStallsReleases(bool tokenIs0) public {
+    /// EKU-657: a default-limit buy in the start-timestamp block still finds an empty pool, but it now stops
+    /// at the top of the launch range instead of the maximum price. The next release sells back toward the
+    /// target and offers inventory. (Was `emptyPoolPricePushStallsReleases`, which pinned the stall.)
+    function testFuzz_eval_emptyPoolPricePushNoLongerStallsReleases(bool tokenIs0) public {
         PoolKey memory key = _create(tokenIs0);
         uint256 quoteBefore = TestToken(_quote(tokenIs0)).balanceOf(address(this));
         vm.warp(START);
         assertEq(_buy(key, 10_000e18), 0);
         assertEq(TestToken(_quote(tokenIs0)).balanceOf(address(this)), quoteBefore);
+        _assertAtRangeTop(key, tokenIs0);
 
         vm.warp(START + 500);
-        assertEq(_buy(key, 10_000e18), 0);
-        extension.advance(key);
-        assertEq(extension.getLaunch(key.toPoolId()).deployed, 0);
-        assertEq(extension.released(key.toPoolId()), SUPPLY / 2);
-
-        // Permissionless recovery: a zero-fill sell-direction swap back to the target, then an advance.
-        actor.swap(extension, key, createSwapParameters(tickToSqrtRatio(0), 1, !tokenIs0, 0));
-        extension.advance(key);
+        assertGt(_buy(key, 10_000e18), 0);
         assertGt(extension.getLaunch(key.toPoolId()).deployed, 0);
-        assertGt(_buy(key, 1e18), 0);
+        assertEq(extension.released(key.toPoolId()), SUPPLY / 2);
     }
 
-    /// The same stall follows an ordinary buyout: once a default-limit buy exhausts the released
-    /// inventory the price runs to the maximum, and later releases are not offered.
-    function testFuzz_eval_buyoutWithDefaultLimitStallsLaterReleases(bool tokenIs0) public {
+    /// EKU-657: a default-limit buyout exhausts released inventory and stops at the top of the range.
+    /// Later releases are sold and bought. (Was `buyoutWithDefaultLimitStallsLaterReleases`.)
+    function testFuzz_eval_buyoutWithDefaultLimitNoLongerStallsLaterReleases(bool tokenIs0) public {
         PoolKey memory key = _create(tokenIs0);
         vm.warp(START + 100);
         assertGt(_buy(key, uint128(type(int128).max)), 0);
+        _assertAtRangeTop(key, tokenIs0);
         uint128 deployed = extension.getLaunch(key.toPoolId()).deployed;
         vm.warp(START + 600);
-        assertEq(_buy(key, 10_000e18), 0);
-        assertEq(extension.getLaunch(key.toPoolId()).deployed, deployed);
-        assertGt(extension.released(key.toPoolId()), deployed);
+        assertGt(_buy(key, 10_000e18), 0);
+        assertGt(extension.getLaunch(key.toPoolId()).deployed, deployed);
     }
 
-    /// Left unrecovered, the stalled launch ends with the whole supply unsold and nothing to migrate against.
-    function testFuzz_eval_stalledLaunchEndsUnsold(bool tokenIs0) public {
+    /// EKU-657: the start-block push no longer leaves the supply unsold; the launch sells and migrates.
+    /// (Was `stalledLaunchEndsUnsold`.)
+    function testFuzz_eval_startBlockPushLaunchStillSellsAndMigrates(bool tokenIs0) public {
         PoolKey memory key = _create(tokenIs0);
         vm.warp(START);
         _buy(key, 10_000e18);
         vm.warp(END - 1);
-        assertEq(_buy(key, 10_000e18), 0);
+        assertGt(_buy(key, 10_000e18), 0);
         _finish(key);
-        assertEq(_locked(key), 0);
+        assertGt(_locked(key), 0);
         (uint128 r0, uint128 r1) = _balances(address(vault), key, PoolId.unwrap(key.toPoolId()));
-        assertEq(tokenIs0 ? r0 : r1, SUPPLY);
-        assertEq(tokenIs0 ? r1 : r0, 0);
+        assertLt(tokenIs0 ? r0 : r1, SUPPLY);
     }
 
     /// Ending a launch needs no creator action, and the terminal pool trades through the standard Router.

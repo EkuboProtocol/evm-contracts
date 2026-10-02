@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-// EKU-648 evidence: does _bestNeighbor's unconditional `result = crossing - 1` choose a nonzero swap that
-// does not beat the no-swap baseline? A nonzero amount makes _balance collect fees and execute a fee-paying
-// swap, so "chosen > 0 && capacity(chosen) <= baseline" is a wasted swap.
+// EKU-648 found that _bestNeighbor's unconditional `result = crossing - 1` could choose a nonzero swap that
+// does not beat the no-swap baseline. A nonzero amount makes _balance collect fees and execute a fee-paying
+// swap, so "chosen > 0 && capacity(chosen) <= baseline" is a wasted swap. EKU-657 fixed it; these pin it.
 
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
@@ -181,5 +181,6 @@ contract LaunchLiquidityBestNeighborTest is Test {
         console2.log("largest wasted input (raw units)", maxWasted);
         console2.log("  at a0", maxWastedA0);
         console2.log("  at a1", maxWastedA1);
+        assertEq(wastedCount, 0, "wasted swaps");
     }
 }

@@ -1,0 +1,11 @@
+# EKU-648 evidence run
+Fri Oct  2 04:34:35 PM UTC 2026
+repo HEAD: 6767d6cc9f131649d6494033a37cd4cabd143b92
+base: 3aff3503db32ef6df4e748fcaec0d2bf05d7a165
+forge Version: 1.8.3
+Commit SHA: cae51ad458f6abb64852b7709eb784352429825d
+Build Timestamp: 2026-09-15T10:46:16.519267388Z (1789469176)
+Build Profile: dist
+solc 0.8.33 via_ir optimizer_runs=9999999 evm=osaka (foundry.toml)
+ 77041d2ce690e692d6e03cc812b57d1ddaa4d505 lib/forge-std (v1.9.7)
+ 65e87c72a5ee4a6708946b25611ec5f980ceba70 lib/solady (v0.1.22)

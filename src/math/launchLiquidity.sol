@@ -128,8 +128,10 @@ library LaunchLiquidityMath {
         uint128 result;
         if (crossing != 0) {
             uint128 candidate = _capacityAfter(market, token1, crossing - 1);
-            if (candidate > best) best = candidate;
-            result = crossing - 1;
+            if (candidate > best) {
+                best = candidate;
+                result = crossing - 1;
+            }
         }
         if (_capacityAfter(market, token1, crossing) > best) result = crossing;
         return result;

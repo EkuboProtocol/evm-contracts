@@ -11,7 +11,9 @@ It enforces:
 - signatures can optionally restrict which locker is allowed to use them,
 - pool fee must be zero for pools using this extension,
 - pools must be initialized through the extension's owner-only `initializePool(...)`,
-- signed fees are split between the owner and LPs; the LP share is donated on the next block touch.
+- the signed fee is handed to `Core.swap(...)` as that swap's minimum fee, so it is charged on the input token and accrues to the LPs within the swap itself.
+
+Call points are `beforeInitializePool` (to block direct initialization) and `beforeSwap` (to block direct swaps). The extension holds no funds and keeps no per-pool state other than the controller.
 
 ## Payload
 
@@ -55,19 +57,14 @@ where:
    - deadline from `meta` has not expired, and is no further than 30 days in the future,
    - locker authorization from `meta`,
    - signature against the pool controller stored in per-pool state.
-   (The nonce is not pre-checked on the forward path; reuse is rejected when the nonce is consumed in step 6.)
-3. Extension accumulates pending extension fees for the pool if this is the pool's first touch at the current block timestamp.
-4. Extension executes `CORE.swap(...)`.
-5. Extension checks `actualBalanceUpdate >= minBalanceUpdate` component-wise (`delta0` and `delta1`) on the raw result returned by Core, before any fee is applied.
-6. Extension consumes the nonce. This happens only after the bounds check passes, so a swap that violates its bounds costs less gas and does not burn the nonce.
-7. Extension applies `fee` to the swapper result:
-   - exact-in: fee is charged on output amount,
-   - exact-out: fee is charged on required input amount; the total input including the fee must fit `int128`, otherwise the swap reverts.
-8. For a nonzero collected fee, the owner share is calculated with `computeFee` and saved separately in Core under salt zero. The remainder is saved under the pool ID and later donated to that pool's LPs.
+   (The nonce is not pre-checked on the forward path; reuse is rejected when the nonce is consumed in step 4.)
+3. Extension executes `CORE.swap(...)`, passing `fee` (a Q32 rate, widened to Core's Q64) as that swap's minimum fee. Core charges the greater of the pool's configured fee and that minimum; the pool's fee is required to be zero here, so the signed fee is exactly what is charged. It comes off the input token in both directions, moves the price less, and is credited to the LPs that were in range for each step of the swap.
+4. Extension checks `actualBalanceUpdate >= minBalanceUpdate` component-wise (`delta0` and `delta1`). Because the fee is now inside the Core swap, the bound applies to what the swapper actually pays and receives.
+5. Extension consumes the nonce. This happens only after the bounds check passes, so a swap that violates its bounds costs less gas and does not burn the nonce.
 
 ## Why `minBalanceUpdate` is useful
 
-`minBalanceUpdate` is a signed lower bound on the `PoolBalanceUpdate` that Core returns for the swap, checked before the signed fee is applied, and it is part of the signed payload.
+`minBalanceUpdate` is a signed lower bound on the `PoolBalanceUpdate` that Core returns for the swap, inclusive of the signed fee, and it is part of the signed payload.
 
 It provides four protections at once:
 - Direction enforcement: by requiring the expected leg to be positive/negative as appropriate, it prevents a fill that moves value in the wrong direction.
@@ -75,17 +72,13 @@ It provides four protections at once:
 - Maximum magnitude control: bounds on input/output deltas cap how large a trade can effectively execute under that signature.
 - Best-price cap: because bounds are on both components, the signer can also cap how favorable a fill may be (for example, avoid overfilling beyond inventory/risk limits), not only protect against worse prices.
 
-## Fee donation timing
+## Fee timing and JIT liquidity
 
-The extension does not immediately donate the LP share of its signed fee to LPs.
+The signed fee is credited to LPs inside the swap, on the same path as an ordinary pool fee.
 
-On a pool's first touch at a new block *timestamp* (`swap`, `beforeUpdatePosition`, `beforeCollectFees`, or public `accumulatePoolFees`), it:
-- donates previously collected LP fees into pool LP accounting,
-- records the pool as updated for the current block timestamp.
+An earlier version of this extension instead collected the fee into its own Core saved balances, salted by pool ID, and donated it at the pool's first touch at a later block timestamp. That deferral existed to stop liquidity from being added purely to capture a fee it had not been at risk for. It is gone: these pools now carry exactly the just-in-time exposure that every other Ekubo pool carries, and signed fees can be much larger than a typical pool fee, so the payoff to a JIT LP is correspondingly larger.
 
-Position updates and fee collection at the same timestamp do not flush pending LP fees. Donations go to liquidity active at donation time, so liquidity added before donation can receive earlier fees, withdrawing liquidity can miss pending fees, and a donation with no active liquidity is burned. The gate uses the timestamp rather than the block number; on chains with multiple blocks per second, those blocks can share a pending fee bucket.
-
-This attribution tradeoff is intentional. The controller authorizes swaps and their fees, and has an arbitrage incentive to leave the pool at the correct price at the end of the block. Flushing on position changes would not prevent controller-authorized swaps from moving the active range before donation, so it does not provide a useful attribution guarantee for this design. The end-of-block price is an economic expectation, not an enforced invariant. Perfect attribution to the liquidity used throughout a swap requires per-step fee accounting in Core. See the [acknowledged V12 finding](https://v12.sh/runs/7702/274639).
+What the current scheme buys in exchange is better attribution. A deferred donation credits whoever holds liquidity at donation time, regardless of who was in range when the fee was earned; Core credits the LPs who were actually in range for each step of the swap that paid it.
 
 ## Replay protection
 
@@ -116,7 +109,7 @@ These controls reduce the value of quote farming and make selective execution ma
 ## Controller management
 
 - Contract is `Ownable`.
-- Owner initializes pools by setting a `ControllerAddress controller` via `initializePool(poolKey, tick, controller, ownerFee)`; the EOA/contract flag is encoded in the controller address (high bit at position 159).
+- Owner initializes pools by setting a `ControllerAddress controller` via `initializePool(poolKey, tick, controller)`; the controller is the extension's entire per-pool state, stored at the slot keyed by pool ID; the EOA/contract flag is encoded in the controller address (high bit at position 159).
 - Direct `Core.initializePool(...)` for this extension is blocked by `beforeInitializePool`.
 - Owner can update per-pool controller for already initialized pools via `setPoolController(...)`.
 - Controller signatures support both EOAs and ERC-1271 contract wallets; which path is used is determined by bit 159 of the controller address itself, not a separate flag. Addresses below `2^159` are verified via ECDSA, addresses at or above it via ERC-1271. Initialization and controller updates enforce that the address's code presence matches the encoded type.
@@ -124,13 +117,3 @@ These controls reduce the value of quote farming and make selective execution ma
 ## Broadcasting quotes
 
 `broadcastSignedSwaps(SignedSwapBroadcast[])` is a permissionless entrypoint that validates a batch of signed payloads (deadline window, nonce still available, signature against the pool's current controller) and emits one `SignedSwapBroadcasted` event per valid payload. It executes nothing and consumes no nonces; it exists so a controller can publish live quotes on-chain for takers to discover. The whole call reverts if any payload fails validation.
-
-## Owner fee share
-
-The owner can call `setOwnerFee(PoolKey,uint64)` to set a Q0.64 share of subsequently collected swap fees for an initialized pool (the same representation as regular pool fees). The initial share is supplied to `initializePool(poolKey, tick, controller, ownerFee)`. `PoolStateUpdated` records changes. Read the share through ExposedStorage at the pool ID slot and decode it with `SignedExclusiveSwapPoolState.ownerFee()`. For example, `1 << 63` takes half of the collected fee, not half of the swap amount.
-
-The fee occupies bits [63..0] of `SignedExclusiveSwapPoolState`, alongside the 160-bit controller and 32-bit last-update timestamp. Swaps read the fee from the already loaded state, requiring no additional storage read.
-
-During each swap, a nonzero collected fee is split using `computeFee(collectedFee, ownerFee)`, rounding the owner's share up. Only a nonzero computed owner share is saved immediately through `CORE.updateSavedBalances` under salt zero, aggregated by ordered token pair. The remaining fee goes to the pool's pending LP balance. The swapper's total fee is unchanged, and rate changes do not affect fees already saved for LPs.
-
-The owner can collect these balances with `withdrawOwnerFees(token0, token1, amount0, amount1, recipient)`. Pending LP balances remain separate under the pool ID salt.

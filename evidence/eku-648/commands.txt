@@ -1,3 +1,0 @@
-forge test --match-contract ScheduledLaunchTwammBoundsTest --match-test eku648 -vv
-FOUNDRY_FUZZ_RUNS=100000 forge test --match-contract LaunchLiquidityBestNeighborTest -vv --fuzz-seed 0x7fefe050cd0de7fdfe30af7e1a4b95493572f3ade3b5dbabf857e65d6720f99a
-forge test --match-path test/extensions/ScheduledLaunch.t.sol --match-contract "^ScheduledLaunchTest$" (unchanged PR suite)

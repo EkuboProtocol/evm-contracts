@@ -3,6 +3,7 @@ pragma solidity =0.8.33;
 
 import {Script} from "forge-std/Script.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
+import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {Router} from "../src/Router.sol";
 import {LaunchRouter} from "../src/LaunchRouter.sol";
 import {ScheduledLaunch, scheduledLaunchCallPoints} from "../src/extensions/ScheduledLaunch.sol";
@@ -12,9 +13,14 @@ import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 /// with Ekubo Core and TWAMM, and writes launchpad-manifest.json. Run through script/launchpad-local.sh.
 /// @dev Local forks only. FORK_BLOCK and GIT_REVISION come from the wrapper.
 contract DeployLaunchpadLocal is Script {
+    using CoreLib for ICore;
+
     bytes32 internal constant SALT = keccak256("ekubo launchpad local");
 
     error MissingDeployment(string name, address expected);
+    error ExtensionMismatch(address expected, address actual);
+    error TwammMismatch(address expected, address actual);
+    error TwammNotRegistered(address twamm);
 
     function run() public {
         require(block.chainid != 0, "chain id");
@@ -50,6 +56,7 @@ contract DeployLaunchpadLocal is Script {
         vm.stopBroadcast();
 
         address liquidity = address(ScheduledLaunch(extension).LIQUIDITY());
+        bool twammRegistered = _checkTwamm(core, twamm, ScheduledLaunch(extension), LaunchRouter(launchRouter));
         string memory contracts = "contracts";
         _entry(contracts, "core", address(core));
         _entry(contracts, "twamm", twamm);
@@ -62,9 +69,26 @@ contract DeployLaunchpadLocal is Script {
         vm.serializeUint(manifest, "chain_id", block.chainid);
         vm.serializeUint(manifest, "fork_block", vm.envUint("FORK_BLOCK"));
         vm.serializeString(manifest, "git_revision", vm.envString("GIT_REVISION"));
+        vm.serializeBool(manifest, "twamm_registered", twammRegistered);
         vm.serializeString(manifest, "abis", vm.envOr("ABI_DIR", string("launchpad-abis")));
         manifest = vm.serializeString(manifest, "contracts", contracts);
         vm.writeJson(manifest, vm.envOr("MANIFEST_PATH", string("launchpad-manifest.json")));
+    }
+
+    /// @dev Reads the terminal-pool TWAMM back from the deployed launch contracts. A nonzero address alone
+    /// proves nothing: it must be the manifest's TWAMM and a Core-registered extension.
+    function _checkTwamm(ICore core, address twamm, ScheduledLaunch extension, LaunchRouter launchRouter)
+        internal
+        view
+        returns (bool)
+    {
+        if (address(launchRouter.EXTENSION()) != address(extension)) {
+            revert ExtensionMismatch(address(extension), address(launchRouter.EXTENSION()));
+        }
+        address actual = extension.TWAMM();
+        if (actual != twamm) revert TwammMismatch(twamm, actual);
+        if (!core.isExtensionRegistered(actual)) revert TwammNotRegistered(actual);
+        return true;
     }
 
     function _entry(string memory parent, string memory name, address target) internal returns (string memory) {

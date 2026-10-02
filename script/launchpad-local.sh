@@ -27,6 +27,8 @@ for c in ScheduledLaunch LockedLaunchLiquidity LaunchRouter Router; do
   jq .abi "out/${c}.sol/${c}.json" >"launchpad-abis/${c}.json"
 done
 
+# The script reverts unless the launch extension's TWAMM is the manifest's and Core has it registered.
+[[ "$(jq -r .twamm_registered launchpad-manifest.json)" == true ]] || { echo "twamm_registered is not true" >&2; exit 1; }
 for name in $(jq -r '.contracts | keys[]' launchpad-manifest.json); do
   address="$(jq -r ".contracts.${name}.address" launchpad-manifest.json)"
   expected="$(jq -r ".contracts.${name}.code_hash" launchpad-manifest.json)"

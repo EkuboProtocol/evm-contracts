@@ -1,0 +1,29 @@
+No files changed, compilation skipped
+
+Ran 20 tests for test/extensions/ScheduledLaunch.t.sol:ScheduledLaunchTest
+[PASS] testFuzz_creationAndFeeSchedule(bool,uint64) (runs: 256, μ: 1474669, ~: 1474737)
+Logs:
+  Bound result 724
+
+[PASS] testFuzz_emptyDestinationPriceCannotGrief(bool) (runs: 256, μ: 2168019, ~: 2146267)
+[PASS] testFuzz_exactOutputAndPartialInput(bool) (runs: 256, μ: 1944557, ~: 1906184)
+[PASS] testFuzz_existingPoolBalancesAndCreatorGetsOnlyOwnFees(bool) (runs: 256, μ: 3742862, ~: 3714799)
+[PASS] testFuzz_externalFeesAndInternalExemption(bool) (runs: 256, μ: 2143160, ~: 2125558)
+[PASS] testFuzz_freshMigrationLocksPrincipal(bool) (runs: 256, μ: 3087850, ~: 3070993)
+[PASS] testFuzz_largeLaunchMigrationCanFinishInChunks(bool) (runs: 256, μ: 4260388, ~: 4202021)
+[PASS] testFuzz_launchIsolation(bool) (runs: 256, μ: 3352873, ~: 3332764)
+[PASS] testFuzz_migrationWithLiveTwammOrders(bool) (runs: 256, μ: 3514611, ~: 3487015)
+[PASS] testFuzz_noBuyersWaitsForFunding(bool) (runs: 256, μ: 2388396, ~: 2368300)
+[PASS] testFuzz_noBuyersWithQuoteSeedMigrates(bool) (runs: 256, μ: 2126508, ~: 2106258)
+[PASS] testFuzz_outsideMigrationBoundsRetainsLockedFunds(bool) (runs: 256, μ: 2896771, ~: 2862003)
+[PASS] testFuzz_rebalanceFeesRecycleIntoPrincipal(bool) (runs: 256, μ: 2706257, ~: 2678835)
+[PASS] testFuzz_rebalancePreservesPreviouslyEarnedCreatorFees(bool) (runs: 256, μ: 2830771, ~: 2806954)
+[PASS] testFuzz_releasesBelowTargetStillWork(bool) (runs: 256, μ: 2154187, ~: 2136011)
+[PASS] test_constructorRevertsForZeroTwamm() (gas: 163431)
+[PASS] test_deployWithMinedHookPrefix() (gas: 8898289)
+[PASS] test_directCallsAndOutsideScheduleRevert() (gas: 1546653)
+[PASS] test_invalidConfigurationAndRollback() (gas: 1373794)
+[PASS] test_nativeQuoteMigration() (gas: 2339495)
+Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 1.13s (12.46s CPU time)
+
+Ran 1 test suite in 1.13s (1.13s CPU time): 20 tests passed, 0 failed, 0 skipped (20 total tests)

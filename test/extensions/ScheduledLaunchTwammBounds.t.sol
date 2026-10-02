@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-// EKU-648 evidence: migration price bounds vs pending TWAMM virtual execution.
-// Review-only harness against PR #371 head 6767d6cc9f131649d6494033a37cd4cabd143b92.
+// Migration price bounds vs pending TWAMM virtual execution. The EKU-648 harness against PR #371 head
+// 6767d6cc found deposits outside the bounds and reverting advances; EKU-657 turns it into regressions.
 
 import {console2} from "forge-std/console2.sol";
 import {ScheduledLaunchTest, TwammTrader, OtherLP} from "./ScheduledLaunch.t.sol";
@@ -304,79 +304,86 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Witnesses: these PASS by asserting the observed (adverse) behaviour at this SHA
+    // Regressions: at 6767d6cc these cases deposited out of bounds or reverted
     // ---------------------------------------------------------------------------------------------
 
-    /// Single-sided funding whose rebalance direction is opposite to the pending flow:
-    /// stale price passes the bound check, virtual execution (inside collectFees) moves price far
-    /// outside, the stale-sized swap only partially reverses it, and principal is deposited out of bounds.
-    function test_eku648_witness_crossingFlowDepositsPrincipalOutsideBounds() public {
+    function _assertRetained(Case memory c) internal pure {
+        assertEq(uint8(c.outcome), uint8(Outcome.Deferred), "deferred");
+        assertEq(c.post.reserve0, c.pre.reserve0, "reserve0 retained");
+        assertEq(c.post.reserve1, c.pre.reserve1, "reserve1 retained");
+        assertEq(c.post.ownLiquidity, c.pre.ownLiquidity, "liquidity unchanged");
+    }
+
+    /// Single-sided funding against crossing flow. Previously the stale price passed the check and the
+    /// deposit landed outside the bounds. Now migration sees the executed price and defers.
+    function test_crossingFlowDefersInsteadOfDepositingOutsideBounds() public {
         Case[2] memory a = _bothOrders(FUND_TOKEN1, FLOW_SELL_TOKEN0);
         Case[2] memory b = _bothOrders(FUND_TOKEN0, FLOW_SELL_TOKEN1);
         for (uint256 i; i < 2; i++) {
             assertTrue(a[i].pre.sqrtRatio >= a[i].lower && a[i].pre.sqrtRatio <= a[i].upper, "stale in bounds");
             assertLt(SqrtRatio.unwrap(a[i].executedOnlyPrice), SqrtRatio.unwrap(a[i].lower), "flow exits below");
-            assertEq(uint8(a[i].outcome), uint8(Outcome.DepositedOutOfBounds));
-            assertLt(SqrtRatio.unwrap(a[i].post.sqrtRatio), SqrtRatio.unwrap(a[i].lower));
-
+            _assertRetained(a[i]);
             assertTrue(b[i].pre.sqrtRatio >= b[i].lower && b[i].pre.sqrtRatio <= b[i].upper, "stale in bounds");
             assertGt(SqrtRatio.unwrap(b[i].executedOnlyPrice), SqrtRatio.unwrap(b[i].upper), "flow exits above");
-            assertEq(uint8(b[i].outcome), uint8(Outcome.DepositedOutOfBounds));
-            assertGt(SqrtRatio.unwrap(b[i].post.sqrtRatio), SqrtRatio.unwrap(b[i].upper));
+            _assertRetained(b[i]);
         }
     }
 
-    /// Single-sided funding whose swap direction matches the pending flow: after virtual execution the
-    /// price is already beyond the swap limit (the bound), so Core rejects the limit direction.
-    function test_eku648_witness_sameDirectionFlowRevertsMigration() public {
+    /// Single-sided funding with same-direction flow. Previously the stale-sized swap hit
+    /// SqrtRatioLimitWrongDirection. Now migration defers without reverting.
+    function test_sameDirectionFlowDefersWithoutRevert() public {
         Case[2] memory a = _bothOrders(FUND_TOKEN1, FLOW_SELL_TOKEN1);
         Case[2] memory b = _bothOrders(FUND_TOKEN0, FLOW_SELL_TOKEN0);
         for (uint256 i; i < 2; i++) {
-            assertEq(uint8(a[i].outcome), uint8(Outcome.Reverted));
-            assertEq(a[i].selector, ICore.SqrtRatioLimitWrongDirection.selector);
-            assertEq(uint8(b[i].outcome), uint8(Outcome.Reverted));
-            assertEq(b[i].selector, ICore.SqrtRatioLimitWrongDirection.selector);
-            // revert rolls back virtual execution as well: principal untouched
-            assertEq(a[i].post.reserve0, a[i].pre.reserve0);
-            assertEq(a[i].post.reserve1, a[i].pre.reserve1);
-            assertEq(a[i].post.ownLiquidity, a[i].pre.ownLiquidity);
+            _assertRetained(a[i]);
+            _assertRetained(b[i]);
         }
     }
 
-    /// Exactly balanced reserves: optimalSwap is zero, collection is skipped, _deposit sizes liquidity from
-    /// the stale price, then updatePosition executes virtual orders and needs more of one token than saved.
-    function test_eku648_witness_balancedPendingFlowRevertsDeposit() public {
+    /// Exactly balanced reserves. Previously liquidity was sized from the stale price and updatePosition
+    /// needed more of one token than saved. Now the executed price is out of bounds and migration defers.
+    function test_balancedPendingFlowDefersWithoutRevert() public {
         Case[2] memory a = _bothOrders(FUND_BALANCED, FLOW_SELL_TOKEN0);
         Case[2] memory b = _bothOrders(FUND_BALANCED, FLOW_SELL_TOKEN1);
         for (uint256 i; i < 2; i++) {
-            assertEq(uint8(a[i].outcome), uint8(Outcome.Reverted));
-            assertEq(uint8(b[i].outcome), uint8(Outcome.Reverted));
-            assertEq(a[i].post.ownLiquidity, a[i].pre.ownLiquidity);
-            assertEq(b[i].post.ownLiquidity, b[i].pre.ownLiquidity);
+            _assertRetained(a[i]);
+            _assertRetained(b[i]);
         }
     }
 
-    /// Recovery path for the revert cases: executing virtual orders first makes migrate observe the
-    /// out-of-bounds price and defer, with principal retained.
-    function test_eku648_recovery_executeVirtualOrdersThenMigrateDefers() public {
-        for (uint256 i; i < 2; i++) {
-            uint256 snapshot = vm.snapshotState();
-            Case memory c = _setupLaunch(i == 0);
-            _placeFlow(c, FLOW_SELL_TOKEN1);
-            _fund(c, FUND_TOKEN1);
-            vm.warp(ORDER_START + PENDING);
-            uint128 liquidityBefore = _locked(c.key);
-            twamm.lockAndExecuteVirtualOrders(c.terminal);
-            vault.migrate(c.launchId);
-            assertEq(_locked(c.key), liquidityBefore, "deferred");
-            assertGt(core.poolState(c.terminal.toPoolId()).sqrtRatio().toFixed(), c.upper.toFixed());
-            vm.revertToState(snapshot);
+    /// Flow small enough to stay inside the bounds: migration balances and deposits at the executed price.
+    function test_smallPendingFlowDepositsAtExecutedPrice() public {
+        for (uint8 funding; funding < 3; funding++) {
+            for (uint256 i; i < 2; i++) {
+                uint256 snapshot = vm.snapshotState();
+                Case memory c = _setupLaunch(i == 0);
+                vm.warp(ORDER_START);
+                TwammTrader trader = new TwammTrader(core);
+                TestToken(c.terminal.token1).approve(address(trader), type(uint256).max);
+                OrderKey memory order = OrderKey({
+                    token0: c.terminal.token0,
+                    token1: c.terminal.token1,
+                    config: createOrderConfig({
+                        _fee: FINAL_FEE, _isToken1: true, _startTime: ORDER_START, _endTime: ORDER_END
+                    })
+                });
+                trader.placeOrder(twamm, bytes32(uint256(1)), order, SALE_RATE / 1000, address(this));
+                _fund(c, funding);
+                vm.warp(ORDER_START + PENDING);
+                uint128 before = _locked(c.key);
+                vault.migrate(c.launchId);
+                PoolState st = core.poolState(c.terminal.toPoolId());
+                assertGt(_locked(c.key), before, "deposited");
+                assertTrue(st.sqrtRatio() >= c.lower && st.sqrtRatio() <= c.upper, "in bounds");
+                assertNotEq(st.tick(), 0, "virtual orders moved the price");
+                vm.revertToState(snapshot);
+            }
         }
     }
 
-    /// advance() at endTime calls migrate(); pending flow on a pre-seeded terminal pool makes the
-    /// whole advance revert until someone executes virtual orders separately.
-    function test_eku648_witness_advanceRevertsWithPendingFlowThenRecovers() public {
+    /// advance() at endTime migrates against a pre-seeded terminal pool with pending flow. Previously it
+    /// reverted until someone executed virtual orders separately. Now it completes in one call.
+    function test_advanceWithPendingFlowCompletes() public {
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
             bool tokenIs0 = i == 0;
@@ -388,7 +395,6 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
             _tokens(key);
             PoolKey memory terminal = extension.terminalPool(key);
             _seedTerminal(key, 0, 1e24);
-            // Order placed before endTime; pending flow accumulates until advance().
             TwammTrader trader = new TwammTrader(core);
             TestToken(terminal.token1).approve(address(trader), type(uint256).max);
             vm.warp(1024);
@@ -399,20 +405,11 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
             });
             trader.placeOrder(twamm, bytes32(uint256(1)), order, SALE_RATE, address(this));
             vm.warp(END + 20);
-            vm.expectRevert();
-            extension.advance(key);
-            assertFalse(extension.getLaunch(key.toPoolId()).complete);
-            console2.log(
-                "advance reverted with pending flow; stale tick", int256(core.poolState(terminal.toPoolId()).tick())
-            );
-            twamm.lockAndExecuteVirtualOrders(terminal);
             extension.advance(key);
             assertTrue(extension.getLaunch(key.toPoolId()).complete);
-            console2.log(
-                "after executing virtual orders, advance completed; tick",
-                int256(core.poolState(terminal.toPoolId()).tick())
-            );
-            console2.log("locked liquidity", _locked(key));
+            SqrtRatio price = core.poolState(terminal.toPoolId()).sqrtRatio();
+            LockedLaunchLiquidity.Terminal memory t = vault.getTerminal(key.toPoolId());
+            if (_locked(key) != 0) assertTrue(price >= t.lower && price <= t.upper, "deposit in bounds");
             vm.revertToState(snapshot);
         }
     }
@@ -504,6 +501,8 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
         console2.log("  attacker P&L @P0 (conservation)", e.attackerPnl);
     }
 
+    /// @dev Every sweep case must complete advance() without reverting and never deposit out of bounds.
+    /// At 6767d6cc the same sweep deposited out of bounds and lost 1.6% to 30% of principal.
     function _econSweep(uint128 quoteAmount, bool sellQuote) internal {
         int112[4] memory rates = [int112(0), int112(1e30), int112(4e30), int112(1.6e31)];
         uint128[2] memory lps = [uint128(1e23), uint128(1e24)];
@@ -511,7 +510,12 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
             for (uint256 l; l < 2; l++) {
                 for (uint256 r; r < 4; r++) {
                     uint256 snapshot = vm.snapshotState();
-                    _econ(o == 0, rates[r], lps[l], quoteAmount, sellQuote);
+                    Econ memory e = _econ(o == 0, rates[r], lps[l], quoteAmount, sellQuote);
+                    // An out-of-bounds price is fine only when migration deferred.
+                    if (e.liquidity != 0) assertFalse(e.outOfBounds, "deposit out of bounds");
+                    // Inside +/-0.2% bounds the launch can still deposit at a worse in-bounds price. Principal
+                    // is worth 2 * SUPPLY at P0, so the bound is 0.2% of it, not attacker flow.
+                    assertGe(e.principalDelta + e.creatorFees, -int256(uint256(SUPPLY) / 250), "loss bound");
                     vm.revertToState(snapshot);
                 }
             }
@@ -536,7 +540,7 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Property over the full matrix: EXPECTED TO FAIL at this SHA if any deposit lands out of bounds.
+    // Property over the full matrix: no deposit out of bounds and no revert.
     // ---------------------------------------------------------------------------------------------
 
     function test_eku648_property_everyPrincipalDepositRespectsBoundsAfterVirtualExecution() public {
@@ -555,5 +559,6 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
         console2.log("out-of-bounds principal deposits", violations);
         console2.log("reverts (liveness)", reverts);
         assertEq(violations, 0, "principal deposited outside immutable migration bounds");
+        assertEq(reverts, 0, "migration reverted");
     }
 }

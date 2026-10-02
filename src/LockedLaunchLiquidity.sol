@@ -3,6 +3,7 @@ pragma solidity =0.8.33;
 
 import {MintableERC20} from "./MintableERC20.sol";
 import {ICore} from "./interfaces/ICore.sol";
+import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {BaseForwardee} from "./base/BaseForwardee.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
 import {UsesCore} from "./base/UsesCore.sol";
@@ -151,7 +152,13 @@ contract LockedLaunchLiquidity is BaseForwardee, BaseLocker, UsesCore {
     function _migrate(PoolId launchId) private {
         Terminal storage terminal = _terminals[launchId];
         (uint128 amount0, uint128 amount1) = _balances(launchId);
-        PoolState state = CORE.poolState(terminal.poolKey.toPoolId());
+        PoolKey memory key = terminal.poolKey;
+        PoolState state = CORE.poolState(key.toPoolId());
+        // Pending virtual orders execute on the first pool touch; settle them before the price is read.
+        if (state.isInitialized()) {
+            ITWAMM(key.config.extension()).lockAndExecuteVirtualOrders(key);
+            state = CORE.poolState(key.toPoolId());
+        }
         if (state.liquidity() == 0) {
             if (!_prepareEmpty(terminal, amount0, amount1)) return;
         } else {
@@ -215,6 +222,7 @@ contract LockedLaunchLiquidity is BaseForwardee, BaseLocker, UsesCore {
         Terminal storage terminal = _terminals[launchId];
         (uint128 amount0, uint128 amount1) = _balances(launchId);
         PoolState state = CORE.poolState(terminal.poolKey.toPoolId());
+        if (state.sqrtRatio() < terminal.lower || state.sqrtRatio() > terminal.upper) return;
         uint128 liquidity = LaunchLiquidityMath.liquidityFor(
             state.sqrtRatio(),
             uint128(FixedPointMathLib.min(amount0, uint128(type(int128).max))),

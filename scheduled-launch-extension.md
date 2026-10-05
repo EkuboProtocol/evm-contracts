@@ -11,10 +11,11 @@ earned by this launch's terminal position, never another LP's fees or the princi
 
 ## Configuration and atomic creation
 
-Inside a Core lock, forward `abi.encode(uint8(0), LaunchConfig)` to `ScheduledLaunch`.
-The response is `abi.encode(PoolKey)`. The forwarding locker must settle optional
-quote funding before returning. `FlashAccountantLib.forward` handles the calling
-convention; the test-only `LaunchActor` shows funding and settlement examples.
+Call `create(LaunchConfig)`, which returns the launch `PoolKey` and token address. It
+is payable and takes its own Core lock. `msg.sender` pays the optional `quoteAmount`:
+exactly `msg.value` when the quote is native, otherwise by `transferFrom` inside the
+lock, which needs an allowance for the extension. Any other `msg.value` reverts with
+`InvalidPayment()`. There is no launch-specific router and no forwarded creation path.
 
 | Configuration | Meaning |
 | --- | --- |
@@ -22,12 +23,12 @@ convention; the test-only `LaunchActor` shows funding and settlement examples.
 | `quoteToken` | Quote asset; address zero means native ETH |
 | `name`, `symbol`, `decimals` | Metadata for the existing `MintableERC20` implementation |
 | `totalSupply` | Entire token supply, reserved for this launch |
-| `quoteAmount` | Optional quote funding supplied by the forwarding locker |
+| `quoteAmount` | Optional quote seed paid by the caller of `create` |
 | `startTime`, `endTime` | Current/future start and strictly later end |
 | `targetTick`, `upperTick` | Fixed launch target and upper sell-range boundary |
 | `tickSpacing` | Launch concentrated-pool spacing |
 | `initialFee`, `finalFee` | Declining creator fee endpoints, in Q0.64 |
-| `migrationTickLower`, `migrationTickUpper` | Immutable acceptable terminal-price bounds |
+| `migrationTickLower`, `migrationTickUpper` | Immutable acceptable terminal-price bounds, at most `MAX_MIGRATION_TICK_WIDTH` (2,302,585 ticks, just under a 10x price ratio) apart |
 
 All configured ticks express **raw quote units per raw launch-token unit**. The
 implementation reverses bounds and negates ticks when the launch token is token1.
@@ -70,8 +71,11 @@ released tokens consumed by launch sales and positive liquidity additions. It is
 an accounting measure for post-auction migration. Releases depend on time, never
 swap count.
 
-Forward `abi.encode(uint8(1), PoolKey, SwapParameters)` to trade; the result is
-`abi.encode(PoolBalanceUpdate, PoolState)`. Before executing the external trade, the
+Trade with the standard forwarded swap that routers use for any forward-only extension:
+inside a Core lock, forward `abi.encode(PoolKey, SwapParameters)` to the extension (the
+pool config's extension address); the result is `abi.encode(PoolBalanceUpdate,
+PoolState)` and the forwarding locker settles the update. The forward channel accepts
+nothing else. Before executing the external trade, the
 extension advances inventory: sell available tokens toward the target only while
 price is above it, then add feasible balances in the launch sell-side range. At or
 below target, skip selling and add token-side liquidity. Unreleased tokens cannot be
@@ -93,7 +97,7 @@ The creator fee applies to the **calculated side** of the actual fill:
 - Exact output: gross up the required input to include the fee.
 
 This preserves the specified amount and handles partial fills. The forwarding
-router must settle the returned deltas and enforce the user's slippage constraints
+locker must settle the returned deltas and enforce the user's slippage constraints
 against those fee-inclusive deltas. Raw Core swap events exclude the extension fee
 and show the extension as locker, so every external swap also emits
 `LaunchSwapped(poolId, locker, delta0, delta1, feeAmount, feeIsToken1)` with the
@@ -174,9 +178,10 @@ The selected price must also satisfy migration bounds.
 **Missing counterpart:** if there is neither existing liquidity to swap against nor
 both assets to seed a pool, retain locked reserves. This includes a launch with no
 buyers and no quote seed. Once the launch is registered in the liquidity contract,
-anyone can fund it by forwarding `abi.encode(uint8(1), launchPoolId, amount0, amount1)`
-to that contract and settling the resulting Core debt. Funding is an irrevocable
-contribution to principal. Then call `migrate(launchPoolId)` to retry. Dust, capacity
+anyone can call the payable `fund(launchPoolId, amount0, amount1)`, which takes its own
+lock and collects the amounts from `msg.sender` like `create`: exactly `msg.value` for
+a native token0, `transferFrom` otherwise. Funding is an irrevocable contribution to
+principal. Then call `migrate(launchPoolId)` to retry. Dust, capacity
 limits, or price bounds may also leave reserves pending; they are never paid out as
 creator fees.
 
@@ -202,47 +207,60 @@ that holder's `creatorFeeSalt` for creator fees. Query the terminal position's C
 liquidity to distinguish a pending migration from an established position.
 `LaunchCreated`, `LaunchAdvanced`, `LaunchSwapped`, `PrincipalReceived`,
 `LiquidityLocked`, and fee claim events accompany Core's normal pool, swap, and
-position events. `LaunchRouter` adds `LaunchRouted(poolId, payer, recipient)` for
-each routed create, swap, and fund.
+position events. `LaunchCreated` records the paying caller as `payer`;
+`PrincipalReceived(launchId, from, amount0, amount1)` records the extension for
+migrated principal and the payer for `fund`.
 
-## Launch router
+## Routing and quoting
 
-`LaunchRouter` is the periphery for creating, trading, and funding launches.
-`msg.sender` pays every amount owed, native surplus is refunded before each call
-returns, and the router holds no tokens or approvals between calls. `create`, `swap`
-and `fund` share a transient reentrancy guard and revert with `Reentrant()` when
-nested, including from an output recipient or a token callback. Native payments and
-the refund draw on the router's whole balance, so a nested call could otherwise spend
-or be refunded the outer payer's value. Contracts that compose routed actions must
-make them sequentially.
+Launch pools need no launch-specific periphery. A router reaches them with its generic
+forwarded hop: `Core.forward(poolKey.config.extension(), abi.encode(poolKey, params))`,
+reading the `PoolBalanceUpdate` from the first returned word. The Yul router's
+`forwarded` hop does exactly this, so a launch pool is one hop in an ordinary route; the
+Solidity `Router` does it for the forward-only extension it is deployed with. Routers
+apply their usual slippage checks to the fee-inclusive deltas, and their reverting
+quote paths quote launch swaps unchanged. `LaunchSwapped.locker` is the router, not the
+end user.
 
-- `create(config, deadline)` pays `quoteAmount` and returns the pool key and token.
-- `swap(key, params, calculatedAmountThreshold, recipient, deadline)` forwards a launch
-  swap and sends output to the explicit, nonzero recipient. The threshold bounds the
-  fee-inclusive calculated amount from the swapper's side, as in `Router`: minimum
-  output for exact input, negated maximum input for exact output. Exact-output swaps
-  must fill; exact-input swaps may fill partially at the top of the range.
-- `quote(key, params)` runs the same forwarded swap inside a reverting lock and returns
-  the fee-inclusive deltas with the fee rate at that block. Call it with `eth_call`.
-- `fund(launchId, amount0, amount1, deadline)` adds counterpart assets to locked
-  principal for the next migration.
+An exact-input buy larger than the offered inventory fills partially at the top of the
+range. A router that requires full fills rejects it; one that allows partial fills
+settles the fill. An exact-input sell at or below the target fills zero, because
+nothing is offered below it.
+
+The next swap's result is a function of the launch config (from `LaunchCreated`), the
+launch state after the last advance (`LaunchAdvanced(poolId, deployed, reserve0,
+reserve1, complete)`), Core pool state (from Core's swap and position events; the
+launch position is the pool's only liquidity), the block timestamp, and the swap
+parameters. An indexer can therefore mirror launch state and quote without `eth_call`.
+`test/vectors/scheduled-launch-swaps.json`, written by `ScheduledLaunchVectorsTest`,
+gives conformance cases for that function: both token orders, a native quote, exact
+input and output, buys and sells, a partial fill at the range top, and the first and
+last second of the schedule. Regenerate it with
+`WRITE_LAUNCH_VECTORS=true forge test --match-contract ScheduledLaunchVectorsTest`
+after an intended behavior change; otherwise the test checks it.
 
 ## Deployment and validation
 
 `script/DeployScheduledLaunch.s.sol` mines the extension's required address prefix
-and deploys it with its immutable liquidity contract. Configure `CORE_ADDRESS`,
-`TWAMM_ADDRESS`, optional starting `SALT`, and optional expected
-`SCHEDULED_LAUNCH_ADDRESS`. Use `forge script --offline`; broadcasting is a
-separate action. No existing deployed contract source is modified.
+and deploys it, with its immutable liquidity contract, through the deterministic
+deployer on any chain. `CORE_ADDRESS` and `TWAMM_ADDRESS` are required; `SALT` (the
+starting salt) and `SCHEDULED_LAUNCH_ADDRESS` (the expected address) are optional. It
+checks that Core and TWAMM have code and that Core has the TWAMM registered, and logs
+both addresses and code hashes. It is a dry run unless `BROADCAST=true` is set, and
+forge sends transactions only with `--broadcast` as well. No existing deployed
+contract source is modified.
 
-`script/launchpad-local.sh` starts an anvil fork, deploys the extension, its
-liquidity contract, and `LaunchRouter` with `script/DeployLaunchpadLocal.s.sol`, and
-writes `launchpad-manifest.json` with addresses, runtime code hashes, fork block, and
-git revision. It is for local forks only and signs with anvil's development key.
+`script/launchpad-local.sh` starts an anvil fork, deploys the extension and its
+liquidity contract with `script/DeployLaunchpadLocal.s.sol`, and writes
+`launchpad-manifest.json` with addresses, runtime code hashes, fork block, and git
+revision. Its `router` entry is the fork's existing Yul router (`ROUTER_ADDRESS`). It
+is for local forks only and signs with anvil's development key.
 
 Tests cover fee decay and fee-inclusive fills, internal-fee exemption, atomic
-creation, ownership, both token orders, native quote assets, source and destination
-accounting, existing/empty terminal pools, no-counterpart retries, price bounds,
-locked principal, per-position fees, internal-fee recycling, chunked migration,
-live TWAMM orders during migration, TWAMM deployment wiring, CREATE2 deployment
-and size limits, and the balancing solver against brute force.
+creation, exact payment for `create` and `fund`, ownership, both token orders, native
+quote assets, swaps and quotes through the unmodified `Router` and a generic forwarded
+hop, non-standard quote tokens and reentrant token callbacks, source and destination
+accounting, existing/empty terminal pools, no-counterpart retries, price bounds and the
+migration width cap, locked principal, per-position fees, internal-fee recycling,
+chunked migration, live TWAMM orders during migration, TWAMM deployment wiring,
+CREATE2 deployment and size limits, and the balancing solver against brute force.

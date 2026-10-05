@@ -1,0 +1,247 @@
+{
+  "cases": [
+    {
+      "name": "launch_token0_buy_exact_in",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 400,
+      "params": {"amount": "1000000000000000000000", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "1000000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "-926849323490444487392", "delta1": "1000000000000000000000", "feeAmount": "72988134428050105266", "feeIsToken1": false},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "700000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261744604530104268073", "tick": 325, "liquidity": "6151252947294345219005826", "positionLiquidity": "6151252947294345219005826"}
+    },
+    {
+      "name": "launch_token0_buy_exact_out",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 400,
+      "params": {"amount": "-50000000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "1000000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "-50000000000000000000000", "delta1": "54379451890014145785577", "feeAmount": "3969699987971032642442", "feeIsToken1": true},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "700000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261781647757552888024", "tick": 16323, "liquidity": "6151252947294345219005826", "positionLiquidity": "6151252947294345219005826"}
+    },
+    {
+      "name": "launch_token0_sell_exact_in",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 400,
+      "params": {"amount": "4627477179496362832045", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "300000000000000000000000", "reserve0": "700000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261751351964248413083", "tick": 3248, "liquidity": "6151252947294345219005826", "positionLiquidity": "6151252947294345219005826"},
+      "result": {"delta0": "4627477179496362832045", "delta1": "-4300389626384099014137", "feeAmount": "338649884278359469299", "feeIsToken1": true},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "700000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261747874007182826235", "tick": 1742, "liquidity": "6151252947294345219005826", "positionLiquidity": "6151252947294345219005826"}
+    },
+    {
+      "name": "launch_token0_sell_exact_out",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 400,
+      "params": {"amount": "-1000000000000000000000", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "300000000000000000000000", "reserve0": "700000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261751351964248413083", "tick": 3248, "liquidity": "6151252947294345219005826", "positionLiquidity": "6151252947294345219005826"},
+      "result": {"delta0": "1075424321222112694780", "delta1": "-1000000000000000000000", "feeAmount": "78505975449214226721", "feeIsToken1": false},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "700000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261750602249343508081", "tick": 2924, "liquidity": "6151252947294345219005826", "positionLiquidity": "6151252947294345219005826"}
+    },
+    {
+      "name": "launch_token0_sell_after_release",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 250,
+      "params": {"amount": "45450000000000000000150", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "100000000000000000000000", "reserve0": "900000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261980300892302893151", "tick": 100000, "liquidity": "0", "positionLiquidity": "2050417649098115073001942"},
+      "result": {"delta0": "45450000000000000000150", "delta1": "-42650967728660550973977", "feeAmount": "4038652116616461587079", "feeIsToken1": true},
+      "post": {"deployed": "150000000000000000000000", "reserve0": "850000000000000000000000", "reserve1": "53877367985614535052667", "sqrtRatio": "39614081261754111183148235366", "tick": 4443, "liquidity": "2050417649098115073001942", "positionLiquidity": "2050417649098115073001942"}
+    },
+    {
+      "name": "launch_token0_sell_at_target_fills_zero",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 400,
+      "params": {"amount": "4522941365421765523653", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "100000000000000000000000", "reserve0": "900000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261766346262346513105", "tick": 9730, "liquidity": "2050417649098115073001942", "positionLiquidity": "2050417649098115073001942"},
+      "result": {"delta0": "0", "delta1": "0", "feeAmount": "0", "feeIsToken1": true},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "700000000000000000000000", "reserve1": "9999999999999999707893", "sqrtRatio": "4611797791050542631", "tick": -88722836, "liquidity": "0", "positionLiquidity": "5947206328999588011510543"}
+    },
+    {
+      "name": "launch_token0_buy_partial_fill_range_top",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 200,
+      "params": {"amount": "900000000000000000000000", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "1000000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "-90900000000000000000301", "delta1": "105127107009426447987133", "feeAmount": "9099999999999999999697", "feeIsToken1": false},
+      "post": {"deployed": "100000000000000000000000", "reserve0": "900000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261980300892302893151", "tick": 100000, "liquidity": "0", "positionLiquidity": "2050417649098115073001942"}
+    },
+    {
+      "name": "launch_token0_buy_first_second",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 100,
+      "params": {"amount": "1000000000000000000000", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "1000000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "0", "delta1": "0", "feeAmount": "0", "feeIsToken1": false},
+      "post": {"deployed": "0", "reserve0": "1000000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261980300892302893151", "tick": 100000, "liquidity": "0", "positionLiquidity": "0"}
+    },
+    {
+      "name": "launch_token0_buy_last_second",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 1099,
+      "params": {"amount": "1000000000000000000000", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "100000000000000000000000", "reserve0": "900000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261766346262346513105", "tick": 9730, "liquidity": "2050417649098115073001942", "positionLiquidity": "2050417649098115073001942"},
+      "result": {"delta0": "-989861189375767278638", "delta1": "1000000000000000000000", "feeAmount": "10089502480833097809", "feeIsToken1": false},
+      "post": {"deployed": "999000000000000000000000", "reserve0": "1000000000000000000000", "reserve1": "9999999999999999707893", "sqrtRatio": "39614081261744082220087772455", "tick": 98, "liquidity": "20279625696195412371794119", "positionLiquidity": "20279625696195412371794119"}
+    },
+    {
+      "name": "launch_token0_sell_last_second",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 1099,
+      "params": {"amount": "-1000000000000000000000", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "999000000000000000000000", "reserve0": "1000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261746106211310188901", "tick": 976, "liquidity": "20483672314490169579289403", "positionLiquidity": "20483672314490169579289403"},
+      "result": {"delta0": "1009256475267541131890", "delta1": "-1000000000000000000000", "feeAmount": "10183397835449490032", "feeIsToken1": false},
+      "post": {"deployed": "999000000000000000000000", "reserve0": "1000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261745881071699106318", "tick": 878, "liquidity": "20483672314490169579289403", "positionLiquidity": "20483672314490169579289403"}
+    },
+    {
+      "name": "launch_token0_quote_seed_buy_exact_in",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "50000000000000000000000", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 600,
+      "params": {"amount": "1000000000000000000000", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "1000000000000000000000000", "reserve1": "50000000000000000000000", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "-944907832647355774179", "delta1": "1000000000000000000000", "feeAmount": "54994635762544515965", "feeIsToken1": false},
+      "post": {"deployed": "500000000000000000000000", "reserve0": "500000000000000000000000", "reserve1": "50000000000000000000000", "sqrtRatio": "39614081261744304644142306072", "tick": 195, "liquidity": "10252088245490575365009711", "positionLiquidity": "10252088245490575365009711"}
+    },
+    {
+      "name": "launch_token0_quote_seed_sell_exact_in",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "50000000000000000000000", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 600,
+      "params": {"amount": "4720395673973007323324", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "500000000000000000000000", "reserve0": "500000000000000000000000", "reserve1": "50000000000000000000000", "sqrtRatio": "39614081261748353104628793078", "tick": 1949, "liquidity": "10252088245490575365009711", "positionLiquidity": "10252088245490575365009711"},
+      "result": {"delta0": "4720395673973007323324", "delta1": "-4467421379373519650137", "feeAmount": "260008651709569926761", "feeIsToken1": true},
+      "post": {"deployed": "500000000000000000000000", "reserve0": "500000000000000000000000", "reserve1": "50000000000000000000000", "sqrtRatio": "39614081261746226569775073975", "tick": 1028, "liquidity": "10252088245490575365009711", "positionLiquidity": "10252088245490575365009711"}
+    },
+    {
+      "name": "launch_token0_buy_exact_out_last_second",
+      "config": {"token0": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "token1": "0xFFfFfFffFFfffFFfFFfFFFFFffFFFffffFfFFFfF", "launchTokenIs0": true, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": 0, "positionTickUpper": 100000},
+      "timestamp": 1099,
+      "params": {"amount": "-10000000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "1000000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "-10000000000000000000000", "delta1": "10106862564883734568439", "feeAmount": "101978243279676881903", "feeIsToken1": true},
+      "post": {"deployed": "999000000000000000000000", "reserve0": "1000000000000000000000", "reserve1": "0", "sqrtRatio": "39614081261746107310964455241", "tick": 976, "liquidity": "20483672314490169579289403", "positionLiquidity": "20483672314490169579289403"}
+    },
+    {
+      "name": "launch_token1_buy_exact_in",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 400,
+      "params": {"amount": "1000000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "0", "reserve1": "1000000000000000000000000", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "1000000000000000000000", "delta1": "-926849323490444638067", "feeAmount": "72988134428050117132", "feeIsToken1": true},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "0", "reserve1": "700000000000000000000000", "sqrtRatio": "39610861779519942713084047798", "tick": -326, "liquidity": "6151252947294345205404599", "positionLiquidity": "6151252947294345205404599"}
+    },
+    {
+      "name": "launch_token1_buy_exact_out",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 400,
+      "params": {"amount": "-50000000000000000000000", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "0", "reserve1": "1000000000000000000000000", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "54379451890014144389967", "delta1": "-50000000000000000000000", "feeAmount": "3969699987971032540562", "feeIsToken1": false},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "0", "reserve1": "700000000000000000000000", "sqrtRatio": "39453081207237632306145857236", "tick": -16324, "liquidity": "6151252947294345205404599", "positionLiquidity": "6151252947294345205404599"}
+    },
+    {
+      "name": "launch_token1_sell_exact_in",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 400,
+      "params": {"amount": "4627477179496362966980", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "300000000000000000000000", "reserve0": "0", "reserve1": "700000000000000000000000", "sqrtRatio": "39581933509266591949755525058", "tick": -3249, "liquidity": "6151252947294345205404599", "positionLiquidity": "6151252947294345205404599"},
+      "result": {"delta0": "-4300389626384099740838", "delta1": "4627477179496362966980", "feeAmount": "338649884278359526526", "feeIsToken1": false},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "0", "reserve1": "700000000000000000000000", "sqrtRatio": "39596833990402286818347618757", "tick": -1743, "liquidity": "6151252947294345205404599", "positionLiquidity": "6151252947294345205404599"}
+    },
+    {
+      "name": "launch_token1_sell_exact_out",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 400,
+      "params": {"amount": "-1000000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "300000000000000000000000", "reserve0": "0", "reserve1": "700000000000000000000000", "sqrtRatio": "39581933509266591949755525058", "tick": -3249, "liquidity": "6151252947294345205404599", "positionLiquidity": "6151252947294345205404599"},
+      "result": {"delta0": "-1000000000000000000000", "delta1": "1075424321222111434880", "feeAmount": "78505975449214134749", "feeIsToken1": true},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "0", "reserve1": "700000000000000000000000", "sqrtRatio": "39585143587334796254688755448", "tick": -2925, "liquidity": "6151252947294345205404599", "positionLiquidity": "6151252947294345205404599"}
+    },
+    {
+      "name": "launch_token1_sell_after_release",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 250,
+      "params": {"amount": "45450000000000000000150", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "100000000000000000000000", "reserve0": "0", "reserve1": "900000000000000000000000", "sqrtRatio": "38648080957764949853015271962", "tick": -100001, "liquidity": "0", "positionLiquidity": "2050417649098115068468199"},
+      "result": {"delta0": "-42650967728660551247426", "delta1": "45450000000000000000150", "feeAmount": "4038652116616461612972", "feeIsToken1": false},
+      "post": {"deployed": "150000000000000000000000", "reserve0": "53877367985614535124792", "reserve1": "850000000000000000000000", "sqrtRatio": "39570128243510960334832481254", "tick": -4444, "liquidity": "2050417649098115068468199", "positionLiquidity": "2050417649098115068468199"}
+    },
+    {
+      "name": "launch_token1_sell_at_target_fills_zero",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 400,
+      "params": {"amount": "4522941365421765655081", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "100000000000000000000000", "reserve0": "0", "reserve1": "900000000000000000000000", "sqrtRatio": "39517950064326496549581958158", "tick": -9731, "liquidity": "2050417649098115068468199", "positionLiquidity": "2050417649098115068468199"},
+      "result": {"delta0": "0", "delta1": "0", "feeAmount": "0", "feeIsToken1": false},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "9999999999999999999999", "reserve1": "700000000000000000000000", "sqrtRatio": "79227682466138141934206691491", "tick": 88722835, "liquidity": "0", "positionLiquidity": "5947206328999587992431275"}
+    },
+    {
+      "name": "launch_token1_buy_partial_fill_range_top",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 200,
+      "params": {"amount": "900000000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "0", "reserve1": "1000000000000000000000000", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "105127107009426447999051", "delta1": "-90900000000000000000300", "feeAmount": "9099999999999999999697", "feeIsToken1": true},
+      "post": {"deployed": "100000000000000000000000", "reserve0": "0", "reserve1": "900000000000000000000000", "sqrtRatio": "38648080957764949853015271962", "tick": -100001, "liquidity": "0", "positionLiquidity": "2050417649098115068468199"}
+    },
+    {
+      "name": "launch_token1_buy_first_second",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 100,
+      "params": {"amount": "1000000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "0", "reserve1": "1000000000000000000000000", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "0", "delta1": "0", "feeAmount": "0", "feeIsToken1": true},
+      "post": {"deployed": "0", "reserve0": "0", "reserve1": "1000000000000000000000000", "sqrtRatio": "38648080957764949853015271962", "tick": -100000, "liquidity": "0", "positionLiquidity": "0"}
+    },
+    {
+      "name": "launch_token1_buy_last_second",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 1099,
+      "params": {"amount": "1000000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "100000000000000000000000", "reserve0": "0", "reserve1": "900000000000000000000000", "sqrtRatio": "39517950064326496549581958158", "tick": -9731, "liquidity": "2050417649098115068468199", "positionLiquidity": "2050417649098115068468199"},
+      "result": {"delta0": "1000000000000000000000", "delta1": "-989861189375770309467", "feeAmount": "10089502480833128702", "feeIsToken1": true},
+      "post": {"deployed": "999000000000000000000000", "reserve0": "9999999999999999999999", "reserve1": "1000000000000000000000", "sqrtRatio": "39613104608732593934105578236", "tick": -99, "liquidity": "20279625696195412321023991", "positionLiquidity": "20279625696195412321023991"}
+    },
+    {
+      "name": "launch_token1_sell_last_second",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 1099,
+      "params": {"amount": "-1000000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "999000000000000000000000", "reserve0": "0", "reserve1": "1000000000000000000000", "sqrtRatio": "39604416302835733890974726603", "tick": -977, "liquidity": "20483672314490169533997315", "positionLiquidity": "20483672314490169533997315"},
+      "result": {"delta0": "-1000000000000000000000", "delta1": "1009256475267540770872", "feeAmount": "10183397835449486389", "feeIsToken1": true},
+      "post": {"deployed": "999000000000000000000000", "reserve0": "0", "reserve1": "1000000000000000000000", "sqrtRatio": "39605382373798585871848836005", "tick": -879, "liquidity": "20483672314490169533997315", "positionLiquidity": "20483672314490169533997315"}
+    },
+    {
+      "name": "launch_token1_quote_seed_buy_exact_in",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "50000000000000000000000", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 600,
+      "params": {"amount": "1000000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "50000000000000000000000", "reserve1": "1000000000000000000000000", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "1000000000000000000000", "delta1": "-944907832647357188034", "feeAmount": "54994635762544598253", "feeIsToken1": true},
+      "post": {"deployed": "500000000000000000000000", "reserve0": "50000000000000000000000", "reserve1": "500000000000000000000000", "sqrtRatio": "39612149444964524824155127225", "tick": -196, "liquidity": "10252088245490575342340998", "positionLiquidity": "10252088245490575342340998"}
+    },
+    {
+      "name": "launch_token1_quote_seed_sell_exact_in",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "50000000000000000000000", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 600,
+      "params": {"amount": "4720395673973008090078", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "500000000000000000000000", "reserve0": "50000000000000000000000", "reserve1": "500000000000000000000000", "sqrtRatio": "39594780077728191437845047654", "tick": -1950, "liquidity": "10252088245490575342340998", "positionLiquidity": "10252088245490575342340998"},
+      "result": {"delta0": "-4467421379373520849580", "delta1": "4720395673973008090078", "feeAmount": "260008651709569996570", "feeIsToken1": false},
+      "post": {"deployed": "500000000000000000000000", "reserve0": "50000000000000000000000", "reserve1": "500000000000000000000000", "sqrtRatio": "39603899884996570739937957346", "tick": -1029, "liquidity": "10252088245490575342340998", "positionLiquidity": "10252088245490575342340998"}
+    },
+    {
+      "name": "launch_token1_buy_exact_out_last_second",
+      "config": {"token0": "0x0000000000000000000000000000000000010000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 1099,
+      "params": {"amount": "-10000000000000000000000", "isToken1": true, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "0", "reserve1": "1000000000000000000000000", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "10106862564883731505714", "delta1": "-10000000000000000000000", "feeAmount": "101978243279676851000", "feeIsToken1": false},
+      "post": {"deployed": "999000000000000000000000", "reserve0": "0", "reserve1": "1000000000000000000000", "sqrtRatio": "39604411584465830268806442603", "tick": -977, "liquidity": "20483672314490169533997315", "positionLiquidity": "20483672314490169533997315"}
+    },
+    {
+      "name": "native_quote_buy_exact_in",
+      "config": {"token0": "0x0000000000000000000000000000000000000000", "token1": "0x504f4f373EF5529d60838DC1aC106932A33B5848", "launchTokenIs0": false, "poolConfig": "0x5100000000000000000000000000000000000000000000000000000080000064", "totalSupply": "1000000000000000000000000", "quoteAmount": "0", "startTime": 100, "endTime": 1100, "targetTick": 0, "upperTick": 100000, "tickSpacing": 100, "initialFee": "1844674407370955161", "finalFee": "184467440737095516", "poolTargetTick": 0, "positionTickLower": -100000, "positionTickUpper": 0},
+      "timestamp": 400,
+      "params": {"amount": "1000000000000000000", "isToken1": false, "sqrtRatioLimit": "0", "skipAhead": 0},
+      "pre": {"deployed": "0", "reserve0": "0", "reserve1": "1000000000000000000000000", "sqrtRatio": "39614081261743854815199363072", "tick": 0, "liquidity": "0", "positionLiquidity": "0"},
+      "result": {"delta0": "1000000000000000000", "delta1": "-926999849299019687", "feeAmount": "72999988132501012", "feeIsToken1": true},
+      "post": {"deployed": "300000000000000000000000", "reserve0": "0", "reserve1": "700000000000000000000000", "sqrtRatio": "39614078037131694376707734348", "tick": -1, "liquidity": "6151252947294345205404599", "positionLiquidity": "6151252947294345205404599"}
+    }
+  ]
+}

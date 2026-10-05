@@ -11,7 +11,7 @@ import {console2} from "forge-std/console2.sol";
 import {ScheduledLaunchTest} from "./ScheduledLaunch.t.sol";
 import {TestToken} from "../TestToken.sol";
 import {LaunchRouter} from "../../src/LaunchRouter.sol";
-import {ScheduledLaunch} from "../../src/extensions/ScheduledLaunch.sol";
+import {ScheduledLaunch, MAX_MIGRATION_TICK_WIDTH} from "../../src/extensions/ScheduledLaunch.sol";
 import {LockedLaunchLiquidity} from "../../src/LockedLaunchLiquidity.sol";
 import {Positions} from "../../src/Positions.sol";
 import {Orders} from "../../src/Orders.sol";
@@ -35,7 +35,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
     using CoreLib for *;
 
     address constant ATTACKER = address(0xA77AC4E5);
-    uint128 constant ATTACKER_QUOTE = 1e23;
+    uint128 constant ATTACKER_QUOTE = 1e24;
     uint128 constant BUY_QUOTE = 1e22;
     uint64 constant BUY_TIME = 1000;
     uint64 constant ORDER_START = 1024;
@@ -48,6 +48,14 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
     // Core rounds amounts in its own favor at sqrt-price precision, about 1e-18 of liquidity per operation.
     // One part in 1e15 of supply bounds that residue with a wide margin and is far below any fee.
     uint256 constant ROUNDING = SUPPLY / 1e15;
+
+    // Migration window of the run, in raw quote units per launch token.
+    int32 boundLower = -BOUND_TICKS;
+    int32 boundUpper = BOUND_TICKS;
+    // Tenths of the bought launch tokens seeded into the terminal pool; the rest funds the arbitrage back.
+    uint256 seedTenths = 9;
+    // Principal holds this many launch tokens per quote unit, beyond LAUNCH_EXCESS.
+    uint256 principalDivisor = 1;
 
     LaunchRouter launchRouter;
     Positions lpPositions;
@@ -116,8 +124,8 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
     function _config(bool tokenIs0, uint128 quoteAmount) internal view returns (ScheduledLaunch.LaunchConfig memory c) {
         c = _config(_quote(tokenIs0));
         c.quoteAmount = quoteAmount;
-        c.migrationTickLower = -BOUND_TICKS;
-        c.migrationTickUpper = BOUND_TICKS;
+        c.migrationTickLower = boundLower;
+        c.migrationTickUpper = boundUpper;
     }
 
     function _attackerBuy(PoolKey memory key, bool tokenIs0) internal returns (uint256 bought) {
@@ -135,7 +143,8 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
 
     /// @dev The launch pool is at its target when the buy lands, so the buy fills from released launch
     /// tokens only and its output does not depend on quoteAmount. One dry run fixes quoteAmount so the
-    /// principal that reaches migration holds exactly LAUNCH_EXCESS more launch token than quote.
+    /// principal that reaches migration holds exactly LAUNCH_EXCESS more launch token than principalDivisor
+    /// times its quote.
     function _calibratedQuoteAmount(bool tokenIs0) internal returns (uint128) {
         uint256 snapshot = vm.snapshotState();
         PoolKey memory key = actor.create(extension, _config(tokenIs0, 0));
@@ -143,7 +152,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         (uint128 f0, uint128 f1) = _fees(key);
         uint256 fee = tokenIs0 ? f0 : f1;
         vm.revertToState(snapshot);
-        return uint128(SUPPLY - bought - fee - BUY_QUOTE - LAUNCH_EXCESS);
+        return uint128((SUPPLY - bought - fee - LAUNCH_EXCESS) / principalDivisor - BUY_QUOTE);
     }
 
     function _run(bool tokenIs0, uint128 orderAmount) internal returns (Run memory r) {
@@ -165,11 +174,11 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         assertEq(r.quotePaid, BUY_QUOTE);
         assertEq(MintableERC20(launchToken).balanceOf(ATTACKER), r.tokensBought);
 
-        // 2. Seed the terminal pool at the reference price, keeping a tenth of the launch tokens to
+        // 2. Seed the terminal pool at the reference price, keeping the rest of the launch tokens to
         // arbitrage the price back down if migration leaves it above the reference.
         vm.startPrank(ATTACKER);
         lpPositions.maybeInitializePool(r.terminal, 0);
-        uint128 seed = uint128(r.tokensBought * 9 / 10);
+        uint128 seed = uint128(r.tokensBought * seedTenths / 10);
         uint128 a0;
         uint128 a1;
         (r.lpId, r.lpLiquidity, a0, a1) = lpPositions.mintAndDeposit(r.terminal, MIN_TICK, MAX_TICK, seed, seed, 0);
@@ -335,12 +344,8 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         }
     }
 
-    /// Order sizes run from flow that leaves the executed price near the reference, through the largest
-    /// order whose executed price stays inside the +/-0.2% bounds (22e18), to orders that push it out.
-    function test_capitalAccounted_attackVsMatchedControl() public {
-        uint128[5] memory amounts = [uint128(1e18), 1e19, 22e18, 24e18, 1e21];
-        uint256 deposited;
-        uint256 deferred;
+    /// Runs each order size against a matched control in both token orders and returns how many deposited.
+    function _attackVsMatchedControl(uint128[] memory amounts) internal returns (uint256 deposited) {
         for (uint256 o; o < 2; o++) {
             uint256 snapshot = vm.snapshotState();
             Run memory control = _run(o == 0, 0);
@@ -356,12 +361,63 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
                 assertEq(attack.lpLiquidity, control.lpLiquidity, "matched LP");
                 assertGt(attack.orderProceeds, 0, "pending flow executed");
                 if (attack.deposited) deposited++;
-                else deferred++;
                 console2.log("  >> attack - control: principal delta", attack.principalDelta - control.principalDelta);
                 console2.log("  >> attack - control: attacker P&L", attack.attackerPnl - control.attackerPnl);
             }
         }
-        assertEq(deposited, 6, "in-bounds attacks deposit");
-        assertEq(deferred, 4, "out-of-bounds attacks defer");
+    }
+
+    function _widestWindow() internal {
+        boundLower = -MAX_MIGRATION_TICK_WIDTH / 2;
+        boundUpper = boundLower + MAX_MIGRATION_TICK_WIDTH;
+        // Arbitrage back across the wider window needs more of the attacker's launch tokens.
+        seedTenths = 5;
+    }
+
+    /// Order sizes run from flow that leaves the executed price near the reference, through the largest
+    /// order whose executed price stays inside the +/-0.2% bounds (22e18), to orders that push it out.
+    function test_capitalAccounted_attackVsMatchedControl() public {
+        uint128[] memory amounts = new uint128[](5);
+        (amounts[0], amounts[1], amounts[2], amounts[3], amounts[4]) = (1e18, 1e19, 22e18, 24e18, 1e21);
+        assertEq(_attackVsMatchedControl(amounts), 6, "in-bounds attacks deposit");
+    }
+
+    /// The same attack within the widest window the extension accepts, about 10x centred on P0. 1.02e22 is
+    /// the largest order whose executed price stays inside it; 1.03e22 pushes it out. Principal balanced at
+    /// P0 rebalances against the pushed price in its own favour, so it gains and the gate holds.
+    function test_capitalAccounted_widestWindow_attackVsMatchedControl() public {
+        _widestWindow();
+        uint128[] memory amounts = new uint128[](6);
+        (amounts[0], amounts[1], amounts[2], amounts[3], amounts[4], amounts[5]) =
+        (1e18, 1e20, 1e21, 1e22, 1.02e22, 1.03e22);
+        assertEq(_attackVsMatchedControl(amounts), 10, "in-bounds attacks deposit");
+    }
+
+    /// What the width costs: principal whose own ratio is a third of P0 (tick -1_098_612) lies inside the
+    /// widest window but outside +/-0.2%. Migration deposits as far from P0 as the window lets it, and arbitrage
+    /// back to P0 takes the divergence loss 1 - 2 * sqrt(k) / (1 + k), with no attacker order at all. With
+    /// +/-0.2% bounds it rebalances only to the bound, keeping the rest as reserves: at most (0.002)^2 / 8 =
+    /// 0.5 ppm. With the widest window it deposits near its own ratio: at most 1 - 2 * sqrt(3) / 4 = 13.4%.
+    function test_capitalAccounted_widestWindow_offMarketPrincipal() public {
+        principalDivisor = 3;
+        seedTenths = 5;
+        for (uint256 o; o < 2; o++) {
+            uint256 snapshot = vm.snapshotState();
+            Run memory narrow = _run(o == 0, 0);
+            vm.revertToState(snapshot);
+            assertLe(-narrow.principalDelta, int256(narrow.principalBefore / 2e6), "within +/-0.2% divergence bound");
+            _widestWindow();
+            Run memory wide = _run(o == 0, 0);
+            vm.revertToState(snapshot);
+            boundLower = -BOUND_TICKS;
+            boundUpper = BOUND_TICKS;
+            assertTrue(wide.deposited, "widest window migrates");
+            assertEq(wide.principalBefore, narrow.principalBefore, "matched principal");
+            assertGt(_beyondFee(wide), int256(wide.principalBefore / 1e12 + ROUNDING), "loss exceeds the P2 gate");
+            assertLe(-wide.principalDelta, int256(wide.principalBefore * 134 / 1000), "loss within divergence bound");
+            assertGt(wide.attackerPnl, 0, "arbitrage profits");
+            console2.log("  >> off-market principal loss @P0, +/-0.2%", -narrow.principalDelta);
+            console2.log("  >> off-market principal loss @P0, widest", -wide.principalDelta);
+        }
     }
 }

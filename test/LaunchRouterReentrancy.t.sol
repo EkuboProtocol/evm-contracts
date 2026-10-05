@@ -274,7 +274,7 @@ contract LaunchRouterReentrancyTest is LaunchRouterTest {
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
             ReentrantQuote quote = _quote(i == 0);
-            (PoolKey memory key,) = _routerCreate(address(quote), CREATE_QUOTE, 0);
+            (PoolKey memory key,) = _routerCreate(address(quote), CREATE_QUOTE, 0, QUOTE_7E18_TICK);
             bool quoteIs0 = key.token0 == address(quote);
             _finish(key);
             for (uint8 kind = 1; kind <= 3; kind++) {

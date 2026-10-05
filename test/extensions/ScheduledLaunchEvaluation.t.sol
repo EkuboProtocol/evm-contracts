@@ -136,7 +136,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
     /// EKU-657: the start-block push no longer leaves the supply unsold; the launch sells and migrates.
     /// (Was `stalledLaunchEndsUnsold`.)
     function testFuzz_eval_startBlockPushLaunchStillSellsAndMigrates(bool tokenIs0) public {
-        PoolKey memory key = _create(tokenIs0);
+        PoolKey memory key = _create(tokenIs0, SMALL_BUY_TICK);
         vm.warp(START);
         _buy(key, 10_000e18);
         vm.warp(END - 1);
@@ -149,7 +149,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
 
     /// Ending a launch needs no creator action, and the terminal pool trades through the standard Router.
     function testFuzz_eval_strangerEndsLaunchAndRouterTradesTerminalPool(bool tokenIs0) public {
-        PoolKey memory key = _create(tokenIs0);
+        PoolKey memory key = _create(tokenIs0, SMALL_BUY_TICK);
         vm.warp(START + 100);
         _buy(key, 10_000e18);
         vm.warp(END);
@@ -169,7 +169,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
 
     /// The creator can redirect fee income but holds no path to locked principal or to minting.
     function testFuzz_eval_creatorPowersStopAtFees(bool tokenIs0) public {
-        PoolKey memory key = _create(tokenIs0);
+        PoolKey memory key = _create(tokenIs0, SMALL_BUY_TICK);
         vm.warp(START + 100);
         _buy(key, 10_000e18);
         _finish(key);

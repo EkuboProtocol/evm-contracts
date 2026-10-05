@@ -51,7 +51,14 @@ contract LaunchRouterTest is ScheduledLaunchTest {
         internal
         returns (PoolKey memory key, address token)
     {
-        ScheduledLaunch.LaunchConfig memory config = _config(quote);
+        return _routerCreate(quote, quoteAmount, value, 0);
+    }
+
+    function _routerCreate(address quote, uint128 quoteAmount, uint256 value, int32 migrationTick)
+        internal
+        returns (PoolKey memory key, address token)
+    {
+        ScheduledLaunch.LaunchConfig memory config = _migrateNear(_config(quote), migrationTick);
         config.owner = OWNER;
         config.quoteAmount = quoteAmount;
         vm.prank(PAYER);
@@ -316,7 +323,7 @@ contract LaunchRouterTest is ScheduledLaunchTest {
     }
 
     function testFuzz_fundUnblocksMigration(bool tokenIs0) public {
-        (PoolKey memory key,) = _routerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key,) = _routerCreate(_quoteToken(tokenIs0), 0, 0, QUOTE_1E18_TICK);
         _finish(key);
         assertEq(_locked(key), 0);
         uint256 quoteBefore = TestToken(_quoteToken(tokenIs0)).balanceOf(PAYER);

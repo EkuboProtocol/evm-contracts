@@ -3,7 +3,11 @@ pragma solidity =0.8.33;
 
 import {FullTest} from "../FullTest.sol";
 import {TestToken} from "../TestToken.sol";
-import {ScheduledLaunch, scheduledLaunchCallPoints} from "../../src/extensions/ScheduledLaunch.sol";
+import {
+    ScheduledLaunch,
+    scheduledLaunchCallPoints,
+    MAX_MIGRATION_TICK_WIDTH
+} from "../../src/extensions/ScheduledLaunch.sol";
 import {TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
 import {OrderKey} from "../../src/types/orderKey.sol";
 import {createOrderConfig} from "../../src/types/orderConfig.sol";
@@ -160,6 +164,14 @@ contract ScheduledLaunchTest is FullTest {
     uint64 constant END = 1100;
     uint64 constant INITIAL_FEE = uint64(uint256(1 << 64) / 10);
     uint64 constant FINAL_FEE = uint64(uint256(1 << 64) / 100);
+    // Migration price ticks, in raw quote units per launch token. The default window is centred on the target.
+    // A 10_000e18 buy at START + 100 leaves principal of about 1 quote per 99 launch tokens.
+    int32 constant SMALL_BUY_TICK = -4_595_000;
+    // Principal of quote alone against the full supply: ln(quote / SUPPLY) * 1e6.
+    int32 constant QUOTE_1E18_TICK = -13_815_511;
+    int32 constant QUOTE_7E18_TICK = -11_869_600;
+    int32 constant QUOTE_100E18_TICK = -9_210_340;
+    int32 constant QUOTE_100_000E18_TICK = -2_302_585;
 
     function setUp() public virtual override {
         super.setUp();
@@ -196,13 +208,28 @@ contract ScheduledLaunchTest is FullTest {
             tickSpacing: 100,
             initialFee: INITIAL_FEE,
             finalFee: FINAL_FEE,
-            migrationTickLower: MIN_TICK,
-            migrationTickUpper: MAX_TICK
+            migrationTickLower: -MAX_MIGRATION_TICK_WIDTH / 2,
+            migrationTickUpper: MAX_MIGRATION_TICK_WIDTH - MAX_MIGRATION_TICK_WIDTH / 2
         });
     }
 
+    /// @dev Centres the widest allowed migration window on `tick`.
+    function _migrateNear(ScheduledLaunch.LaunchConfig memory config, int32 tick)
+        internal
+        pure
+        returns (ScheduledLaunch.LaunchConfig memory)
+    {
+        config.migrationTickLower = tick - MAX_MIGRATION_TICK_WIDTH / 2;
+        config.migrationTickUpper = config.migrationTickLower + MAX_MIGRATION_TICK_WIDTH;
+        return config;
+    }
+
     function _create(bool tokenIs0) internal returns (PoolKey memory key) {
-        key = actor.create(extension, _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE));
+        return _create(tokenIs0, 0);
+    }
+
+    function _create(bool tokenIs0, int32 migrationTick) internal returns (PoolKey memory key) {
+        key = actor.create(extension, _migrateNear(_config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE), migrationTick));
         address token = extension.getLaunch(key.toPoolId()).token;
         assertEq(token == key.token0, tokenIs0);
         MintableERC20(token).approve(address(actor), type(uint256).max);
@@ -340,7 +367,7 @@ contract ScheduledLaunchTest is FullTest {
     }
 
     function testFuzz_freshMigrationLocksPrincipal(bool tokenIs0) public {
-        PoolKey memory key = _create(tokenIs0);
+        PoolKey memory key = _create(tokenIs0, SMALL_BUY_TICK);
         vm.warp(START + 100);
         _buy(key, 10_000e18);
         vm.warp(START + 200);
@@ -364,7 +391,7 @@ contract ScheduledLaunchTest is FullTest {
     }
 
     function testFuzz_noBuyersWaitsForFunding(bool tokenIs0) public {
-        PoolKey memory key = _create(tokenIs0);
+        PoolKey memory key = _create(tokenIs0, QUOTE_1E18_TICK);
         _finish(key);
         assertEq(_locked(key), 0);
         (uint128 a0, uint128 a1) = _balances(address(vault), key, PoolId.unwrap(key.toPoolId()));
@@ -378,6 +405,7 @@ contract ScheduledLaunchTest is FullTest {
     function testFuzz_noBuyersWithQuoteSeedMigrates(bool tokenIs0) public {
         ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
         config.quoteAmount = 100_000e18;
+        _migrateNear(config, QUOTE_100_000E18_TICK);
         PoolKey memory key = actor.create(extension, config);
         _finish(key);
         assertGt(_locked(key), 0);
@@ -387,10 +415,12 @@ contract ScheduledLaunchTest is FullTest {
     }
 
     function testFuzz_existingPoolBalancesAndCreatorGetsOnlyOwnFees(bool tokenIs0) public {
-        PoolKey memory key = _create(tokenIs0);
+        PoolKey memory key = _create(tokenIs0, SMALL_BUY_TICK);
         vm.warp(START + 100);
         _buy(key, 10_000e18);
-        OtherLP lp = _seedTerminal(key, 0, 1_000e18);
+        // The existing pool trades inside the migration window, away from the principal's own ratio.
+        int32 seedTick = SMALL_BUY_TICK + 500_000;
+        OtherLP lp = _seedTerminal(key, tokenIs0 ? seedTick : -seedTick, 1_000e18);
         _finish(key);
         assertGt(_locked(key), 0);
         (uint128 residual0, uint128 residual1) = _balances(address(vault), key, PoolId.unwrap(key.toPoolId()));
@@ -446,6 +476,7 @@ contract ScheduledLaunchTest is FullTest {
     function test_nativeQuoteMigration() public {
         ScheduledLaunch.LaunchConfig memory config = _config(address(0));
         config.quoteAmount = 1 ether;
+        _migrateNear(config, QUOTE_1E18_TICK);
         vm.deal(address(this), 1 ether);
         PoolKey memory key = actor.create{value: 1 ether}(extension, config);
         _finish(key);
@@ -456,6 +487,44 @@ contract ScheduledLaunchTest is FullTest {
         vault.claimFees(key.toPoolId(), address(777));
         assertGt(address(777).balance, 0);
         assertEq(_locked(key), principal);
+    }
+
+    function testFuzz_migrationWindowWidthCap(bool tokenIs0, int32 lower) public {
+        lower = int32(bound(lower, MIN_TICK, MAX_TICK - MAX_MIGRATION_TICK_WIDTH - 1));
+        ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
+        config.migrationTickLower = lower;
+        config.migrationTickUpper = lower + MAX_MIGRATION_TICK_WIDTH + 1;
+        vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
+        actor.create(extension, config);
+        config.migrationTickUpper = lower + MAX_MIGRATION_TICK_WIDTH;
+        PoolKey memory key = actor.create(extension, config);
+        ScheduledLaunch.Launch memory launch = extension.getLaunch(key.toPoolId());
+        assertEq(launch.token == key.token0, tokenIs0);
+        int32 poolLower = tokenIs0 ? config.migrationTickLower : -config.migrationTickUpper;
+        int32 poolUpper = tokenIs0 ? config.migrationTickUpper : -config.migrationTickLower;
+        assertEq(SqrtRatio.unwrap(launch.migrationLower), SqrtRatio.unwrap(tickToSqrtRatio(poolLower)));
+        assertEq(SqrtRatio.unwrap(launch.migrationUpper), SqrtRatio.unwrap(tickToSqrtRatio(poolUpper)));
+    }
+
+    function test_migrationWindowWidthCapAtTheExtremes() public {
+        for (uint256 i; i < 2; i++) {
+            ScheduledLaunch.LaunchConfig memory config = _config(i == 0 ? HIGH_QUOTE : LOW_QUOTE);
+            config.migrationTickLower = MIN_TICK;
+            config.migrationTickUpper = MIN_TICK + MAX_MIGRATION_TICK_WIDTH + 1;
+            vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
+            actor.create(extension, config);
+            config.migrationTickUpper = MAX_TICK;
+            vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
+            actor.create(extension, config);
+            config.migrationTickUpper = MIN_TICK + MAX_MIGRATION_TICK_WIDTH;
+            actor.create(extension, config);
+            config.migrationTickLower = MAX_TICK - MAX_MIGRATION_TICK_WIDTH - 1;
+            config.migrationTickUpper = MAX_TICK;
+            vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
+            actor.create(extension, config);
+            config.migrationTickLower = MAX_TICK - MAX_MIGRATION_TICK_WIDTH;
+            actor.create(extension, config);
+        }
     }
 
     function test_invalidConfigurationAndRollback() public {
@@ -481,6 +550,7 @@ contract ScheduledLaunchTest is FullTest {
     function testFuzz_launchIsolation(bool tokenIs0) public {
         ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
         config.quoteAmount = 100e18;
+        _migrateNear(config, QUOTE_100E18_TICK);
         PoolKey memory a = actor.create(extension, config);
         PoolKey memory b = actor.create(extension, config);
         _finish(a);
@@ -513,6 +583,8 @@ contract ScheduledLaunchTest is FullTest {
         ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
         config.targetTick = 50_000_000;
         config.upperTick = 50_100_000;
+        // Three maximum buys leave principal at tick 33_866_279 (measured).
+        _migrateNear(config, 33_866_000);
         PoolKey memory key = actor.create(extension, config);
         vm.warp(START + 100);
         for (uint256 i = 0; i < 3; i++) {

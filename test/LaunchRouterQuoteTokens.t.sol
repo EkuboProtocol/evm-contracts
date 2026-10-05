@@ -198,6 +198,9 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
     uint128 constant CREATE_QUOTE = 7e18;
     int128 constant BUY = 1_000e18;
     uint128 constant FUND = 3e18;
+    // The flow below migrates at tick -7_500_734 in raw quote units per launch token (measured).
+    int32 constant FLOW_MIGRATION_TICK = -7_500_000;
+    int32 flowMigrationTick = FLOW_MIGRATION_TICK;
 
     /// Everything the flow observes. A behavior accounts exactly when it reproduces the standard control.
     struct Obs {
@@ -246,7 +249,7 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
     function _routerCreateQuote(address quote, uint128 quoteAmount) internal returns (Obs memory o) {
         uint256 core0 = _bal(quote, address(core));
         uint256 payer0 = _bal(quote, PAYER);
-        (o.key,) = _routerCreate(quote, quoteAmount, 0);
+        (o.key,) = _routerCreate(quote, quoteAmount, 0, flowMigrationTick);
         o.quoteIs0 = o.key.token0 == quote;
         assertEq(_bal(quote, address(core)) - core0, quoteAmount, "create: core receives quoteAmount");
         assertEq(payer0 - _bal(quote, PAYER), quoteAmount, "create: payer pays quoteAmount");
@@ -594,6 +597,8 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
 
     /// Fund as the outer call: the sender hook's nested fund is rejected and the outer call reverts.
     function test_reentrantSenderHookNestedFundReverts() public {
+        // Finishing straight after creation migrates the created quote alone.
+        flowMigrationTick = QUOTE_7E18_TICK;
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
             (HookQuote quote,, Obs memory o) = _hookSetup(i == 0);

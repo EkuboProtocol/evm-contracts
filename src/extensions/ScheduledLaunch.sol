@@ -24,6 +24,10 @@ import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/constants.sol";
 import {maxLiquidity} from "../math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
+/// @dev Widest allowed migration price window: 1.000001^2302585 is just under a 10x price ratio. Bounds of
+/// any width are fixed at creation, so this caps how far migration can be pushed from a fair price.
+int32 constant MAX_MIGRATION_TICK_WIDTH = 2_302_585;
+
 function scheduledLaunchCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: true,
@@ -296,6 +300,7 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
         if (
             config.migrationTickLower < MIN_TICK || config.migrationTickUpper > MAX_TICK
                 || config.migrationTickLower >= config.migrationTickUpper
+                || config.migrationTickUpper - config.migrationTickLower > MAX_MIGRATION_TICK_WIDTH
         ) revert InvalidLaunch();
     }
 

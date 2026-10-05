@@ -55,7 +55,7 @@ contract ScheduledLaunchPositionsTest is ScheduledLaunchTest {
         ScheduledLaunch.LaunchConfig memory config = _config(HIGH_QUOTE); // launch token is token0
         config.targetTick = target;
         config.upperTick = target + 100_000;
-        key = actor.create(extension, config);
+        key = _launch(config);
         MintableERC20(extension.getLaunch(key.toPoolId()).token).approve(address(actor), type(uint256).max);
     }
 

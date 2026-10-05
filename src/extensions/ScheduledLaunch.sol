@@ -20,9 +20,10 @@ import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol"
 import {Locker} from "../types/locker.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {maxLiquidity} from "../math/liquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @dev Widest allowed migration price window: 1.000001^2302585 is just under a 10x price ratio. Bounds of
 /// any width are fixed at creation, so this caps how far migration can be pushed from a fair price.
@@ -42,11 +43,16 @@ function scheduledLaunchCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @notice Fixed-supply launches with linear inventory release and a fixed price target.
-/// @dev Create via Core.forward with abi.encode(uint8(0), LaunchConfig). The forwarding locker owes
-/// quoteAmount to Core. Principal migrates to permanently locked full-range liquidity at endTime.
+/// @dev Create with `create`. Swap through Core.forward with the standard abi.encode(PoolKey, SwapParameters)
+/// payload, as routers do for any forward-only extension. Principal migrates to permanently locked
+/// full-range liquidity at endTime.
 contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
+
+    uint8 private constant LOCK_CREATE = 0;
+    uint8 private constant LOCK_ADVANCE = 1;
+    uint8 private constant LOCK_CLAIM = 2;
 
     LockedLaunchLiquidity public immutable LIQUIDITY;
 
@@ -98,13 +104,20 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
     error LaunchEnded();
     error SwapsThroughForwardOnly();
     error PositionsThroughExtensionOnly();
-    error InvalidAction();
+    error InvalidPayment();
     error OwnerOnly();
     error InvalidRecipient();
     error InvalidTwamm();
 
-    event LaunchCreated(PoolId indexed poolId, address indexed token, address indexed owner, LaunchConfig config);
-    event LaunchAdvanced(PoolId indexed poolId, uint128 deployed, bool complete);
+    /// @param payer Caller of `create`, who paid config.quoteAmount.
+    event LaunchCreated(
+        PoolId indexed poolId, address indexed token, address indexed owner, address payer, LaunchConfig config
+    );
+    /// @notice Emitted on every advance with the post-advance state. With the config from LaunchCreated and
+    /// Core's own events, it determines the result of the next swap.
+    /// @param reserve0 Launch reserve of token0 held as this extension's saved balance, not yet in the pool.
+    /// @param reserve1 Launch reserve of token1 held as this extension's saved balance, not yet in the pool.
+    event LaunchAdvanced(PoolId indexed poolId, uint128 deployed, uint128 reserve0, uint128 reserve1, bool complete);
     event CreatorFeesClaimed(PoolId indexed poolId, address indexed recipient, uint128 amount0, uint128 amount1);
     /// @notice Emitted for every external forwarded launch swap, after the creator fee is applied.
     /// @param locker Original locker that forwarded the swap.
@@ -177,36 +190,37 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
         return PoolKey(key.token0, key.token1, createFullRangePoolConfig(launch.finalFee, TWAMM));
     }
 
+    /// @notice Creates a launch. msg.sender pays config.quoteAmount of config.quoteToken: exactly msg.value
+    /// for the native token, otherwise by transferFrom, which needs an allowance for this contract.
+    function create(LaunchConfig memory config) external payable returns (PoolKey memory key, address token) {
+        if (msg.value != (config.quoteToken == NATIVE_TOKEN_ADDRESS ? config.quoteAmount : 0)) {
+            revert InvalidPayment();
+        }
+        (key, token) = abi.decode(lock(abi.encode(LOCK_CREATE, msg.sender, config)), (PoolKey, address));
+    }
+
     /// @notice Anyone may advance a launch, including completing it without a trade.
     function advance(PoolKey memory key) public {
         Launch storage launch = _launches[key.toPoolId()];
         if (launch.owner == address(0)) revert UnknownLaunch();
-        if (!launch.complete) lock(abi.encode(key, address(0)));
+        if (!launch.complete) lock(abi.encode(LOCK_ADVANCE, key, address(0)));
     }
 
     /// @notice Claims creator trading fees; principal is never owner-withdrawable.
     function claimFees(PoolKey memory key, address recipient) external {
         if (msg.sender != _launches[key.toPoolId()].owner) revert OwnerOnly();
         if (recipient == address(0)) revert InvalidRecipient();
-        lock(abi.encode(key, recipient));
+        lock(abi.encode(LOCK_CLAIM, key, recipient));
     }
 
-    /// @dev Forward abi.encode(uint8(0), LaunchConfig) to create, or
-    /// abi.encode(uint8(1), PoolKey, SwapParameters) to trade and receive (update, state).
+    /// @dev The standard forwarded swap: abi.encode(PoolKey, SwapParameters) in, abi.encode(PoolBalanceUpdate,
+    /// PoolState) out. The forwarding locker settles the fee-inclusive update.
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory) {
-        uint8 action = abi.decode(data, (uint8));
-        if (action == 0) {
-            (, LaunchConfig memory config) = abi.decode(data, (uint8, LaunchConfig));
-            return _create(config);
-        }
-        if (action == 1) {
-            (, PoolKey memory key, SwapParameters params) = abi.decode(data, (uint8, PoolKey, SwapParameters));
-            return _swap(original, key, params);
-        }
-        revert InvalidAction();
+        (PoolKey memory key, SwapParameters params) = abi.decode(data, (PoolKey, SwapParameters));
+        return _swap(original, key, params);
     }
 
-    function _create(LaunchConfig memory config) private returns (bytes memory) {
+    function _create(address payer, LaunchConfig memory config) private returns (bytes memory) {
         _validateConfig(config);
         address token = LIQUIDITY.createToken(config.name, config.symbol, config.decimals, config.totalSupply);
         PoolKey memory key = _initialize(config, address(token));
@@ -219,8 +233,15 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
             int256(uint256(tokenIs0 ? config.totalSupply : config.quoteAmount)),
             int256(uint256(tokenIs0 ? config.quoteAmount : config.totalSupply))
         );
-        emit LaunchCreated(key.toPoolId(), address(token), config.owner, config);
-        return abi.encode(key);
+        emit LaunchCreated(key.toPoolId(), address(token), config.owner, payer, config);
+        if (config.quoteAmount != 0) {
+            if (config.quoteToken == NATIVE_TOKEN_ADDRESS) {
+                SafeTransferLib.safeTransferETH(address(CORE), config.quoteAmount);
+            } else {
+                CORE.payFrom(payer, config.quoteToken, config.quoteAmount);
+            }
+        }
+        return abi.encode(key, token);
     }
 
     function _swap(Locker original, PoolKey memory key, SwapParameters params) private returns (bytes memory) {
@@ -342,8 +363,13 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
     }
 
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (PoolKey memory key, address recipient) = abi.decode(data, (PoolKey, address));
-        if (recipient == address(0)) _advance(key);
+        uint8 action = abi.decode(data, (uint8));
+        if (action == LOCK_CREATE) {
+            (, address payer, LaunchConfig memory config) = abi.decode(data, (uint8, address, LaunchConfig));
+            return _create(payer, config);
+        }
+        (, PoolKey memory key, address recipient) = abi.decode(data, (uint8, PoolKey, address));
+        if (action == LOCK_ADVANCE) _advance(key);
         else _claimFees(key, recipient);
         return "";
     }
@@ -354,7 +380,8 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
         if (block.timestamp < launch.startTime) return;
         if (block.timestamp >= launch.endTime) _finish(key, launch);
         else _release(key, launch);
-        emit LaunchAdvanced(poolId, launch.deployed, launch.complete);
+        (uint128 reserve0, uint128 reserve1) = _reserves(key);
+        emit LaunchAdvanced(poolId, launch.deployed, reserve0, reserve1, launch.complete);
     }
 
     function _release(PoolKey memory key, Launch storage launch) private {
@@ -446,7 +473,7 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
             amount0,
             amount1
         );
-        CORE.forward(address(LIQUIDITY), abi.encode(uint8(0), registration));
+        CORE.forward(address(LIQUIDITY), abi.encode(registration));
     }
 
     function _removableLiquidity(PoolKey memory key, Launch storage launch, uint128 liquidity)

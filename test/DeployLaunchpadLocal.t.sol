@@ -2,41 +2,34 @@
 pragma solidity =0.8.33;
 
 import {ScheduledLaunchTest} from "./extensions/ScheduledLaunch.t.sol";
-import {DeployLaunchpadLocal} from "../script/DeployLaunchpadLocal.s.sol";
-import {LaunchRouter} from "../src/LaunchRouter.sol";
+import {DeployScheduledLaunch} from "../script/DeployScheduledLaunch.s.sol";
 import {ScheduledLaunch, scheduledLaunchCallPoints} from "../src/extensions/ScheduledLaunch.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 
-contract DeployLaunchpadLocalHarness is DeployLaunchpadLocal {
-    function checkTwamm(ICore core, address twamm, ScheduledLaunch extension, LaunchRouter launchRouter)
-        external
-        view
-        returns (bool)
-    {
-        return _checkTwamm(core, twamm, extension, launchRouter);
+contract DeployScheduledLaunchHarness is DeployScheduledLaunch {
+    function checkTwamm(ICore core, address twamm, ScheduledLaunch extension) external view returns (bool) {
+        return _checkTwamm(core, twamm, extension);
     }
 }
 
-/// The manifest's twamm_registered is written only after the deployed contracts prove it.
+/// Deployment proves the extension's terminal-pool TWAMM before the manifest records twamm_registered.
 contract DeployLaunchpadLocalTest is ScheduledLaunchTest {
-    DeployLaunchpadLocalHarness harness;
-    LaunchRouter launchRouter;
+    DeployScheduledLaunchHarness harness;
 
     function setUp() public override {
         super.setUp();
-        harness = new DeployLaunchpadLocalHarness();
-        launchRouter = new LaunchRouter(core, extension);
+        harness = new DeployScheduledLaunchHarness();
     }
 
     function test_twammCheckPasses() public view {
-        assertTrue(harness.checkTwamm(core, address(twamm), extension, launchRouter));
+        assertTrue(harness.checkTwamm(core, address(twamm), extension));
     }
 
     function test_twammCheckRejectsManifestMismatch() public {
         vm.expectRevert(
-            abi.encodeWithSelector(DeployLaunchpadLocal.TwammMismatch.selector, address(0x1234), address(twamm))
+            abi.encodeWithSelector(DeployScheduledLaunch.TwammMismatch.selector, address(0x1234), address(twamm))
         );
-        harness.checkTwamm(core, address(0x1234), extension, launchRouter);
+        harness.checkTwamm(core, address(0x1234), extension);
     }
 
     function test_twammCheckRejectsUnregisteredTwamm() public {
@@ -44,18 +37,7 @@ contract DeployLaunchpadLocalTest is ScheduledLaunchTest {
         address unregistered = address(0x7777);
         address target = address((uint160(scheduledLaunchCallPoints().toUint8()) << 152) | 1);
         deployCodeTo("ScheduledLaunch.sol", abi.encode(core, unregistered), target);
-        ScheduledLaunch other = ScheduledLaunch(target);
-        vm.expectRevert(abi.encodeWithSelector(DeployLaunchpadLocal.TwammNotRegistered.selector, unregistered));
-        harness.checkTwamm(core, unregistered, other, new LaunchRouter(core, other));
-    }
-
-    function test_twammCheckRejectsRouterForAnotherExtension() public {
-        address target = address((uint160(scheduledLaunchCallPoints().toUint8()) << 152) | 2);
-        deployCodeTo("ScheduledLaunch.sol", abi.encode(core, address(twamm)), target);
-        ScheduledLaunch other = ScheduledLaunch(target);
-        vm.expectRevert(
-            abi.encodeWithSelector(DeployLaunchpadLocal.ExtensionMismatch.selector, address(other), address(extension))
-        );
-        harness.checkTwamm(core, address(twamm), other, launchRouter);
+        vm.expectRevert(abi.encodeWithSelector(DeployScheduledLaunch.TwammNotRegistered.selector, unregistered));
+        harness.checkTwamm(core, unregistered, ScheduledLaunch(target));
     }
 }

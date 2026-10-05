@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-// Non-standard quote tokens through LaunchRouter (EKU-645 gate P3). Each behavior either reverts cleanly or
-// accounts exactly against a standard-token control at the same address and ordering. Supported behaviors
-// decide which tokens may enter the quote allowlist.
+// Non-standard quote tokens through the direct create and fund entry points and Router swaps (EKU-645 gate P3).
+// Each behavior either reverts cleanly or accounts exactly against a standard-token control at the same address
+// and ordering. Supported behaviors decide which tokens may enter the quote allowlist.
 
-import {LaunchRouterTest} from "./LaunchRouter.t.sol";
-import {LaunchRouter} from "../src/LaunchRouter.sol";
+import {LaunchEntryPointsTest} from "./LaunchEntryPoints.t.sol";
+import {Router} from "../src/Router.sol";
 import {ScheduledLaunch} from "../src/extensions/ScheduledLaunch.sol";
+import {LockedLaunchLiquidity} from "../src/LockedLaunchLiquidity.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
@@ -136,9 +137,11 @@ contract MissingReturnQuote is MockQuoteBase {
     }
 }
 
-/// @dev Payer or recipient that reenters LaunchRouter with a buy from inside a token hook.
+/// @dev Payer or recipient that makes a nested Router buy from inside a token hook.
 contract ReentrantTrader is IQuoteHooks {
-    LaunchRouter immutable ROUTER;
+    ScheduledLaunch immutable EXTENSION;
+    LockedLaunchLiquidity immutable VAULT;
+    Router immutable ROUTER;
     HookQuote immutable QUOTE;
     PoolKey key;
     SwapParameters params;
@@ -146,9 +149,13 @@ contract ReentrantTrader is IQuoteHooks {
     bool receiveArmed;
     PoolBalanceUpdate public nested;
 
-    constructor(LaunchRouter router, HookQuote quote) {
+    constructor(ScheduledLaunch extension, Router router, HookQuote quote) {
+        EXTENSION = extension;
+        VAULT = extension.LIQUIDITY();
         ROUTER = router;
         QUOTE = quote;
+        quote.approve(address(extension), type(uint256).max);
+        quote.approve(address(VAULT), type(uint256).max);
         quote.approve(address(router), type(uint256).max);
         quote.register(true);
     }
@@ -165,31 +172,31 @@ contract ReentrantTrader is IQuoteHooks {
     }
 
     function create(ScheduledLaunch.LaunchConfig memory config) external returns (PoolKey memory k) {
-        (k,) = ROUTER.create(config, block.timestamp);
+        (k,) = EXTENSION.create(config);
     }
 
     function swap(PoolKey memory key_, SwapParameters params_, address recipient) external returns (PoolBalanceUpdate) {
-        return ROUTER.swap(key_, params_, type(int256).min + 1, recipient, block.timestamp);
+        return ROUTER.swap(key_, params_, type(int256).min + 1, recipient);
     }
 
     function fund(PoolId launchId, uint128 amount0, uint128 amount1) external {
-        ROUTER.fund(launchId, amount0, amount1, block.timestamp);
+        VAULT.fund(launchId, amount0, amount1);
     }
 
     function tokensToSend(address, address, uint256) external {
         if (!sendArmed || msg.sender != address(QUOTE)) return;
         sendArmed = false;
-        nested = ROUTER.swap(key, params, type(int256).min + 1, address(this), block.timestamp);
+        nested = ROUTER.swap(key, params, type(int256).min + 1, address(this));
     }
 
     function tokensReceived(address, address, uint256) external {
         if (!receiveArmed || msg.sender != address(QUOTE)) return;
         receiveArmed = false;
-        nested = ROUTER.swap(key, params, type(int256).min + 1, address(this), block.timestamp);
+        nested = ROUTER.swap(key, params, type(int256).min + 1, address(this));
     }
 }
 
-contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
+contract LaunchEntryPointsQuoteTokensTest is LaunchEntryPointsTest {
     using CoreLib for *;
 
     // Below and above any launch token address, so the quote is token0 or token1 respectively.
@@ -223,10 +230,9 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
 
     function _deployQuote(string memory name, bool low) internal returns (address quote) {
         quote = low ? QUOTE_LOW : QUOTE_HIGH;
-        deployCodeTo(string.concat("LaunchRouterQuoteTokens.t.sol:", name), quote);
+        deployCodeTo(string.concat("LaunchEntryPointsQuoteTokens.t.sol:", name), quote);
         MockQuoteBase(quote).mint(PAYER, 1_000_000e18);
-        vm.prank(PAYER);
-        MockQuoteBase(quote).approve(address(launchRouter), type(uint256).max);
+        _approvePayer(quote);
     }
 
     function _bal(address quote, address account) internal view returns (uint256) {
@@ -241,15 +247,14 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         return o.quoteIs0 ? u.delta1() : u.delta0();
     }
 
-    function _assertRouterHoldsNothing(address quote, PoolKey memory key) internal view {
-        assertEq(_bal(quote, address(launchRouter)), 0, "router quote");
-        _assertRouterEmpty(key);
+    function _assertRouterHoldsNothing(address, PoolKey memory key) internal view {
+        _assertHoldsNothing(key);
     }
 
     function _routerCreateQuote(address quote, uint128 quoteAmount) internal returns (Obs memory o) {
         uint256 core0 = _bal(quote, address(core));
         uint256 payer0 = _bal(quote, PAYER);
-        (o.key,) = _routerCreate(quote, quoteAmount, 0, flowMigrationTick);
+        (o.key,) = _payerCreate(quote, quoteAmount, 0, flowMigrationTick);
         o.quoteIs0 = o.key.token0 == quote;
         assertEq(_bal(quote, address(core)) - core0, quoteAmount, "create: core receives quoteAmount");
         assertEq(payer0 - _bal(quote, PAYER), quoteAmount, "create: payer pays quoteAmount");
@@ -265,8 +270,7 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
     function _routerBuy(Obs memory o, address quote) internal {
         uint256 core0 = _bal(quote, address(core));
         uint256 payer0 = _bal(quote, PAYER);
-        vm.prank(PAYER);
-        o.buy = launchRouter.swap(o.key, _buyParamsFor(o, BUY), 1, PAYER, block.timestamp);
+        o.buy = _routerSwap(o.key, _buyParamsFor(o, BUY), 1, PAYER);
         assertEq(_quoteDelta(o, o.buy), BUY, "buy: quote in");
         assertEq(_bal(quote, address(core)) - core0, uint128(BUY), "buy: core receives");
         assertEq(payer0 - _bal(quote, PAYER), uint128(BUY), "buy: payer pays");
@@ -277,10 +281,8 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         uint128 amount = uint128(-_tokenDelta(o, o.buy)) / 2;
         uint256 core0 = _bal(quote, address(core));
         uint256 recipient0 = _bal(quote, RECIPIENT);
-        vm.prank(PAYER);
-        o.sell = launchRouter.swap(
-            o.key, createSwapParameters(SqrtRatio.wrap(0), int128(amount), o.quoteIs0, 0), 1, RECIPIENT, block.timestamp
-        );
+        o.sell =
+            _routerSwap(o.key, createSwapParameters(SqrtRatio.wrap(0), int128(amount), o.quoteIs0, 0), 1, RECIPIENT);
         uint128 out = uint128(-_quoteDelta(o, o.sell));
         assertGt(out, 0);
         assertEq(core0 - _bal(quote, address(core)), out, "sell: core pays");
@@ -305,7 +307,7 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         PoolId launchId = o.key.toPoolId();
         (uint128 v0, uint128 v1) = _balances(address(vault), o.key, PoolId.unwrap(launchId));
         vm.prank(PAYER);
-        launchRouter.fund(launchId, o.quoteIs0 ? FUND : 0, o.quoteIs0 ? 0 : FUND, block.timestamp);
+        vault.fund(launchId, o.quoteIs0 ? FUND : 0, o.quoteIs0 ? 0 : FUND);
         (o.vaultReserve0, o.vaultReserve1) = _balances(address(vault), o.key, PoolId.unwrap(launchId));
         assertEq(o.quoteIs0 ? o.vaultReserve0 - v0 : o.vaultReserve1 - v1, FUND, "fund: principal ledger");
         assertEq(o.quoteIs0 ? o.vaultReserve1 : o.vaultReserve0, o.quoteIs0 ? v1 : v0, "fund: other side");
@@ -402,31 +404,27 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
             config.quoteAmount = CREATE_QUOTE;
             vm.prank(PAYER);
             vm.expectRevert(_debtsNotZeroed());
-            launchRouter.create(config, block.timestamp);
+            extension.create(config);
 
             // Without a quote deposit the launch exists, but no quote can ever enter it.
             Obs memory o = _routerCreateQuote(quote, 0);
             vm.warp(START + 100);
             vm.prank(PAYER);
             vm.expectRevert(_debtsNotZeroed());
-            launchRouter.swap(o.key, _buyParamsFor(o, BUY), 1, PAYER, block.timestamp);
+            forwardingRouter.swap(o.key, _buyParamsFor(o, BUY), 1, PAYER);
 
             // Exact output names the launch token amount; the fee-inclusive quote input still arrives short.
             vm.prank(PAYER);
             vm.expectRevert(_debtsNotZeroed());
-            launchRouter.swap(
-                o.key,
-                createSwapParameters(SqrtRatio.wrap(0), -100e18, o.quoteIs0, 0),
-                type(int256).min + 1,
-                PAYER,
-                block.timestamp
+            forwardingRouter.swap(
+                o.key, createSwapParameters(SqrtRatio.wrap(0), -100e18, o.quoteIs0, 0), type(int256).min + 1, PAYER
             );
 
             _finish(o.key);
             // The terminal registration exists after the first advance at endTime, so fund reaches payment.
             vm.prank(PAYER);
             vm.expectRevert(_debtsNotZeroed());
-            launchRouter.fund(o.key.toPoolId(), o.quoteIs0 ? FUND : 0, o.quoteIs0 ? 0 : FUND, block.timestamp);
+            vault.fund(o.key.toPoolId(), o.quoteIs0 ? FUND : 0, o.quoteIs0 ? 0 : FUND);
 
             assertEq(_bal(quote, PAYER), payer0, "payer unchanged");
             assertEq(_bal(quote, address(core)), 0, "core holds no quote");
@@ -529,7 +527,7 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         RebasingQuote(quote).setIndex(1.1e18);
         // Core already holds a share balance, so rounding depends on both sides.
         RebasingQuote(quote).mint(address(core), 1e18 + 7);
-        (o.key,) = _routerCreate(quote, 0, 0);
+        (o.key,) = _payerCreate(quote, 0, 0);
         o.quoteIs0 = o.key.token0 == quote;
         vm.warp(START + 100);
     }
@@ -538,9 +536,7 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         address quote = o.quoteIs0 ? o.key.token0 : o.key.token1;
         uint256 core0 = _bal(quote, address(core));
         vm.prank(PAYER);
-        try launchRouter.swap(
-            o.key, _buyParamsFor(o, int128(amount)), type(int256).min + 1, PAYER, block.timestamp
-        ) returns (
+        try forwardingRouter.swap(o.key, _buyParamsFor(o, int128(amount)), type(int256).min + 1, PAYER) returns (
             PoolBalanceUpdate update
         ) {
             assertEq(_bal(quote, address(core)) - core0, uint128(_quoteDelta(o, update)), "credited exactly");
@@ -558,17 +554,17 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
 
     function _hookSetup(bool low) internal returns (HookQuote quote, ReentrantTrader trader, Obs memory o) {
         quote = HookQuote(_deployQuote("HookQuote", low));
-        trader = new ReentrantTrader(launchRouter, quote);
+        trader = new ReentrantTrader(extension, forwardingRouter, quote);
         quote.mint(address(trader), 1_000_000e18);
         o = _routerCreateQuote(address(quote), CREATE_QUOTE);
         trader.approveToken(o.quoteIs0 ? o.key.token1 : o.key.token0);
         vm.warp(START + 100);
     }
 
-    /// A sender hook that reenters is rejected by the router's guard. The hook does not catch, so the
-    /// token transfer fails and the outer call reverts with ledgers unchanged. Create and swap as the outer
-    /// call. LaunchRouterReentrancy.t.sol covers hooks that catch and let the outer call continue.
-    function test_reentrantSenderHookRevertsCreateAndSwap() public {
+    /// No entry point guards against nesting; none holds value between calls. A sender hook's nested payment in
+    /// the same token closes Core's payment session for that token, so the outer payment is credited nothing
+    /// and the outer call reverts with ledgers unchanged. Create and swap as the outer call.
+    function test_reentrantSenderHookFailsCreateAndSwapClosed() public {
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
             (HookQuote quote, ReentrantTrader trader, Obs memory o) = _hookSetup(i == 0);
@@ -581,22 +577,28 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
             config.endTime = uint64(vm.getBlockTimestamp() + 1000);
             config.quoteAmount = CREATE_QUOTE;
             trader.arm(o.key, nestedBuy, true, false);
-            vm.expectRevert(abi.encodeWithSignature("TransferFromFailed()"));
+            vm.expectRevert(_debtsNotZeroed());
             trader.create(config);
 
             trader.arm(o.key, nestedBuy, true, false);
-            vm.expectRevert(abi.encodeWithSignature("TransferFromFailed()"));
+            vm.expectRevert(_debtsNotZeroed());
             trader.swap(o.key, _buyParamsFor(o, BUY), address(trader));
 
             assertEq(quote.balanceOf(address(trader)), trader0, "trader unchanged");
             assertEq(quote.balanceOf(address(core)), core0, "core unchanged");
             _assertRouterHoldsNothing(address(quote), o.key);
+
+            // The same calls without the nested payment succeed.
+            trader.arm(o.key, nestedBuy, false, false);
+            trader.create(config);
+            assertLt(_tokenDelta(o, trader.swap(o.key, _buyParamsFor(o, BUY), address(trader))), 0);
             vm.revertToState(snapshot);
         }
     }
 
-    /// Fund as the outer call: the sender hook's nested fund is rejected and the outer call reverts.
-    function test_reentrantSenderHookNestedFundReverts() public {
+    /// Fund as the outer call: the sender hook's nested fund is credited, the outer payment is not, and the
+    /// whole call reverts.
+    function test_reentrantSenderHookNestedFundFailsClosed() public {
         // Finishing straight after creation migrates the created quote alone.
         flowMigrationTick = QUOTE_7E18_TICK;
         for (uint256 i; i < 2; i++) {
@@ -605,9 +607,9 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
             _finish(o.key);
             uint256 core0 = quote.balanceOf(address(core));
             (uint128 v0, uint128 v1) = _balances(address(vault), o.key, PoolId.unwrap(o.key.toPoolId()));
-            NestedFunder funder = new NestedFunder(launchRouter, quote, o.key.toPoolId(), o.quoteIs0);
+            NestedFunder funder = new NestedFunder(vault, quote, o.key.toPoolId(), o.quoteIs0);
             quote.mint(address(funder), 1_000e18);
-            vm.expectRevert(abi.encodeWithSignature("TransferFromFailed()"));
+            vm.expectRevert(_debtsNotZeroed());
             funder.fund(FUND);
             (uint128 w0, uint128 w1) = _balances(address(vault), o.key, PoolId.unwrap(o.key.toPoolId()));
             assertEq(w0, v0);
@@ -619,10 +621,9 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         }
     }
 
-    /// A recipient hook that reenters with a buy while Core pays out a sell is rejected by the router's
-    /// guard; the hook does not catch, so the payout fails and the sell reverts with ledgers unchanged.
-    /// The same trades made sequentially still succeed.
-    function test_reentrantRecipientHookRevertsSell() public {
+    /// A recipient hook that buys while Core pays out a sell settles in its own lock; the sell and the
+    /// nested buy each account exactly.
+    function test_reentrantRecipientHookSettlesSellIndependently() public {
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
             (HookQuote quote, ReentrantTrader trader, Obs memory o) = _hookSetup(i == 0);
@@ -630,20 +631,15 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
             uint128 amount = uint128(-_tokenDelta(o, o.buy)) / 2;
             SwapParameters sell = createSwapParameters(SqrtRatio.wrap(0), int128(amount), o.quoteIs0, 0);
             SwapParameters nestedBuy = _buyParamsFor(o, 10e18);
-            bytes memory before = _ledgerState(o, address(quote), address(trader));
+            uint256 trader0 = quote.balanceOf(address(trader));
 
             trader.arm(o.key, nestedBuy, false, true);
-            vm.expectRevert(abi.encodeWithSignature("TransferFailed()"));
-            vm.prank(PAYER);
-            launchRouter.swap(o.key, sell, 1, address(trader), block.timestamp);
-            assertEq(_ledgerState(o, address(quote), address(trader)), before, "ledgers unchanged");
-            _assertRouterHoldsNothing(address(quote), o.key);
-
-            trader.arm(o.key, nestedBuy, false, false);
-            vm.prank(PAYER);
-            PoolBalanceUpdate sold = launchRouter.swap(o.key, sell, 1, address(trader), block.timestamp);
-            assertLt(_quoteDelta(o, sold), 0);
-            assertLt(_tokenDelta(o, trader.swap(o.key, nestedBuy, address(trader))), 0);
+            PoolBalanceUpdate sold = _routerSwap(o.key, sell, 1, address(trader));
+            uint128 out = uint128(-_quoteDelta(o, sold));
+            assertGt(out, 0);
+            assertEq(_quoteDelta(o, trader.nested()), 10e18, "nested buy input");
+            assertEq(quote.balanceOf(address(trader)), trader0 + out - 10e18, "trader receives sell, pays buy");
+            assertLt(_tokenDelta(o, trader.nested()), 0, "nested buy output");
             _assertRouterHoldsNothing(address(quote), o.key);
             vm.revertToState(snapshot);
         }
@@ -691,17 +687,17 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         config.quoteAmount = CREATE_QUOTE;
         vm.prank(PAYER);
         vm.expectRevert(payErr);
-        launchRouter.create(config, block.timestamp);
+        extension.create(config);
 
         vm.prank(PAYER);
         vm.expectRevert(payErr);
-        launchRouter.swap(o.key, _buyParamsFor(o, BUY), 1, PAYER, block.timestamp);
+        forwardingRouter.swap(o.key, _buyParamsFor(o, BUY), 1, PAYER);
 
         uint128 amount = uint128(-_tokenDelta(o, o.buy)) / 2;
         vm.prank(PAYER);
         vm.expectRevert(abi.encodeWithSignature("TransferFailed()"));
-        launchRouter.swap(
-            o.key, createSwapParameters(SqrtRatio.wrap(0), int128(amount), o.quoteIs0, 0), 1, RECIPIENT, block.timestamp
+        forwardingRouter.swap(
+            o.key, createSwapParameters(SqrtRatio.wrap(0), int128(amount), o.quoteIs0, 0), 1, RECIPIENT
         );
         assertEq(_ledgerState(o, quote, RECIPIENT), before, "ledgers untouched while frozen");
 
@@ -716,7 +712,7 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         _finish(o.key);
         vm.prank(PAYER);
         vm.expectRevert(payErr);
-        launchRouter.fund(o.key.toPoolId(), o.quoteIs0 ? FUND : 0, o.quoteIs0 ? 0 : FUND, block.timestamp);
+        vault.fund(o.key.toPoolId(), o.quoteIs0 ? FUND : 0, o.quoteIs0 ? 0 : FUND);
         _assertRouterHoldsNothing(quote, o.key);
 
         MockQuoteBase(quote).setFrozen(false);
@@ -744,43 +740,43 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
     function test_falseReturnOnMissingAllowanceReverts() public {
         address quote = _deployQuote("ReturnsFalseQuote", true);
         vm.prank(PAYER);
-        MockQuoteBase(quote).approve(address(launchRouter), 0);
+        MockQuoteBase(quote).approve(address(extension), 0);
         ScheduledLaunch.LaunchConfig memory config = _config(quote);
         config.owner = OWNER;
         config.quoteAmount = CREATE_QUOTE;
         vm.prank(PAYER);
         vm.expectRevert(abi.encodeWithSignature("TransferFromFailed()"));
-        launchRouter.create(config, block.timestamp);
+        extension.create(config);
         assertEq(_bal(quote, address(core)), 0);
     }
 }
 
-/// @dev Funds a launch through the router; its sender hook funds again in the same token.
+/// @dev Funds a launch directly; its sender hook funds again in the same token.
 contract NestedFunder is IQuoteHooks {
-    LaunchRouter immutable ROUTER;
+    LockedLaunchLiquidity immutable VAULT;
     HookQuote immutable QUOTE;
     PoolId immutable LAUNCH;
     bool immutable QUOTE_IS_0;
     bool armed;
 
-    constructor(LaunchRouter router, HookQuote quote, PoolId launchId, bool quoteIs0) {
-        ROUTER = router;
+    constructor(LockedLaunchLiquidity vault, HookQuote quote, PoolId launchId, bool quoteIs0) {
+        VAULT = vault;
         QUOTE = quote;
         LAUNCH = launchId;
         QUOTE_IS_0 = quoteIs0;
-        quote.approve(address(router), type(uint256).max);
+        quote.approve(address(vault), type(uint256).max);
         quote.register(true);
     }
 
     function fund(uint128 amount) external {
         armed = true;
-        ROUTER.fund(LAUNCH, QUOTE_IS_0 ? amount : 0, QUOTE_IS_0 ? 0 : amount, block.timestamp);
+        VAULT.fund(LAUNCH, QUOTE_IS_0 ? amount : 0, QUOTE_IS_0 ? 0 : amount);
     }
 
     function tokensToSend(address, address, uint256) external {
         if (!armed || msg.sender != address(QUOTE)) return;
         armed = false;
-        ROUTER.fund(LAUNCH, QUOTE_IS_0 ? 1e18 : 0, QUOTE_IS_0 ? 0 : 1e18, block.timestamp);
+        VAULT.fund(LAUNCH, QUOTE_IS_0 ? 1e18 : 0, QUOTE_IS_0 ? 0 : 1e18);
     }
 
     function tokensReceived(address, address, uint256) external {}

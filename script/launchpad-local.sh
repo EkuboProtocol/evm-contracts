@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Local-only launchpad deployment. Forks FORK_URL with anvil (keeping its chain ID), deploys ScheduledLaunch,
-# LockedLaunchLiquidity and LaunchRouter from anvil's unlocked development account, writes
-# launchpad-manifest.json and the ABIs, and checks the manifest code hashes against the node.
+# Local-only launchpad deployment. Forks FORK_URL with anvil (keeping its chain ID), deploys ScheduledLaunch and
+# its LockedLaunchLiquidity from anvil's unlocked development account, writes launchpad-manifest.json and the
+# ABIs, and checks the manifest code hashes against the node. Launch pools trade through the forked chain's
+# Yul router (ROUTER_ADDRESS), which must already be deployed there.
 # Set KEEP_ANVIL=1 to leave the fork running for end-to-end use. Never point this at a live chain.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,7 +24,7 @@ FORK_BLOCK="$FORK_BLOCK" GIT_REVISION="$GIT_REVISION" ABI_DIR=launchpad-abis \
   forge script --offline script/DeployLaunchpadLocal.s.sol --rpc-url "$RPC" --unlocked --sender "$SENDER" --broadcast
 
 mkdir -p launchpad-abis
-for c in ScheduledLaunch LockedLaunchLiquidity LaunchRouter Router; do
+for c in ScheduledLaunch LockedLaunchLiquidity; do
   jq .abi "out/${c}.sol/${c}.json" >"launchpad-abis/${c}.json"
 done
 

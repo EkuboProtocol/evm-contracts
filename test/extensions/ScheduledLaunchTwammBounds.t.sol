@@ -92,7 +92,7 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
         config.quoteAmount = SUPPLY;
         config.migrationTickLower = -BOUND_TICKS;
         config.migrationTickUpper = BOUND_TICKS;
-        c.key = actor.create(extension, config);
+        c.key = _launch(config);
         _finish(c.key); // empty terminal pool -> locked full-range position at ~tick 0
         c.terminal = extension.terminalPool(c.key);
         c.launchId = c.key.toPoolId();
@@ -128,9 +128,9 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
 
     function _fund(Case memory c, uint8 funding) internal {
         if (funding == FUND_TOKEN0) {
-            actor.fund(vault, c.launchId, FUNDING, 0);
+            vault.fund(c.launchId, FUNDING, 0);
         } else if (funding == FUND_TOKEN1) {
-            actor.fund(vault, c.launchId, 0, FUNDING);
+            vault.fund(c.launchId, 0, FUNDING);
         } else {
             // Exact full-range deposit amounts for BALANCED_LIQUIDITY at the current (pre-flow) price.
             SqrtRatio p = core.poolState(c.terminal.toPoolId()).sqrtRatio();
@@ -138,7 +138,7 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
             uint128 n0 = amount0Delta(p, MAX_SQRT_RATIO, BALANCED_LIQUIDITY, true);
             uint128 n1 = amount1Delta(MIN_SQRT_RATIO, p, BALANCED_LIQUIDITY, true);
             // Residual dust from the initial migration is topped up so the totals are the exact pair.
-            actor.fund(vault, c.launchId, n0 > r0 ? n0 - r0 : 0, n1 > r1 ? n1 - r1 : 0);
+            vault.fund(c.launchId, n0 > r0 ? n0 - r0 : 0, n1 > r1 ? n1 - r1 : 0);
         }
     }
 
@@ -391,7 +391,7 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
             config.quoteAmount = SUPPLY;
             config.migrationTickLower = -BOUND_TICKS;
             config.migrationTickUpper = BOUND_TICKS;
-            PoolKey memory key = actor.create(extension, config);
+            PoolKey memory key = _launch(config);
             _tokens(key);
             PoolKey memory terminal = extension.terminalPool(key);
             _seedTerminal(key, 0, 1e24);
@@ -438,7 +438,7 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
         config.quoteAmount = quoteAmount;
         config.migrationTickLower = -BOUND_TICKS;
         config.migrationTickUpper = BOUND_TICKS;
-        PoolKey memory key = actor.create(extension, config);
+        PoolKey memory key = _launch(config);
         _tokens(key);
         PoolKey memory terminal = extension.terminalPool(key);
         _seedTerminal(key, 0, lpLiquidity); // attacker-owned liquidity at the reference price

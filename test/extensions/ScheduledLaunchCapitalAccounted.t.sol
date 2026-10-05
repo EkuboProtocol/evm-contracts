@@ -2,7 +2,7 @@
 pragma solidity =0.8.33;
 
 // Capital-accounted attacker economics for the EKU-648 attack (EKU-645 gate P2). The attacker starts with
-// quote only and gets launch tokens through a LaunchRouter buy, never a cheatcode. It seeds the TWAMM
+// quote only and gets launch tokens through a forwarded Router buy, never a cheatcode. It seeds the TWAMM
 // terminal pool, leaves pending TWAMM flow across endTime, lets advance() migrate, arbitrages back to the
 // reference price and unwinds everything. Each attack is compared with a matched control without the order.
 
@@ -10,7 +10,6 @@ import {Vm} from "forge-std/Vm.sol";
 import {console2} from "forge-std/console2.sol";
 import {ScheduledLaunchTest} from "./ScheduledLaunch.t.sol";
 import {TestToken} from "../TestToken.sol";
-import {LaunchRouter} from "../../src/LaunchRouter.sol";
 import {ScheduledLaunch, MAX_MIGRATION_TICK_WIDTH} from "../../src/extensions/ScheduledLaunch.sol";
 import {LockedLaunchLiquidity} from "../../src/LockedLaunchLiquidity.sol";
 import {Positions} from "../../src/Positions.sol";
@@ -57,7 +56,6 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
     // Principal holds this many launch tokens per quote unit, beyond LAUNCH_EXCESS.
     uint256 principalDivisor = 1;
 
-    LaunchRouter launchRouter;
     Positions lpPositions;
     Orders orders;
 
@@ -96,7 +94,6 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
 
     function setUp() public override {
         super.setUp();
-        launchRouter = new LaunchRouter(core, extension);
         // No protocol fees, so every fee is visible in the pool or the launch ledgers.
         lpPositions = new Positions(core, address(this), 0, 0);
         orders = new Orders(core, ITWAMM(address(twamm)), address(this));
@@ -104,7 +101,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
             address quote = i == 0 ? LOW_QUOTE : HIGH_QUOTE;
             TestToken(quote).transfer(ATTACKER, ATTACKER_QUOTE);
             vm.startPrank(ATTACKER);
-            TestToken(quote).approve(address(launchRouter), type(uint256).max);
+            TestToken(quote).approve(address(forwardingRouter), type(uint256).max);
             TestToken(quote).approve(address(lpPositions), type(uint256).max);
             TestToken(quote).approve(address(orders), type(uint256).max);
             TestToken(quote).approve(address(router), type(uint256).max);
@@ -131,12 +128,8 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
     function _attackerBuy(PoolKey memory key, bool tokenIs0) internal returns (uint256 bought) {
         vm.warp(BUY_TIME);
         vm.prank(ATTACKER);
-        PoolBalanceUpdate update = launchRouter.swap(
-            key,
-            createSwapParameters(SqrtRatio.wrap(0), int128(BUY_QUOTE), tokenIs0, 0),
-            1,
-            ATTACKER,
-            vm.getBlockTimestamp()
+        PoolBalanceUpdate update = forwardingRouter.swap(
+            key, createSwapParameters(SqrtRatio.wrap(0), int128(BUY_QUOTE), tokenIs0, 0), 1, ATTACKER
         );
         bought = uint128(-(tokenIs0 ? update.delta0() : update.delta1()));
     }
@@ -147,7 +140,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
     /// times its quote.
     function _calibratedQuoteAmount(bool tokenIs0) internal returns (uint128) {
         uint256 snapshot = vm.snapshotState();
-        PoolKey memory key = actor.create(extension, _config(tokenIs0, 0));
+        PoolKey memory key = _launch(_config(tokenIs0, 0));
         uint256 bought = _attackerBuy(key, tokenIs0);
         (uint128 f0, uint128 f1) = _fees(key);
         uint256 fee = tokenIs0 ? f0 : f1;
@@ -159,7 +152,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         r.tokenIs0 = tokenIs0;
         r.orderAmount = orderAmount;
         uint128 quoteAmount = _calibratedQuoteAmount(tokenIs0);
-        r.key = actor.create(extension, _config(tokenIs0, quoteAmount));
+        r.key = _launch(_config(tokenIs0, quoteAmount));
         r.terminal = extension.terminalPool(r.key);
         address launchToken = extension.getLaunch(r.key.toPoolId()).token;
         address quote = _quote(tokenIs0);
@@ -236,7 +229,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
     }
 
     function _readMigrationLogs(Run memory r, Vm.Log[] memory logs) internal view {
-        bytes32 received = keccak256("PrincipalReceived(bytes32,uint128,uint128)");
+        bytes32 received = keccak256("PrincipalReceived(bytes32,address,uint128,uint128)");
         PoolId terminalId = r.terminal.toPoolId();
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(vault) && logs[i].topics.length != 0 && logs[i].topics[0] == received) {

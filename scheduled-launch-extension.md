@@ -46,10 +46,13 @@ renounces minting authority. The extension pays that inventory into Core and sav
 under its own address, the token pair, and the launch pool-ID salt. Creation, funding,
 and initialization revert atomically if anything fails.
 
-The launch pool starts at its target and has a **zero Core pool fee**. Its two enabled
-call points are `beforeInitializePool` and `beforeSwap`; both always revert. Core
-skips these callbacks when the extension itself initializes or swaps. There is no
-alternative initialization path and no direct swap path that bypasses creator fees.
+The launch pool starts at its target and has a **zero Core pool fee**. Its three enabled
+call points are `beforeInitializePool`, `beforeSwap` and `beforeUpdatePosition`; all
+always revert. Core skips these callbacks when the extension itself initializes, swaps
+or updates its position. There is no alternative initialization path, no direct swap
+path that bypasses creator fees, and no third-party position. A third-party position
+at the range bounds could otherwise fill Core's per-tick liquidity cap before the
+launch starts, leaving no room for released inventory.
 
 ## Release and creator fees
 
@@ -206,7 +209,12 @@ each routed create, swap, and fund.
 
 `LaunchRouter` is the periphery for creating, trading, and funding launches.
 `msg.sender` pays every amount owed, native surplus is refunded before each call
-returns, and the router holds no tokens or approvals between calls.
+returns, and the router holds no tokens or approvals between calls. `create`, `swap`
+and `fund` share a transient reentrancy guard and revert with `Reentrant()` when
+nested, including from an output recipient or a token callback. Native payments and
+the refund draw on the router's whole balance, so a nested call could otherwise spend
+or be refunded the outer payer's value. Contracts that compose routed actions must
+make them sequentially.
 
 - `create(config, deadline)` pays `quoteAmount` and returns the pool key and token.
 - `swap(key, params, calculatedAmountThreshold, recipient, deadline)` forwards a launch

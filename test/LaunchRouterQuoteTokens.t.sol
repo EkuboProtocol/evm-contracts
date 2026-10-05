@@ -562,8 +562,9 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         vm.warp(START + 100);
     }
 
-    /// A sender hook that reenters with a payment in the same token overwrites the outer payment window,
-    /// so the outer lock is credited nothing and reverts. Create and swap as the outer call.
+    /// A sender hook that reenters is rejected by the router's guard. The hook does not catch, so the
+    /// token transfer fails and the outer call reverts with ledgers unchanged. Create and swap as the outer
+    /// call. LaunchRouterReentrancy.t.sol covers hooks that catch and let the outer call continue.
     function test_reentrantSenderHookRevertsCreateAndSwap() public {
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
@@ -577,11 +578,11 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
             config.endTime = uint64(vm.getBlockTimestamp() + 1000);
             config.quoteAmount = CREATE_QUOTE;
             trader.arm(o.key, nestedBuy, true, false);
-            vm.expectRevert(_debtsNotZeroed());
+            vm.expectRevert(abi.encodeWithSignature("TransferFromFailed()"));
             trader.create(config);
 
             trader.arm(o.key, nestedBuy, true, false);
-            vm.expectRevert(_debtsNotZeroed());
+            vm.expectRevert(abi.encodeWithSignature("TransferFromFailed()"));
             trader.swap(o.key, _buyParamsFor(o, BUY), address(trader));
 
             assertEq(quote.balanceOf(address(trader)), trader0, "trader unchanged");
@@ -591,7 +592,7 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         }
     }
 
-    /// Fund as the outer call: the sender hook funds again in the same token and the outer is credited nothing.
+    /// Fund as the outer call: the sender hook's nested fund is rejected and the outer call reverts.
     function test_reentrantSenderHookNestedFundReverts() public {
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
@@ -601,7 +602,7 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
             (uint128 v0, uint128 v1) = _balances(address(vault), o.key, PoolId.unwrap(o.key.toPoolId()));
             NestedFunder funder = new NestedFunder(launchRouter, quote, o.key.toPoolId(), o.quoteIs0);
             quote.mint(address(funder), 1_000e18);
-            vm.expectRevert(_debtsNotZeroed());
+            vm.expectRevert(abi.encodeWithSignature("TransferFromFailed()"));
             funder.fund(FUND);
             (uint128 w0, uint128 w1) = _balances(address(vault), o.key, PoolId.unwrap(o.key.toPoolId()));
             assertEq(w0, v0);
@@ -613,9 +614,10 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
         }
     }
 
-    /// A recipient hook that reenters with a buy while Core pays out a sell. Core debits before the
-    /// transfer, so the nested trade settles in its own lock and the result equals sell-then-buy.
-    function test_reentrantRecipientHookMatchesSequentialTrades() public {
+    /// A recipient hook that reenters with a buy while Core pays out a sell is rejected by the router's
+    /// guard; the hook does not catch, so the payout fails and the sell reverts with ledgers unchanged.
+    /// The same trades made sequentially still succeed.
+    function test_reentrantRecipientHookRevertsSell() public {
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
             (HookQuote quote, ReentrantTrader trader, Obs memory o) = _hookSetup(i == 0);
@@ -623,22 +625,20 @@ contract LaunchRouterQuoteTokensTest is LaunchRouterTest {
             uint128 amount = uint128(-_tokenDelta(o, o.buy)) / 2;
             SwapParameters sell = createSwapParameters(SqrtRatio.wrap(0), int128(amount), o.quoteIs0, 0);
             SwapParameters nestedBuy = _buyParamsFor(o, 10e18);
+            bytes memory before = _ledgerState(o, address(quote), address(trader));
 
-            // Sequential control.
-            uint256 control = vm.snapshotState();
-            vm.prank(PAYER);
-            PoolBalanceUpdate sellA = launchRouter.swap(o.key, sell, 1, address(trader), block.timestamp);
-            PoolBalanceUpdate buyA = trader.swap(o.key, nestedBuy, address(trader));
-            bytes memory stateA = _ledgerState(o, address(quote), address(trader));
-            vm.revertToState(control);
-
-            // Reentrant run.
             trader.arm(o.key, nestedBuy, false, true);
+            vm.expectRevert(abi.encodeWithSignature("TransferFailed()"));
             vm.prank(PAYER);
-            PoolBalanceUpdate sellB = launchRouter.swap(o.key, sell, 1, address(trader), block.timestamp);
-            assertEq(PoolBalanceUpdate.unwrap(sellB), PoolBalanceUpdate.unwrap(sellA), "outer sell");
-            assertEq(PoolBalanceUpdate.unwrap(trader.nested()), PoolBalanceUpdate.unwrap(buyA), "nested buy");
-            assertEq(_ledgerState(o, address(quote), address(trader)), stateA, "ledgers equal sequential");
+            launchRouter.swap(o.key, sell, 1, address(trader), block.timestamp);
+            assertEq(_ledgerState(o, address(quote), address(trader)), before, "ledgers unchanged");
+            _assertRouterHoldsNothing(address(quote), o.key);
+
+            trader.arm(o.key, nestedBuy, false, false);
+            vm.prank(PAYER);
+            PoolBalanceUpdate sold = launchRouter.swap(o.key, sell, 1, address(trader), block.timestamp);
+            assertLt(_quoteDelta(o, sold), 0);
+            assertLt(_tokenDelta(o, trader.swap(o.key, nestedBuy, address(trader))), 0);
             _assertRouterHoldsNothing(address(quote), o.key);
             vm.revertToState(snapshot);
         }

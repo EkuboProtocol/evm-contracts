@@ -1,94 +1,44 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {Script} from "forge-std/Script.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
-import {CoreLib} from "../src/libraries/CoreLib.sol";
-import {Router} from "../src/Router.sol";
-import {LaunchRouter} from "../src/LaunchRouter.sol";
-import {ScheduledLaunch, scheduledLaunchCallPoints} from "../src/extensions/ScheduledLaunch.sol";
-import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
+import {ScheduledLaunch} from "../src/extensions/ScheduledLaunch.sol";
+import {DeployScheduledLaunch} from "./DeployScheduledLaunch.s.sol";
 
-/// @notice Deploys ScheduledLaunch, its LockedLaunchLiquidity and LaunchRouter onto a local fork of a chain
-/// with Ekubo Core and TWAMM, and writes launchpad-manifest.json. Run through script/launchpad-local.sh.
-/// @dev Local forks only. FORK_BLOCK and GIT_REVISION come from the wrapper.
-contract DeployLaunchpadLocal is Script {
-    using CoreLib for ICore;
-
+/// @notice Deploys ScheduledLaunch and its LockedLaunchLiquidity onto a local fork of a chain with Ekubo Core,
+/// TWAMM and the Yul router, and writes launchpad-manifest.json. Run through script/launchpad-local.sh.
+/// @dev Local forks only. FORK_BLOCK and GIT_REVISION come from the wrapper. Launch pools trade through the
+/// production router's forwarded hop, so no launch-specific router is deployed.
+contract DeployLaunchpadLocal is DeployScheduledLaunch {
     bytes32 internal constant SALT = keccak256("ekubo launchpad local");
 
-    error MissingDeployment(string name, address expected);
-    error ExtensionMismatch(address expected, address actual);
-    error TwammMismatch(address expected, address actual);
-    error TwammNotRegistered(address twamm);
-
-    function run() public {
+    function run() public override returns (ScheduledLaunch extension) {
         require(block.chainid != 0, "chain id");
         ICore core = ICore(payable(vm.envOr("CORE_ADDRESS", address(0x00000000000014aA86C5d3c41765bb24e11bd701))));
         address twamm = vm.envOr("TWAMM_ADDRESS", address(0xd47f1B1eDCfEaBb08F6eBd8FC337c27E636C75BA));
-        address mevCapture = vm.envOr("MEV_CAPTURE_ADDRESS", address(0x5555fF9Ff2757500BF4EE020DcfD0210CFfa41Be));
-        if (address(core).code.length == 0) revert MissingDeployment("Core", address(core));
-        if (twamm.code.length == 0) revert MissingDeployment("TWAMM", twamm);
+        address router = vm.envOr("ROUTER_ADDRESS", address(0x7B2aA7Ecc0B5936b7C52E6259A19C3BA557d0748));
+        if (router.code.length == 0) revert MissingDeployment("Router", router);
 
         vm.startBroadcast();
-        address router = vm.envOr("ROUTER_ADDRESS", address(0));
-        if (router == address(0)) {
-            (router,) = deployIfNeeded(
-                abi.encodePacked(type(Router).creationCode, abi.encode(core, mevCapture, address(0))),
-                SALT,
-                address(0),
-                "Router"
-            );
-        }
-        (address extension,) = deployExtension(
-            abi.encodePacked(type(ScheduledLaunch).creationCode, abi.encode(core, twamm)),
-            SALT,
-            scheduledLaunchCallPoints(),
-            address(0),
-            "ScheduledLaunch"
-        );
-        (address launchRouter,) = deployIfNeeded(
-            abi.encodePacked(type(LaunchRouter).creationCode, abi.encode(core, extension)),
-            SALT,
-            address(0),
-            "LaunchRouter"
-        );
+        extension = _deploy(core, twamm, SALT, address(0));
         vm.stopBroadcast();
 
-        address liquidity = address(ScheduledLaunch(extension).LIQUIDITY());
-        bool twammRegistered = _checkTwamm(core, twamm, ScheduledLaunch(extension), LaunchRouter(launchRouter));
         string memory contracts = "contracts";
         _entry(contracts, "core", address(core));
         _entry(contracts, "twamm", twamm);
-        _entry(contracts, "scheduled_launch", extension);
-        _entry(contracts, "locked_launch_liquidity", liquidity);
-        _entry(contracts, "launch_router", launchRouter);
+        _entry(contracts, "scheduled_launch", address(extension));
+        _entry(contracts, "locked_launch_liquidity", address(extension.LIQUIDITY()));
         contracts = _entry(contracts, "router", router);
 
         string memory manifest = "manifest";
         vm.serializeUint(manifest, "chain_id", block.chainid);
         vm.serializeUint(manifest, "fork_block", vm.envUint("FORK_BLOCK"));
         vm.serializeString(manifest, "git_revision", vm.envString("GIT_REVISION"));
-        vm.serializeBool(manifest, "twamm_registered", twammRegistered);
+        // _deploy reverts unless the extension's TWAMM is the manifest's and Core has it registered.
+        vm.serializeBool(manifest, "twamm_registered", true);
         vm.serializeString(manifest, "abis", vm.envOr("ABI_DIR", string("launchpad-abis")));
         manifest = vm.serializeString(manifest, "contracts", contracts);
         vm.writeJson(manifest, vm.envOr("MANIFEST_PATH", string("launchpad-manifest.json")));
-    }
-
-    /// @dev Reads the terminal-pool TWAMM back from the deployed launch contracts. A nonzero address alone
-    /// proves nothing: it must be the manifest's TWAMM and a Core-registered extension.
-    function _checkTwamm(ICore core, address twamm, ScheduledLaunch extension, LaunchRouter launchRouter)
-        internal
-        view
-        returns (bool)
-    {
-        if (address(launchRouter.EXTENSION()) != address(extension)) {
-            revert ExtensionMismatch(address(extension), address(launchRouter.EXTENSION()));
-        }
-        address actual = extension.TWAMM();
-        if (actual != twamm) revert TwammMismatch(twamm, actual);
-        if (!core.isExtensionRegistered(actual)) revert TwammNotRegistered(actual);
-        return true;
     }
 
     function _entry(string memory parent, string memory name, address target) internal returns (string memory) {

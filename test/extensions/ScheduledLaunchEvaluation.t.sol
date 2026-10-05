@@ -42,7 +42,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         ScheduledLaunch.LaunchConfig memory config = _config(_quote(tokenIs0));
         config.owner = NAMED_OWNER;
         vm.prank(STRANGER);
-        PoolKey memory key = actor.create(extension, config);
+        PoolKey memory key = _launch(config);
         assertEq(extension.getLaunch(key.toPoolId()).owner, NAMED_OWNER);
         assertEq(vm.getNonce(NAMED_OWNER), 0);
         assertEq(NAMED_OWNER.code.length, 0);
@@ -50,8 +50,8 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
 
     /// Name and symbol are not identity: identical metadata yields distinct tokens and pools.
     function testFuzz_eval_identicalMetadataYieldsDistinctTokens(bool tokenIs0) public {
-        PoolKey memory a = actor.create(extension, _config(_quote(tokenIs0)));
-        PoolKey memory b = actor.create(extension, _config(_quote(tokenIs0)));
+        PoolKey memory a = _launch(_config(_quote(tokenIs0)));
+        PoolKey memory b = _launch(_config(_quote(tokenIs0)));
         assertNotEq(address(_token(a)), address(_token(b)));
         assertNotEq(PoolId.unwrap(a.toPoolId()), PoolId.unwrap(b.toPoolId()));
         assertEq(_token(a).symbol(), _token(b).symbol());
@@ -64,7 +64,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         ScheduledLaunch.LaunchConfig memory config = _config(_quote(tokenIs0));
         config.initialFee = type(uint64).max;
         config.finalFee = type(uint64).max;
-        PoolKey memory key = actor.create(extension, config);
+        PoolKey memory key = _launch(config);
         vm.warp(START + 100);
         uint128 bought = _buy(key, 10_000e18);
         (uint128 fee0, uint128 fee1) = _fees(key);

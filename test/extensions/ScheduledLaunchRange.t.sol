@@ -30,7 +30,7 @@ contract ScheduledLaunchRangeTest is ScheduledLaunchTest {
         config.upperTick = 88_722_800;
         assertLe(config.upperTick, MAX_TICK);
         vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
-        actor.create(extension, config);
+        extension.create(config);
     }
 
     /// A high but sellable range still recovers from a start-block push.
@@ -38,7 +38,7 @@ contract ScheduledLaunchRangeTest is ScheduledLaunchTest {
         ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
         config.targetTick = 86_900_000;
         config.upperTick = 87_000_000;
-        PoolKey memory key = actor.create(extension, config);
+        PoolKey memory key = _launch(config);
         MintableERC20(extension.getLaunch(key.toPoolId()).token).approve(address(actor), type(uint256).max);
         vm.warp(START);
         assertEq(_buy(key, 1e18), 0);

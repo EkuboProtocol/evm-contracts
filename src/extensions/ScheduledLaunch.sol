@@ -30,7 +30,7 @@ function scheduledLaunchCallPoints() pure returns (CallPoints memory) {
         afterInitializePool: false,
         beforeSwap: true,
         afterSwap: false,
-        beforeUpdatePosition: false,
+        beforeUpdatePosition: true,
         afterUpdatePosition: false,
         beforeCollectFees: false,
         afterCollectFees: false
@@ -93,6 +93,7 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
     error LaunchNotStarted();
     error LaunchEnded();
     error SwapsThroughForwardOnly();
+    error PositionsThroughExtensionOnly();
     error InvalidAction();
     error OwnerOnly();
     error InvalidRecipient();
@@ -141,6 +142,12 @@ contract ScheduledLaunch is BaseExtension, BaseForwardee, BaseLocker {
 
     function beforeSwap(Locker, PoolKey memory, SwapParameters) external pure override {
         revert SwapsThroughForwardOnly();
+    }
+
+    /// @dev Core skips this hook for the extension's own position. Any other position could fill the
+    /// per-tick liquidity cap at the launch range bounds and leave no room for released inventory.
+    function beforeUpdatePosition(Locker, PoolKey memory, PositionId, int128) external pure override {
+        revert PositionsThroughExtensionOnly();
     }
 
     /// @notice Linearly declining fee charged only on external forwarded launch swaps.

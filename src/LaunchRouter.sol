@@ -16,7 +16,9 @@ import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @notice Creates, trades and funds ScheduledLaunch pools on behalf of msg.sender.
 /// @dev msg.sender pays every amount owed. Native surplus is refunded to msg.sender before each call
-/// returns. The router holds no tokens or approvals between calls.
+/// returns. The router holds no tokens or approvals between calls. Create, swap and fund do not nest:
+/// native payments and the refund use the router's whole balance, so a nested call made from a recipient
+/// or token callback could otherwise spend or be refunded the outer payer's native value.
 contract LaunchRouter is BaseLocker {
     using FlashAccountantLib for *;
 
@@ -28,6 +30,9 @@ contract LaunchRouter is BaseLocker {
     ScheduledLaunch public immutable EXTENSION;
     LockedLaunchLiquidity public immutable LIQUIDITY;
 
+    bool private transient entered;
+
+    error Reentrant();
     error DeadlineExpired(uint256 deadline);
     error InvalidRecipient();
     error PartialSwapsDisallowed();
@@ -44,9 +49,12 @@ contract LaunchRouter is BaseLocker {
     }
 
     modifier ensure(uint256 deadline) {
+        if (entered) revert Reentrant();
+        entered = true;
         if (block.timestamp > deadline) revert DeadlineExpired(deadline);
         _;
         if (address(this).balance != 0) SafeTransferLib.safeTransferETH(msg.sender, address(this).balance);
+        entered = false;
     }
 
     /// @notice Creates a launch, paying config.quoteAmount of config.quoteToken from msg.sender.

@@ -29,7 +29,7 @@ contract LaunchRouterTest is ScheduledLaunchTest {
         PoolId indexed poolId, address indexed locker, int128 delta0, int128 delta1, uint128 feeAmount, bool feeIsToken1
     );
 
-    function setUp() public override {
+    function setUp() public virtual override {
         super.setUp();
         launchRouter = new LaunchRouter(core, extension);
         _fundPayer(LOW_QUOTE);

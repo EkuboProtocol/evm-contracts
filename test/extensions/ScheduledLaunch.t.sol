@@ -12,6 +12,7 @@ import {TWAMM, twammCallPoints} from "../../src/extensions/TWAMM.sol";
 import {OrderKey} from "../../src/types/orderKey.sol";
 import {createOrderConfig} from "../../src/types/orderConfig.sol";
 import {LockedLaunchLiquidity} from "../../src/LockedLaunchLiquidity.sol";
+import {LaunchRouter} from "../../src/LaunchRouter.sol";
 import {MintableERC20} from "../../src/MintableERC20.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {BaseForwardee} from "../../src/base/BaseForwardee.sol";
@@ -118,7 +119,10 @@ contract ScheduledLaunchTest is FullTest {
 
     ScheduledLaunch extension;
     LockedLaunchLiquidity vault;
+    LaunchRouter launchRouter;
     LaunchActor actor;
+    /// @dev Every token a launch here touched, checked by _assertNoCustody.
+    address[] custodyTokens;
     /// @dev The unmodified Router, deployed with the launch extension as its forward-only extension.
     Router forwardingRouter;
     TWAMM twamm;
@@ -148,15 +152,28 @@ contract ScheduledLaunchTest is FullTest {
         deployCodeTo("ScheduledLaunch.sol", abi.encode(core, twammTarget), target);
         extension = ScheduledLaunch(target);
         vault = extension.LIQUIDITY();
+        launchRouter = new LaunchRouter(core, extension);
         actor = new LaunchActor(core);
         forwardingRouter = new Router(core, address(extension), address(0));
         deployCodeTo("TestToken.sol", abi.encode(address(this)), LOW_QUOTE);
         deployCodeTo("TestToken.sol", abi.encode(address(this)), HIGH_QUOTE);
-        address[5] memory spenders =
-            [address(actor), address(router), address(forwardingRouter), address(extension), address(vault)];
+        address[4] memory spenders = [address(actor), address(router), address(forwardingRouter), address(launchRouter)];
         for (uint256 i; i < spenders.length; i++) {
             TestToken(LOW_QUOTE).approve(spenders[i], type(uint256).max);
             TestToken(HIGH_QUOTE).approve(spenders[i], type(uint256).max);
+        }
+        custodyTokens.push(LOW_QUOTE);
+        custodyTokens.push(HIGH_QUOTE);
+    }
+
+    /// @dev Neither launch contract nor the periphery ever holds ETH or an ERC-20, even between steps.
+    function _assertNoCustody() internal view {
+        address[3] memory holders = [address(extension), address(vault), address(launchRouter)];
+        for (uint256 h; h < holders.length; h++) {
+            assertEq(holders[h].balance, 0, "holds ETH");
+            for (uint256 t; t < custodyTokens.length; t++) {
+                assertEq(MintableERC20(custodyTokens[t]).balanceOf(holders[h]), 0, "holds ERC-20");
+            }
         }
     }
 
@@ -168,7 +185,6 @@ contract ScheduledLaunchTest is FullTest {
             symbol: "LAUNCH",
             decimals: 18,
             totalSupply: SUPPLY,
-            quoteAmount: 0,
             startTime: START,
             endTime: END,
             targetTick: 0,
@@ -201,15 +217,49 @@ contract ScheduledLaunchTest is FullTest {
         assertEq(extension.getLaunch(key.toPoolId()).token == key.token0, tokenIs0);
     }
 
-    /// @dev Creates through the direct entry point, paying any ERC-20 quote seed from this contract, and
+    /// @dev Creates through LaunchRouter, which becomes owner of record with this contract as creator, and
     /// approves the new token to the swap and funding paths.
     function _launch(ScheduledLaunch.LaunchConfig memory config) internal returns (PoolKey memory key) {
         address token;
-        (key, token) = extension.create(config);
+        (key, token) = launchRouter.create(config);
+        _track(token);
         MintableERC20(token).approve(address(actor), type(uint256).max);
         MintableERC20(token).approve(address(router), type(uint256).max);
         MintableERC20(token).approve(address(forwardingRouter), type(uint256).max);
-        MintableERC20(token).approve(address(vault), type(uint256).max);
+        MintableERC20(token).approve(address(launchRouter), type(uint256).max);
+        _assertNoCustody();
+    }
+
+    function _track(address token) internal {
+        if (token != address(0)) custodyTokens.push(token);
+    }
+
+    /// @dev Funds locked principal through LaunchRouter, paying exact msg.value for a native token0.
+    function _fund(PoolKey memory key, uint128 amount0, uint128 amount1) internal {
+        vm.deal(address(this), address(this).balance + (key.token0 == address(0) ? amount0 : 0));
+        launchRouter.fund{value: key.token0 == address(0) ? amount0 : 0}(key.toPoolId(), amount0, amount1);
+        _assertNoCustody();
+    }
+
+    /// @dev Funds `quoteAmount` of the quote token into locked principal.
+    function _fundQuote(PoolKey memory key, uint128 quoteAmount) internal {
+        bool tokenIs0 = extension.getLaunch(key.toPoolId()).token == key.token0;
+        _fund(key, tokenIs0 ? 0 : quoteAmount, tokenIs0 ? quoteAmount : 0);
+    }
+
+    /// @dev Ends a launch with no further trades, funds `quoteAmount` of quote and migrates. This is how a
+    /// launch reaches the state the removed creation seed produced: SUPPLY launch tokens plus quote.
+    function _finishFunded(PoolKey memory key, uint128 quoteAmount) internal {
+        _finish(key);
+        _fundQuote(key, quoteAmount);
+        vault.migrate(key.toPoolId());
+        _assertNoCustody();
+    }
+
+    /// @dev Creator claim of both fee ledgers through LaunchRouter.
+    function _claimFees(PoolKey memory key, address recipient) internal {
+        launchRouter.claimFees(key, recipient);
+        _assertNoCustody();
     }
 
     function _balances(address holder, PoolKey memory key, bytes32 salt) internal view returns (uint128, uint128) {
@@ -224,12 +274,14 @@ contract ScheduledLaunchTest is FullTest {
         bool tokenIs0 = extension.getLaunch(key.toPoolId()).token == key.token0;
         PoolBalanceUpdate update =
             actor.swap(extension, key, createSwapParameters(SqrtRatio.wrap(0), int128(amount), tokenIs0, 0));
+        _assertNoCustody();
         return uint128(-(tokenIs0 ? update.delta0() : update.delta1()));
     }
 
     function _finish(PoolKey memory key) internal {
         vm.warp(END);
         extension.advance(key);
+        _assertNoCustody();
         assertTrue(extension.getLaunch(key.toPoolId()).complete);
         assertEq(
             core.poolPositions(key.toPoolId(), address(extension), extension.getLaunch(key.toPoolId()).positionId)
@@ -255,7 +307,8 @@ contract ScheduledLaunchTest is FullTest {
     function testFuzz_creationAndFeeSchedule(bool tokenIs0, uint64 elapsed) public {
         PoolKey memory key = _create(tokenIs0);
         ScheduledLaunch.Launch memory launch = extension.getLaunch(key.toPoolId());
-        assertEq(launch.owner, address(this));
+        assertEq(launch.owner, address(launchRouter));
+        assertEq(launchRouter.creator(key.toPoolId()), address(this));
         assertEq(MintableERC20(launch.token).owner(), address(0));
         assertEq(MintableERC20(launch.token).totalSupply(), SUPPLY);
         assertEq(MintableERC20(launch.token).name(), "Launch");
@@ -296,7 +349,7 @@ contract ScheduledLaunchTest is FullTest {
         uint128 deployed = extension.getLaunch(key.toPoolId()).deployed;
         assertEq(tokenIs0 ? r0 : r1, SUPPLY - deployed);
         assertGt(tokenIs0 ? r1 : r0, 0);
-        extension.claimFees(key, address(777));
+        _claimFees(key, address(777));
         assertEq(MintableERC20(extension.getLaunch(key.toPoolId()).token).balanceOf(address(777)), fee);
         (after0, after1) = _fees(key);
         assertEq(after0, 0);
@@ -353,14 +406,23 @@ contract ScheduledLaunchTest is FullTest {
         PoolKey memory terminal = extension.terminalPool(key);
         assertTrue(core.poolState(terminal.toPoolId()).isInitialized());
         uint128 liquidity = _locked(key);
-        vault.claimFees(key.toPoolId(), address(this));
-        extension.claimFees(key, address(this));
+        _claimFees(key, address(this));
         assertEq(_locked(key), liquidity);
         (bool success,) = address(extension)
             .call(abi.encodeWithSignature("withdraw((address,address,bytes32),address)", key, address(this)));
         assertFalse(success);
         (success,) =
             address(vault).call(abi.encodeWithSignature("withdraw(bytes32,address)", key.toPoolId(), address(this)));
+        assertFalse(success);
+        // The removed direct entry points: claims and funding are forwards only.
+        (success,) = address(extension)
+            .call(abi.encodeWithSignature("claimFees((address,address,bytes32),address)", key, address(this)));
+        assertFalse(success);
+        (success,) =
+            address(vault).call(abi.encodeWithSignature("claimFees(bytes32,address)", key.toPoolId(), address(this)));
+        assertFalse(success);
+        (success,) = address(vault)
+            .call(abi.encodeWithSignature("fund(bytes32,uint128,uint128)", key.toPoolId(), uint128(0), uint128(1)));
         assertFalse(success);
         extension.advance(key);
         assertEq(_locked(key), liquidity);
@@ -373,17 +435,20 @@ contract ScheduledLaunchTest is FullTest {
         (uint128 a0, uint128 a1) = _balances(address(vault), key, PoolId.unwrap(key.toPoolId()));
         assertEq(tokenIs0 ? a0 : a1, SUPPLY);
         assertEq(tokenIs0 ? a1 : a0, 0);
-        vault.fund(key.toPoolId(), tokenIs0 ? 0 : 1e18, tokenIs0 ? 1e18 : 0);
+        _fundQuote(key, 1e18);
         vault.migrate(key.toPoolId());
         assertGt(_locked(key), 0);
+        _assertNoCustody();
     }
 
-    function testFuzz_noBuyersWithQuoteSeedMigrates(bool tokenIs0) public {
+    /// Creation takes no quote; quote funded after endTime migrates with the unsold supply.
+    function testFuzz_noBuyersFundedAfterEndMigrates(bool tokenIs0) public {
         ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
-        config.quoteAmount = 100_000e18;
         _migrateNear(config, QUOTE_100_000E18_TICK);
         PoolKey memory key = _launch(config);
-        _finish(key);
+        (uint128 r0, uint128 r1) = _balances(address(extension), key, PoolId.unwrap(key.toPoolId()));
+        assertEq(tokenIs0 ? r1 : r0, 0);
+        _finishFunded(key, 100_000e18);
         assertGt(_locked(key), 0);
         (uint128 f0, uint128 f1) = _fees(key);
         assertEq(f0, 0);
@@ -411,9 +476,12 @@ contract ScheduledLaunchTest is FullTest {
         (uint128 other0, uint128 other1) = other.fees(core.getPoolFeesPerLiquidity(terminal.toPoolId()));
         assertGt(tokenIs0 ? own1 : own0, 0);
         assertGt(tokenIs0 ? other1 : other0, 0);
-        vault.claimFees(key.toPoolId(), address(777));
-        assertEq(MintableERC20(key.token0).balanceOf(address(777)), own0);
-        assertEq(MintableERC20(key.token1).balanceOf(address(777)), own1);
+        // One creator claim releases the extension's trading fees and the locked position's own fees.
+        (uint128 x0, uint128 x1) = _fees(key);
+        (uint128 c0, uint128 c1) = _balances(address(vault), key, vault.creatorFeeSalt(key.toPoolId()));
+        _claimFees(key, address(777));
+        assertEq(MintableERC20(key.token0).balanceOf(address(777)), uint256(own0) + x0 + c0);
+        assertEq(MintableERC20(key.token1).balanceOf(address(777)), uint256(own1) + x1 + c1);
         assertEq(_locked(key), own.liquidity);
         other = core.poolPositions(terminal.toPoolId(), address(lp), createPositionId(bytes24(0), MIN_TICK, MAX_TICK));
         (uint128 after0, uint128 after1) = other.fees(core.getPoolFeesPerLiquidity(terminal.toPoolId()));
@@ -422,11 +490,9 @@ contract ScheduledLaunchTest is FullTest {
     }
 
     function testFuzz_emptyDestinationPriceCannotGrief(bool tokenIs0) public {
-        ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
-        config.quoteAmount = SUPPLY;
-        PoolKey memory key = _launch(config);
+        PoolKey memory key = _launch(_config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE));
         core.initializePool(extension.terminalPool(key), 5_000_000);
-        _finish(key);
+        _finishFunded(key, SUPPLY);
         assertGt(_locked(key), 0);
         assertApproxEqAbs(core.poolState(extension.terminalPool(key).toPoolId()).tick(), 0, 1);
     }
@@ -445,22 +511,21 @@ contract ScheduledLaunchTest is FullTest {
         assertGt(a0, 0);
         assertGt(a1, 0);
         vm.prank(address(123));
-        vm.expectRevert(LockedLaunchLiquidity.OwnerOnly.selector);
-        vault.claimFees(key.toPoolId(), address(123));
+        vm.expectRevert(LaunchRouter.CreatorOnly.selector);
+        launchRouter.claimFees(key, address(123));
+        _assertNoCustody();
     }
 
     function test_nativeQuoteMigration() public {
         ScheduledLaunch.LaunchConfig memory config = _config(address(0));
-        config.quoteAmount = 1 ether;
         _migrateNear(config, QUOTE_1E18_TICK);
-        vm.deal(address(this), 1 ether);
-        (PoolKey memory key,) = extension.create{value: 1 ether}(config);
-        _finish(key);
+        PoolKey memory key = _launch(config);
+        _finishFunded(key, 1 ether);
         assertGt(_locked(key), 0);
         vm.deal(address(this), 1 ether);
         router.swapAllowPartialFill{value: 1e15}(extension.terminalPool(key), false, int128(1e15), SqrtRatio.wrap(0), 0);
         uint128 principal = _locked(key);
-        vault.claimFees(key.toPoolId(), address(777));
+        _claimFees(key, address(777));
         assertGt(address(777).balance, 0);
         assertEq(_locked(key), principal);
     }
@@ -471,7 +536,7 @@ contract ScheduledLaunchTest is FullTest {
         config.migrationTickLower = lower;
         config.migrationTickUpper = lower + MAX_MIGRATION_TICK_WIDTH + 1;
         vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
-        extension.create(config);
+        launchRouter.create(config);
         config.migrationTickUpper = lower + MAX_MIGRATION_TICK_WIDTH;
         PoolKey memory key = _launch(config);
         ScheduledLaunch.Launch memory launch = extension.getLaunch(key.toPoolId());
@@ -488,16 +553,16 @@ contract ScheduledLaunchTest is FullTest {
             config.migrationTickLower = MIN_TICK;
             config.migrationTickUpper = MIN_TICK + MAX_MIGRATION_TICK_WIDTH + 1;
             vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
-            extension.create(config);
+            launchRouter.create(config);
             config.migrationTickUpper = MAX_TICK;
             vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
-            extension.create(config);
+            launchRouter.create(config);
             config.migrationTickUpper = MIN_TICK + MAX_MIGRATION_TICK_WIDTH;
             _launch(config);
             config.migrationTickLower = MAX_TICK - MAX_MIGRATION_TICK_WIDTH - 1;
             config.migrationTickUpper = MAX_TICK;
             vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
-            extension.create(config);
+            launchRouter.create(config);
             config.migrationTickLower = MAX_TICK - MAX_MIGRATION_TICK_WIDTH;
             _launch(config);
         }
@@ -507,34 +572,34 @@ contract ScheduledLaunchTest is FullTest {
         ScheduledLaunch.LaunchConfig memory config = _config(HIGH_QUOTE);
         config.finalFee = config.initialFee + 1;
         vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
-        extension.create(config);
+        launchRouter.create(config);
         config = _config(HIGH_QUOTE);
         config.migrationTickLower = config.migrationTickUpper;
         vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
-        extension.create(config);
+        launchRouter.create(config);
+        // A failure after the token is deployed and its supply minted to Core rolls both back.
         config = _config(HIGH_QUOTE);
-        config.quoteAmount = 1;
-        TestToken(HIGH_QUOTE).approve(address(extension), 0);
         uint64 nonce = vm.getNonce(address(vault));
         address predicted = vm.computeCreateAddress(address(vault), nonce);
-        vm.expectRevert();
-        extension.create(config);
+        config.quoteToken = predicted;
+        vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
+        launchRouter.create(config);
         assertEq(predicted.code.length, 0);
         assertEq(vm.getNonce(address(vault)), nonce);
     }
 
     function testFuzz_launchIsolation(bool tokenIs0) public {
         ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
-        config.quoteAmount = 100e18;
         _migrateNear(config, QUOTE_100E18_TICK);
         PoolKey memory a = _launch(config);
         PoolKey memory b = _launch(config);
-        _finish(a);
+        _finishFunded(a, 100e18);
         assertGt(_locked(a), 0);
         assertFalse(extension.getLaunch(b.toPoolId()).complete);
         (uint128 r0, uint128 r1) = _balances(address(extension), b, PoolId.unwrap(b.toPoolId()));
         assertEq(tokenIs0 ? r0 : r1, SUPPLY);
-        assertEq(tokenIs0 ? r1 : r0, 100e18);
+        assertEq(tokenIs0 ? r1 : r0, 0);
+        assertEq(vault.getTerminal(b.toPoolId()).owner, address(0));
     }
 
     function testFuzz_releasesBelowTargetStillWork(bool tokenIs0) public {
@@ -580,13 +645,11 @@ contract ScheduledLaunchTest is FullTest {
     }
 
     function testFuzz_rebalanceFeesRecycleIntoPrincipal(bool tokenIs0) public {
-        ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
-        config.quoteAmount = SUPPLY;
-        PoolKey memory key = _launch(config);
-        _finish(key);
+        PoolKey memory key = _launch(_config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE));
+        _finishFunded(key, SUPPLY);
         uint128 before = _locked(key);
         // Donation and rebalancing against our own LP must not turn principal into creator fees.
-        vault.fund(key.toPoolId(), tokenIs0 ? 0 : 1000e18, tokenIs0 ? 1000e18 : 0);
+        _fundQuote(key, 1000e18);
         vault.migrate(key.toPoolId());
         assertGt(_locked(key), before);
         (uint128 residue0, uint128 residue1) = _balances(address(vault), key, PoolId.unwrap(key.toPoolId()));
@@ -595,34 +658,30 @@ contract ScheduledLaunchTest is FullTest {
         uint128 roundingBound = SUPPLY / (1 << 60) + 100;
         assertLe(residue0, roundingBound);
         assertLe(residue1, roundingBound);
-        vault.claimFees(key.toPoolId(), address(777));
+        _claimFees(key, address(777));
         assertEq(MintableERC20(key.token0).balanceOf(address(777)), 0);
         assertEq(MintableERC20(key.token1).balanceOf(address(777)), 0);
     }
 
     function testFuzz_rebalancePreservesPreviouslyEarnedCreatorFees(bool tokenIs0) public {
-        ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
-        config.quoteAmount = SUPPLY;
-        PoolKey memory key = _launch(config);
-        _finish(key);
+        PoolKey memory key = _launch(_config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE));
+        _finishFunded(key, SUPPLY);
         PoolKey memory terminal = extension.terminalPool(key);
         router.swapAllowPartialFill(terminal, tokenIs0, int128(100e18), SqrtRatio.wrap(0), 0);
         Position memory position =
             core.poolPositions(terminal.toPoolId(), address(vault), vault.positionId(key.toPoolId()));
         (uint128 before0, uint128 before1) = position.fees(core.getPoolFeesPerLiquidity(terminal.toPoolId()));
         assertGt(tokenIs0 ? before1 : before0, 0);
-        vault.fund(key.toPoolId(), tokenIs0 ? 0 : 1000e18, tokenIs0 ? 1000e18 : 0);
+        _fundQuote(key, 1000e18);
         vault.migrate(key.toPoolId());
-        vault.claimFees(key.toPoolId(), address(777));
+        _claimFees(key, address(777));
         assertEq(MintableERC20(key.token0).balanceOf(address(777)), before0);
         assertEq(MintableERC20(key.token1).balanceOf(address(777)), before1);
     }
 
     function testFuzz_migrationWithLiveTwammOrders(bool tokenIs0) public {
-        ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
-        config.quoteAmount = SUPPLY;
-        PoolKey memory key = _launch(config);
-        _finish(key);
+        PoolKey memory key = _launch(_config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE));
+        _finishFunded(key, SUPPLY);
         uint128 lockedBefore = _locked(key);
         assertGt(lockedBefore, 0);
         PoolKey memory terminal = extension.terminalPool(key);
@@ -638,7 +697,7 @@ contract ScheduledLaunchTest is FullTest {
         });
         assertGt(trader.placeOrder(twamm, bytes32(uint256(1)), order, int112(1e30), address(this)), 0);
         // Fund single-sided so migration must rebalance against live virtual flow.
-        vault.fund(key.toPoolId(), tokenIs0 ? 0 : 1000e18, tokenIs0 ? 1000e18 : 0);
+        _fundQuote(key, 1000e18);
         vm.warp(1400);
         vault.migrate(key.toPoolId());
         // Virtual execution moved the canonical price and migration still locked more.

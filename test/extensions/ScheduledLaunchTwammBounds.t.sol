@@ -89,11 +89,10 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
 
     function _setupLaunch(bool tokenIs0) internal returns (Case memory c) {
         ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
-        config.quoteAmount = SUPPLY;
         config.migrationTickLower = -BOUND_TICKS;
         config.migrationTickUpper = BOUND_TICKS;
         c.key = _launch(config);
-        _finish(c.key); // empty terminal pool -> locked full-range position at ~tick 0
+        _finishFunded(c.key, SUPPLY); // empty terminal pool -> locked full-range position at ~tick 0
         c.terminal = extension.terminalPool(c.key);
         c.launchId = c.key.toPoolId();
         LockedLaunchLiquidity.Terminal memory t = vault.getTerminal(c.launchId);
@@ -128,9 +127,9 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
 
     function _fund(Case memory c, uint8 funding) internal {
         if (funding == FUND_TOKEN0) {
-            vault.fund(c.launchId, FUNDING, 0);
+            _fund(c.key, FUNDING, 0);
         } else if (funding == FUND_TOKEN1) {
-            vault.fund(c.launchId, 0, FUNDING);
+            _fund(c.key, 0, FUNDING);
         } else {
             // Exact full-range deposit amounts for BALANCED_LIQUIDITY at the current (pre-flow) price.
             SqrtRatio p = core.poolState(c.terminal.toPoolId()).sqrtRatio();
@@ -138,7 +137,7 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
             uint128 n0 = amount0Delta(p, MAX_SQRT_RATIO, BALANCED_LIQUIDITY, true);
             uint128 n1 = amount1Delta(MIN_SQRT_RATIO, p, BALANCED_LIQUIDITY, true);
             // Residual dust from the initial migration is topped up so the totals are the exact pair.
-            vault.fund(c.launchId, n0 > r0 ? n0 - r0 : 0, n1 > r1 ? n1 - r1 : 0);
+            _fund(c.key, n0 > r0 ? n0 - r0 : 0, n1 > r1 ? n1 - r1 : 0);
         }
     }
 
@@ -382,16 +381,18 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
     }
 
     /// advance() at endTime migrates against a pre-seeded terminal pool with pending flow. Previously it
-    /// reverted until someone executed virtual orders separately. Now it completes in one call.
+    /// reverted until someone executed virtual orders separately. Now it completes in one call. Principal is
+    /// the unsold supply plus the quote one launch buy paid.
     function test_advanceWithPendingFlowCompletes() public {
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
             bool tokenIs0 = i == 0;
             ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
-            config.quoteAmount = SUPPLY;
             config.migrationTickLower = -BOUND_TICKS;
             config.migrationTickUpper = BOUND_TICKS;
             PoolKey memory key = _launch(config);
+            vm.warp(START + 100);
+            _buy(key, 10_000e18);
             _tokens(key);
             PoolKey memory terminal = extension.terminalPool(key);
             _seedTerminal(key, 0, 1e24);
@@ -410,12 +411,15 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
             SqrtRatio price = core.poolState(terminal.toPoolId()).sqrtRatio();
             LockedLaunchLiquidity.Terminal memory t = vault.getTerminal(key.toPoolId());
             if (_locked(key) != 0) assertTrue(price >= t.lower && price <= t.upper, "deposit in bounds");
+            _assertNoCustody();
             vm.revertToState(snapshot);
         }
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Economic impact: first migration (advance at endTime) into an attacker-seeded terminal pool.
+    // Economic impact: first deposit of principal into an attacker-seeded terminal pool. With no creation
+    // seed, advance at endTime registers the unsold SUPPLY alone and defers; quoteAmount is then funded and
+    // migrate() deposits against the attacker's pool and pending flow, as advance did with the old seed.
     // All trades are transfers, so valuing every party at the fixed reference price P0 (tick 0,
     // price 1 in raw units) conserves total value: attacker P&L = -(launch principal delta +
     // creator fee delta). Launch principal before = SUPPLY launch tokens + quoteAmount quote.
@@ -435,12 +439,14 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
         returns (Econ memory e)
     {
         ScheduledLaunch.LaunchConfig memory config = _config(tokenIs0 ? HIGH_QUOTE : LOW_QUOTE);
-        config.quoteAmount = quoteAmount;
         config.migrationTickLower = -BOUND_TICKS;
         config.migrationTickUpper = BOUND_TICKS;
         PoolKey memory key = _launch(config);
         _tokens(key);
         PoolKey memory terminal = extension.terminalPool(key);
+        _finish(key);
+        assertEq(_locked(key), 0, "launch-token-only principal defers");
+        _fundQuote(key, quoteAmount);
         _seedTerminal(key, 0, lpLiquidity); // attacker-owned liquidity at the reference price
         address launchToken = extension.getLaunch(key.toPoolId()).token;
         if (rate != 0) {
@@ -449,19 +455,18 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
             TwammTrader trader = new TwammTrader(core);
             MintableERC20(launchToken).approve(address(trader), type(uint256).max);
             TestToken(tokenIs0 ? terminal.token1 : terminal.token0).approve(address(trader), type(uint256).max);
-            vm.warp(1024);
             OrderKey memory order = OrderKey({
                 token0: terminal.token0,
                 token1: terminal.token1,
                 config: createOrderConfig({
-                    _fee: FINAL_FEE, _isToken1: sellQuote ? tokenIs0 : !tokenIs0, _startTime: 1024, _endTime: 1280
+                    _fee: FINAL_FEE, _isToken1: sellQuote ? tokenIs0 : !tokenIs0, _startTime: 1280, _endTime: 1536
                 })
             });
             trader.placeOrder(twamm, bytes32(uint256(1)), order, rate, address(this));
         }
-        vm.warp(END + 20);
+        vm.warp(1280 + 96);
         SqrtRatio p0 = core.poolState(terminal.toPoolId()).sqrtRatio();
-        extension.advance(key);
+        vault.migrate(key.toPoolId());
         PoolId launchId = key.toPoolId();
         e.tickAfterMigration = core.poolState(terminal.toPoolId()).tick();
         SqrtRatio pm = core.poolState(terminal.toPoolId()).sqrtRatio();
@@ -499,6 +504,7 @@ contract ScheduledLaunchTwammBoundsTest is ScheduledLaunchTest {
         console2.log("  principal delta @P0 (after arbitrage back)", e.principalDelta);
         console2.log("  creator fees @P0", e.creatorFees);
         console2.log("  attacker P&L @P0 (conservation)", e.attackerPnl);
+        _assertNoCustody();
     }
 
     /// @dev Every sweep case must complete advance() without reverting and never deposit out of bounds.

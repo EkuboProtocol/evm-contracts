@@ -3,6 +3,8 @@ pragma solidity =0.8.33;
 
 import {MintableERC20} from "./MintableERC20.sol";
 import {ICore} from "./interfaces/ICore.sol";
+import {IFlashAccountant} from "./interfaces/IFlashAccountant.sol";
+import {LAUNCH_FUND, LAUNCH_CLAIM_FEES} from "./interfaces/extensions/IScheduledLaunch.sol";
 import {ITWAMM} from "./interfaces/extensions/ITWAMM.sol";
 import {BaseForwardee} from "./base/BaseForwardee.sol";
 import {BaseLocker} from "./base/BaseLocker.sol";
@@ -17,21 +19,19 @@ import {PositionId, createPositionId} from "./types/positionId.sol";
 import {createSwapParameters} from "./types/swapParameters.sol";
 import {Locker} from "./types/locker.sol";
 import {SqrtRatio} from "./types/sqrtRatio.sol";
-import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "./math/constants.sol";
+import {MIN_TICK, MAX_TICK} from "./math/constants.sol";
 import {sqrtRatioToTick} from "./math/ticks.sol";
 import {LaunchLiquidityMath} from "./math/launchLiquidity.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
-import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 
 /// @notice Permanently owns migrated launch principal. Only position fees can leave.
-/// @dev No withdrawal, approval, arbitrary execution, upgrade, or ownership-transfer path.
+/// @dev No withdrawal, approval, arbitrary execution, upgrade, or ownership-transfer path. Token movements are
+/// Core.forward actions settled by the forwarding locker (LAUNCH_FUND, LAUNCH_CLAIM_FEES in IScheduledLaunch.sol)
+/// or the extension's principal registration; this contract never holds tokens. `migrate` is a direct,
+/// permissionless lock that only moves balances inside Core.
 contract LockedLaunchLiquidity is BaseForwardee, BaseLocker, UsesCore {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
-
-    uint8 private constant LOCK_MIGRATE = 0;
-    uint8 private constant LOCK_CLAIM = 1;
-    uint8 private constant LOCK_FUND = 2;
 
     address public immutable EXTENSION;
 
@@ -57,26 +57,30 @@ contract LockedLaunchLiquidity is BaseForwardee, BaseLocker, UsesCore {
     error ExtensionOnly();
     error UnknownLaunch();
     error OwnerOnly();
-    error InvalidRecipient();
-    error InvalidPayment();
 
-    /// @param from The launch extension for migrated principal, or the payer of `fund`.
+    /// @param from The launch extension for migrated principal, or the locker that forwarded LAUNCH_FUND.
     event PrincipalReceived(PoolId indexed launchId, address indexed from, uint128 amount0, uint128 amount1);
     event LiquidityLocked(PoolId indexed launchId, PoolId indexed terminalPoolId, uint128 liquidity);
+    /// @param recipient Recipient named by the owner's forward; the owner withdraws the amounts itself.
     event FeesClaimed(PoolId indexed launchId, address indexed recipient, uint128 amount0, uint128 amount1);
 
     constructor(ICore core, address extension) BaseForwardee(core) BaseLocker(core) UsesCore(core) {
         EXTENSION = extension;
     }
 
-    /// @notice Deploys fixed launch inventory for the extension's atomic creation path.
+    /// @notice Deploys fixed launch inventory for the extension's creation forward. The supply is minted
+    /// straight to Core between startPayments and completePayments, which credits it to the current lock.
     function createToken(string memory name, string memory symbol, uint8 decimals, uint128 supply)
         external
         returns (address)
     {
         if (msg.sender != EXTENSION) revert ExtensionOnly();
         MintableERC20 token = new MintableERC20(address(this), name, symbol, decimals);
-        token.mint(EXTENSION, supply);
+        bytes memory tokenArg = abi.encode(token);
+        (bool started,) = address(CORE).call(bytes.concat(IFlashAccountant.startPayments.selector, tokenArg));
+        token.mint(address(CORE), supply);
+        (bool completed,) = address(CORE).call(bytes.concat(IFlashAccountant.completePayments.selector, tokenArg));
+        assert(started && completed);
         token.renounceOwnership();
         return address(token);
     }
@@ -96,29 +100,27 @@ contract LockedLaunchLiquidity is BaseForwardee, BaseLocker, UsesCore {
     /// @notice Retry balancing/depositing locked reserves; never removes existing principal.
     function migrate(PoolId launchId) external {
         _requireLaunch(launchId);
-        lock(abi.encode(LOCK_MIGRATE, launchId, address(0), uint128(0), uint128(0)));
+        lock(abi.encode(launchId));
     }
 
-    /// @notice Collect only this launch's position fees, never fees belonging to other LPs.
-    function claimFees(PoolId launchId, address recipient) external {
-        if (_terminals[launchId].owner != msg.sender) revert OwnerOnly();
-        if (recipient == address(0)) revert InvalidRecipient();
-        lock(abi.encode(LOCK_CLAIM, launchId, recipient, uint128(0), uint128(0)));
-    }
-
-    /// @notice Adds counterpart assets to a migrated launch's locked principal, paid by msg.sender: exactly
-    /// msg.value for a native token0, otherwise by transferFrom. Funds are never withdrawable; the next
-    /// migration deposits them.
-    function fund(PoolId launchId, uint128 amount0, uint128 amount1) external payable {
-        _requireLaunch(launchId);
-        if (msg.value != (_terminals[launchId].poolKey.token0 == NATIVE_TOKEN_ADDRESS ? amount0 : 0)) {
-            revert InvalidPayment();
-        }
-        lock(abi.encode(LOCK_FUND, launchId, msg.sender, amount0, amount1));
-    }
-
-    /// @dev Only the extension forwards, with abi.encode(Registration), to move principal at migration.
+    /// @dev Dispatches on the first word: LAUNCH_FUND (any locker; it owes the amounts), LAUNCH_CLAIM_FEES (the
+    /// owner of record only), or else abi.encode(Registration), which only the extension forwards at migration.
     function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory) {
+        uint256 callType;
+        assembly ("memory-safe") {
+            callType := mload(add(data, 0x20))
+        }
+        if (callType == LAUNCH_FUND) {
+            (, PoolId launchId, uint128 amount0, uint128 amount1) =
+                abi.decode(data, (uint256, PoolId, uint128, uint128));
+            _fund(launchId, original.addr(), amount0, amount1);
+            return "";
+        }
+        if (callType == LAUNCH_CLAIM_FEES) {
+            (, PoolId launchId, address recipient) = abi.decode(data, (uint256, PoolId, address));
+            if (_terminals[launchId].owner != original.addr()) revert OwnerOnly();
+            return _claim(launchId, recipient);
+        }
         if (original.addr() != EXTENSION) revert ExtensionOnly();
         _receivePrincipal(abi.decode(data, (Registration)));
         return "";
@@ -133,27 +135,18 @@ contract LockedLaunchLiquidity is BaseForwardee, BaseLocker, UsesCore {
         emit PrincipalReceived(registration.launchId, EXTENSION, registration.amount0, registration.amount1);
     }
 
+    /// @dev The only lock is `migrate`.
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
-        (uint8 action, PoolId launchId, address account, uint128 amount0, uint128 amount1) =
-            abi.decode(data, (uint8, PoolId, address, uint128, uint128));
-        if (action == LOCK_MIGRATE) _migrate(launchId);
-        else if (action == LOCK_CLAIM) _claim(launchId, account);
-        else _fund(launchId, account, amount0, amount1);
+        _migrate(abi.decode(data, (PoolId)));
         return "";
     }
 
-    function _fund(PoolId launchId, address payer, uint128 amount0, uint128 amount1) private {
+    /// @dev Saving the amounts leaves the matching debt with the forwarding locker. Funds are never
+    /// withdrawable; the next migration deposits them.
+    function _fund(PoolId launchId, address from, uint128 amount0, uint128 amount1) private {
+        _requireLaunch(launchId);
         _save(launchId, int256(uint256(amount0)), int256(uint256(amount1)));
-        emit PrincipalReceived(launchId, payer, amount0, amount1);
-        PoolKey memory key = _terminals[launchId].poolKey;
-        _pay(payer, key.token0, amount0);
-        _pay(payer, key.token1, amount1);
-    }
-
-    function _pay(address payer, address token, uint128 amount) private {
-        if (amount == 0) return;
-        if (token == NATIVE_TOKEN_ADDRESS) SafeTransferLib.safeTransferETH(address(CORE), amount);
-        else CORE.payFrom(payer, token, amount);
+        emit PrincipalReceived(launchId, from, amount0, amount1);
     }
 
     function _requireLaunch(PoolId launchId) private view {
@@ -257,15 +250,17 @@ contract LockedLaunchLiquidity is BaseForwardee, BaseLocker, UsesCore {
         emit LiquidityLocked(launchId, terminal.poolKey.toPoolId(), liquidity);
     }
 
-    function _claim(PoolId launchId, address recipient) private {
+    /// @dev Collects only this launch's position fees, never other LPs', plus fees saved before rebalances.
+    /// Both credit the forwarding owner, which withdraws them; nothing leaves Core here.
+    function _claim(PoolId launchId, address recipient) private returns (bytes memory) {
         PoolKey memory key = _terminals[launchId].poolKey;
         (uint128 amount0, uint128 amount1) = CORE.collectFees(key, positionId(launchId));
-        CORE.withdrawTwo(key.token0, key.token1, recipient, amount0, amount1);
-        emit FeesClaimed(launchId, recipient, amount0, amount1);
         bytes32 salt = creatorFeeSalt(launchId);
-        (amount0, amount1) = CORE.savedBalances(address(this), key.token0, key.token1, salt);
-        CORE.updateSavedBalances(key.token0, key.token1, salt, -int256(uint256(amount0)), -int256(uint256(amount1)));
-        CORE.withdrawTwo(key.token0, key.token1, recipient, amount0, amount1);
+        (uint128 saved0, uint128 saved1) = CORE.savedBalances(address(this), key.token0, key.token1, salt);
+        CORE.updateSavedBalances(key.token0, key.token1, salt, -int256(uint256(saved0)), -int256(uint256(saved1)));
+        amount0 += saved0;
+        amount1 += saved1;
         emit FeesClaimed(launchId, recipient, amount0, amount1);
+        return abi.encode(amount0, amount1);
     }
 }

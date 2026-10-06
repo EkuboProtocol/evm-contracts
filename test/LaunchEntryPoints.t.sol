@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-// Launch entry points with no launch-specific router: create and fund are direct payable calls paid by
-// msg.sender, and swaps use the unmodified Router's forwarded path with the standard payload.
+// Launch entry points. Every token-moving action is a Core.forward settled by the forwarding locker: create,
+// fund and fee claims through LaunchRouter or any locker's own forwards, and swaps through the unmodified
+// Router's forwarded path with the standard payload. Neither launch contract ever holds tokens.
 
 import {Vm} from "forge-std/Vm.sol";
 import {ScheduledLaunchTest} from "./extensions/ScheduledLaunch.t.sol";
 import {TestToken} from "./TestToken.sol";
 import {ScheduledLaunch} from "../src/extensions/ScheduledLaunch.sol";
 import {LockedLaunchLiquidity} from "../src/LockedLaunchLiquidity.sol";
+import {LaunchRouter} from "../src/LaunchRouter.sol";
+import {IFlashAccountant} from "../src/interfaces/IFlashAccountant.sol";
+import {LAUNCH_CREATE, LAUNCH_FUND, LAUNCH_CLAIM_FEES} from "../src/interfaces/extensions/IScheduledLaunch.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
 import {BaseRouter} from "../src/base/BaseRouter.sol";
 import {BaseLocker} from "../src/base/BaseLocker.sol";
@@ -71,6 +75,51 @@ contract RawForwarder is BaseLocker {
     }
 }
 
+/// @dev A contract that is its own launch owner: creates by a direct LAUNCH_CREATE forward and claims both fee
+/// ledgers by its own forwards, withdrawing to a recipient.
+contract SelfOwnedLauncher is BaseLocker {
+    using FlashAccountantLib for *;
+
+    ScheduledLaunch immutable EXTENSION;
+
+    constructor(ICore core, ScheduledLaunch extension) BaseLocker(core) {
+        EXTENSION = extension;
+    }
+
+    function create(ScheduledLaunch.LaunchConfig memory config) external returns (PoolKey memory key, address token) {
+        config.owner = address(this);
+        (key, token) = abi.decode(lock(abi.encode(true, abi.encode(config))), (PoolKey, address));
+    }
+
+    function claim(PoolKey memory key, bool locked, address recipient) external returns (uint128, uint128) {
+        return abi.decode(lock(abi.encode(false, abi.encode(key, locked, recipient))), (uint128, uint128));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (bool isCreate, bytes memory args) = abi.decode(data, (bool, bytes));
+        if (isCreate) {
+            return ACCOUNTANT.forward(
+                address(EXTENSION), abi.encode(LAUNCH_CREATE, abi.decode(args, (ScheduledLaunch.LaunchConfig)))
+            );
+        }
+        (PoolKey memory key, bool locked, address recipient) = abi.decode(args, (PoolKey, bool, address));
+        (uint128 a0, uint128 a1) = abi.decode(
+            ACCOUNTANT.forward(address(EXTENSION), abi.encode(LAUNCH_CLAIM_FEES, key, recipient)), (uint128, uint128)
+        );
+        if (locked) {
+            (uint128 b0, uint128 b1) = abi.decode(
+                ACCOUNTANT.forward(
+                    address(EXTENSION.LIQUIDITY()), abi.encode(LAUNCH_CLAIM_FEES, key.toPoolId(), recipient)
+                ),
+                (uint128, uint128)
+            );
+            (a0, a1) = (a0 + b0, a1 + b1);
+        }
+        ACCOUNTANT.withdrawTwo(key.token0, key.token1, recipient, a0, a1);
+        return abi.encode(a0, a1);
+    }
+}
+
 contract LaunchEntryPointsTest is ScheduledLaunchTest {
     using CoreLib for *;
 
@@ -79,12 +128,9 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     address constant OWNER = address(0xFA11005);
 
     event LaunchCreated(
-        PoolId indexed poolId,
-        address indexed token,
-        address indexed owner,
-        address payer,
-        ScheduledLaunch.LaunchConfig config
+        PoolId indexed poolId, address indexed token, address indexed owner, ScheduledLaunch.LaunchConfig config
     );
+    event LaunchCreatedBy(PoolId indexed launchId, address indexed creator);
     event LaunchSwapped(
         PoolId indexed poolId, address indexed locker, int128 delta0, int128 delta1, uint128 feeAmount, bool feeIsToken1
     );
@@ -104,8 +150,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
 
     function _approvePayer(address token) internal {
         vm.startPrank(PAYER);
-        MintableERC20(token).approve(address(extension), type(uint256).max);
-        MintableERC20(token).approve(address(vault), type(uint256).max);
+        MintableERC20(token).approve(address(launchRouter), type(uint256).max);
         MintableERC20(token).approve(address(forwardingRouter), type(uint256).max);
         vm.stopPrank();
     }
@@ -114,29 +159,23 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
         return tokenIs0 ? HIGH_QUOTE : LOW_QUOTE;
     }
 
-    function _payerConfig(address quote, uint128 quoteAmount, int32 migrationTick)
+    function _payerConfig(address quote, int32 migrationTick)
         internal
         view
         returns (ScheduledLaunch.LaunchConfig memory config)
     {
         config = _migrateNear(_config(quote), migrationTick);
-        config.owner = OWNER;
-        config.quoteAmount = quoteAmount;
     }
 
-    function _payerCreate(address quote, uint128 quoteAmount, uint256 value)
-        internal
-        returns (PoolKey memory key, address token)
-    {
-        return _payerCreate(quote, quoteAmount, value, 0);
+    function _payerCreate(address quote) internal returns (PoolKey memory key, address token) {
+        return _payerCreate(quote, 0);
     }
 
-    function _payerCreate(address quote, uint128 quoteAmount, uint256 value, int32 migrationTick)
-        internal
-        returns (PoolKey memory key, address token)
-    {
+    /// @dev PAYER creates through LaunchRouter and so is the launch's creator.
+    function _payerCreate(address quote, int32 migrationTick) internal returns (PoolKey memory key, address token) {
         vm.prank(PAYER);
-        (key, token) = extension.create{value: value}(_payerConfig(quote, quoteAmount, migrationTick));
+        (key, token) = launchRouter.create(_payerConfig(quote, migrationTick));
+        _track(token);
         _approvePayer(token);
     }
 
@@ -159,82 +198,122 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function _assertHoldsNothing(PoolKey memory key) internal view {
-        assertEq(address(extension).balance, 0, "extension ETH");
-        assertEq(address(vault).balance, 0, "vault ETH");
-        assertEq(address(forwardingRouter).balance, 0, "router ETH");
-        for (uint256 i; i < 2; i++) {
-            address token = i == 0 ? key.token0 : key.token1;
-            if (token == address(0)) continue;
-            assertEq(MintableERC20(token).balanceOf(address(extension)), 0, "extension token");
-            assertEq(MintableERC20(token).balanceOf(address(vault)), 0, "vault token");
-            assertEq(MintableERC20(token).balanceOf(address(forwardingRouter)), 0, "router token");
+        address[4] memory holders =
+            [address(extension), address(vault), address(launchRouter), address(forwardingRouter)];
+        for (uint256 h; h < holders.length; h++) {
+            assertEq(holders[h].balance, 0, "holds ETH");
+            for (uint256 i; i < 2; i++) {
+                address token = i == 0 ? key.token0 : key.token1;
+                if (token != address(0)) assertEq(MintableERC20(token).balanceOf(holders[h]), 0, "holds token");
+            }
         }
+        _assertNoCustody();
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Direct creation.
+    // Creation through LaunchRouter and direct forwards.
     // ---------------------------------------------------------------------------------------------
 
-    function testFuzz_createPaysFromSenderAndRecordsPayer(bool tokenIs0) public {
+    /// Creation takes no payment and no allowance: the supply is minted to Core and saved in one forward.
+    function testFuzz_routerCreateRecordsRouterOwnerAndCreator(bool tokenIs0) public {
         address quote = _quoteToken(tokenIs0);
+        vm.startPrank(PAYER);
+        TestToken(quote).approve(address(launchRouter), 0);
+        vm.stopPrank();
         uint256 quoteBefore = TestToken(quote).balanceOf(PAYER);
-        ScheduledLaunch.LaunchConfig memory config = _payerConfig(quote, 7e18, 0);
+        uint256 coreBefore = TestToken(quote).balanceOf(address(core));
+        ScheduledLaunch.LaunchConfig memory config = _payerConfig(quote, 0);
+        config.owner = OWNER;
+        ScheduledLaunch.LaunchConfig memory recorded = _payerConfig(quote, 0);
+        recorded.owner = address(launchRouter);
         vm.expectEmit(false, false, true, true, address(extension));
-        emit LaunchCreated(PoolId.wrap(0), address(0), OWNER, PAYER, config);
+        emit LaunchCreated(PoolId.wrap(0), address(0), address(launchRouter), recorded);
         vm.prank(PAYER);
-        (PoolKey memory key, address token) = extension.create(config);
+        (PoolKey memory key, address token) = launchRouter.create(config);
+        _track(token);
         assertEq(token, extension.getLaunch(key.toPoolId()).token);
         assertEq(token == key.token0, tokenIs0);
-        assertEq(extension.getLaunch(key.toPoolId()).owner, OWNER);
-        assertEq(TestToken(quote).balanceOf(PAYER), quoteBefore - 7e18);
+        assertEq(extension.getLaunch(key.toPoolId()).owner, address(launchRouter));
+        assertEq(launchRouter.creator(key.toPoolId()), PAYER);
+        assertEq(TestToken(quote).balanceOf(PAYER), quoteBefore);
+        assertEq(TestToken(quote).balanceOf(address(core)), coreBefore);
+        assertEq(MintableERC20(token).balanceOf(address(core)), SUPPLY);
         (uint128 r0, uint128 r1) = _balances(address(extension), key, PoolId.unwrap(key.toPoolId()));
-        assertEq(tokenIs0 ? r1 : r0, 7e18);
+        assertEq(tokenIs0 ? r1 : r0, 0);
         assertEq(tokenIs0 ? r0 : r1, SUPPLY);
         _assertHoldsNothing(key);
     }
 
-    function test_createNativeQuoteRequiresExactValue() public {
-        ScheduledLaunch.LaunchConfig memory config = _payerConfig(address(0), 1 ether, 0);
-        for (uint256 i; i < 3; i++) {
-            if (i == 1) continue;
-            vm.prank(PAYER);
-            vm.expectRevert(ScheduledLaunch.InvalidPayment.selector);
-            extension.create{value: i * 1 ether}(config);
-        }
+    function test_routerCreateEmitsCreator() public {
+        vm.expectEmit(false, true, false, false, address(launchRouter));
+        emit LaunchCreatedBy(PoolId.wrap(0), PAYER);
+        _payerCreate(LOW_QUOTE);
+    }
+
+    /// Native quote launches create without value; create is not payable.
+    function test_nativeQuoteCreateTakesNoValue() public {
         uint256 before = PAYER.balance;
-        (PoolKey memory key,) = _payerCreate(address(0), 1 ether, 1 ether);
-        assertEq(PAYER.balance, before - 1 ether);
+        (PoolKey memory key,) = _payerCreate(address(0));
+        assertEq(PAYER.balance, before);
         assertEq(key.token0, address(0));
         (uint128 r0, uint128 r1) = _balances(address(extension), key, PoolId.unwrap(key.toPoolId()));
-        assertEq(r0, 1 ether);
+        assertEq(r0, 0);
         assertEq(r1, SUPPLY);
+        vm.prank(PAYER);
+        (bool ok,) =
+            address(launchRouter).call{value: 1}(abi.encodeCall(LaunchRouter.create, (_payerConfig(address(0), 0))));
+        assertFalse(ok);
         _assertHoldsNothing(key);
     }
 
-    function testFuzz_createErc20QuoteRejectsValue(bool tokenIs0, uint128 quoteAmount) public {
-        ScheduledLaunch.LaunchConfig memory config = _payerConfig(_quoteToken(tokenIs0), quoteAmount % 1e24, 0);
-        vm.prank(PAYER);
-        vm.expectRevert(ScheduledLaunch.InvalidPayment.selector);
-        extension.create{value: 1}(config);
+    /// A contract that is its own owner creates by a direct LAUNCH_CREATE forward and claims both fee ledgers
+    /// by its own forwards. LaunchRouter has no claim on it.
+    function testFuzz_selfOwnedForwardCreateClaimsFees(bool tokenIs0) public {
+        SelfOwnedLauncher launcher = new SelfOwnedLauncher(core, extension);
+        ScheduledLaunch.LaunchConfig memory config = _payerConfig(_quoteToken(tokenIs0), SMALL_BUY_TICK);
+        (PoolKey memory key, address token) = launcher.create(config);
+        _track(token);
+        _approvePayer(token);
+        assertEq(extension.getLaunch(key.toPoolId()).owner, address(launcher));
+        assertEq(launchRouter.creator(key.toPoolId()), address(0));
+        vm.warp(START + 100);
+        _routerSwap(key, _buyParams(tokenIs0, 10_000e18), 1, PAYER);
+        (uint128 fee0, uint128 fee1) = _fees(key);
+        assertGt(tokenIs0 ? fee0 : fee1, 0);
+        vm.expectRevert(LaunchRouter.CreatorOnly.selector);
+        launchRouter.claimFees(key, RECIPIENT);
+        (uint128 a0, uint128 a1) = launcher.claim(key, false, RECIPIENT);
+        assertEq(a0, fee0);
+        assertEq(a1, fee1);
+        assertEq(MintableERC20(token).balanceOf(RECIPIENT), tokenIs0 ? fee0 : fee1);
+        _finish(key);
+        assertGt(_locked(key), 0);
+        assertEq(vault.getTerminal(key.toPoolId()).owner, address(launcher));
+        router.swapAllowPartialFill(extension.terminalPool(key), tokenIs0, int128(100e18), SqrtRatio.wrap(0), 0);
+        uint256 before = TestToken(_quoteToken(tokenIs0)).balanceOf(RECIPIENT);
+        (a0, a1) = launcher.claim(key, true, RECIPIENT);
+        assertGt(tokenIs0 ? a1 : a0, 0);
+        assertEq(TestToken(_quoteToken(tokenIs0)).balanceOf(RECIPIENT) - before, tokenIs0 ? a1 : a0);
+        _assertHoldsNothing(key);
     }
 
-    function testFuzz_createWithoutAllowanceReverts(bool tokenIs0) public {
-        address quote = _quoteToken(tokenIs0);
-        vm.prank(PAYER);
-        TestToken(quote).approve(address(extension), 1e18 - 1);
-        vm.prank(PAYER);
-        vm.expectRevert();
-        extension.create(_payerConfig(quote, 1e18, 0));
-    }
-
-    /// The forward channel is swap-only: the old creation payload and any non-swap data revert.
-    function testFuzz_forwardChannelIsSwapOnly(bool tokenIs0) public {
+    /// Fee claims are owner-forward only on both contracts; fund leaves its debt with the forwarding locker;
+    /// principal registration is extension-only; the pre-revision uint8-tagged creation payload is rejected.
+    function testFuzz_forwardDispatch(bool tokenIs0) public {
         RawForwarder forwarder = new RawForwarder(core);
         vm.expectRevert();
         forwarder.forward(address(extension), abi.encode(uint8(0), _config(_quoteToken(tokenIs0))));
-        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
-        vm.expectRevert();
-        forwarder.forward(address(vault), abi.encode(uint8(1), key.toPoolId(), uint128(1), uint128(0)));
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), QUOTE_1E18_TICK);
+        vm.expectRevert(ScheduledLaunch.OwnerOnly.selector);
+        forwarder.forward(address(extension), abi.encode(LAUNCH_CLAIM_FEES, key, address(forwarder)));
+        vm.expectRevert(LockedLaunchLiquidity.UnknownLaunch.selector);
+        forwarder.forward(address(vault), abi.encode(LAUNCH_FUND, key.toPoolId(), uint128(1), uint128(0)));
+        _finish(key);
+        vm.expectRevert(LockedLaunchLiquidity.OwnerOnly.selector);
+        forwarder.forward(address(vault), abi.encode(LAUNCH_CLAIM_FEES, key.toPoolId(), address(forwarder)));
+        // The forwarder settles nothing, so the saved principal is its unpaid debt.
+        vm.expectRevert(abi.encodeWithSelector(IFlashAccountant.DebtsNotZeroed.selector, 0));
+        forwarder.forward(address(vault), abi.encode(LAUNCH_FUND, key.toPoolId(), uint128(1), uint128(1)));
         bytes memory registration = abi.encode(
             LockedLaunchLiquidity.Registration(
                 key.toPoolId(), OWNER, extension.terminalPool(key), SqrtRatio.wrap(0), SqrtRatio.wrap(0), 0, 0
@@ -242,6 +321,21 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
         );
         vm.expectRevert(LockedLaunchLiquidity.ExtensionOnly.selector);
         forwarder.forward(address(vault), registration);
+        _assertHoldsNothing(key);
+    }
+
+    /// A direct LAUNCH_CREATE forward nets to zero debt for the forwarding locker, whatever owner it names.
+    function testFuzz_directCreateForwardSettlesNothing(bool tokenIs0) public {
+        RawForwarder forwarder = new RawForwarder(core);
+        ScheduledLaunch.LaunchConfig memory config = _config(_quoteToken(tokenIs0));
+        config.owner = OWNER;
+        (PoolKey memory key, address token) =
+            abi.decode(forwarder.forward(address(extension), abi.encode(LAUNCH_CREATE, config)), (PoolKey, address));
+        _track(token);
+        assertEq(extension.getLaunch(key.toPoolId()).owner, OWNER);
+        assertEq(MintableERC20(token).balanceOf(address(core)), SUPPLY);
+        assertEq(MintableERC20(token).balanceOf(address(forwarder)), 0);
+        _assertHoldsNothing(key);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -249,7 +343,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     // ---------------------------------------------------------------------------------------------
 
     function testFuzz_routerSwapPaysFromSenderAndDeliversToRecipient(bool tokenIs0) public {
-        (PoolKey memory key, address token) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key, address token) = _payerCreate(_quoteToken(tokenIs0));
         vm.warp(START + 100);
         uint256 quoteBefore = TestToken(_quoteToken(tokenIs0)).balanceOf(PAYER);
         PoolBalanceUpdate update = _routerSwap(key, _buyParams(tokenIs0, 1_000e18), 1, RECIPIENT);
@@ -270,7 +364,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
 
     /// The Yul router's hop reads only the first returned word and takes the forwardee from the pool config.
     function testFuzz_genericForwardedHopMatchesRouter(bool tokenIs0, bool sell) public {
-        (PoolKey memory key, address token) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key, address token) = _payerCreate(_quoteToken(tokenIs0));
         vm.warp(START + 100);
         _routerSwap(key, _buyParams(tokenIs0, 10_000e18), 1, PAYER);
         SwapParameters params = sell
@@ -290,7 +384,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function testFuzz_launchSwappedCarriesLockerAndFee(bool tokenIs0) public {
-        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0));
         vm.warp(START + 100);
         SwapParameters params = _buyParams(tokenIs0, 1_000e18);
         (PoolBalanceUpdate quoted,) = _quote(key, params);
@@ -321,7 +415,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function testFuzz_internalReleaseEmitsNoLaunchSwapped(bool tokenIs0) public {
-        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0));
         vm.warp(START + 100);
         _routerSwap(key, _buyParams(tokenIs0, 1_000e18), 1, RECIPIENT);
         vm.warp(START + 200);
@@ -335,7 +429,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function testFuzz_routerQuoteMatchesSwap(bool tokenIs0, bool exactOut, uint96 amount) public {
-        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0));
         vm.warp(START + 300);
         amount = uint96(bound(amount, 1e12, 10_000e18));
         // Exact-out names the launch token output; exact-in names the quote input.
@@ -354,7 +448,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function testFuzz_exactInputSlippageOnFeeInclusiveOutput(bool tokenIs0) public {
-        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0));
         vm.warp(START + 100);
         SwapParameters params = _buyParams(tokenIs0, 1_000e18);
         (PoolBalanceUpdate quoted,) = _quote(key, params);
@@ -366,7 +460,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function testFuzz_exactOutputSlippageOnFeeInclusiveInput(bool tokenIs0) public {
-        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0));
         vm.warp(START + 100);
         SwapParameters params = createSwapParameters(
             tickToSqrtRatio(tokenIs0 ? int32(50_000) : int32(-50_000)), -int128(100e18), !tokenIs0, 0
@@ -384,7 +478,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function testFuzz_exactOutputMustFill(bool tokenIs0) public {
-        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0));
         vm.warp(START + 100);
         // Only 10% of supply is released; asking for more fills partially at the top of the range.
         SwapParameters params = createSwapParameters(SqrtRatio.wrap(0), -int128(SUPPLY / 5), !tokenIs0, 0);
@@ -395,7 +489,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
 
     /// A buy past the range top fills partially. Router.swap rejects it; swapAllowPartialFill settles the fill.
     function testFuzz_exactInputPartialFillStopsAtRangeTop(bool tokenIs0) public {
-        (PoolKey memory key, address token) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key, address token) = _payerCreate(_quoteToken(tokenIs0));
         vm.warp(START + 100);
         SwapParameters params = createSwapParameters(SqrtRatio.wrap(0), int128(900_000e18), tokenIs0, 0);
         vm.prank(PAYER);
@@ -417,7 +511,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function test_nativeQuoteBuyAndSell() public {
-        (PoolKey memory key, address token) = _payerCreate(address(0), 0, 0);
+        (PoolKey memory key, address token) = _payerCreate(address(0));
         assertEq(key.token0, address(0));
         vm.warp(START + 100);
         SwapParameters buy = createSwapParameters(tickToSqrtRatio(-50_000), int128(2 ether), false, 0);
@@ -443,7 +537,7 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function test_nativeQuoteBuyRevertsWhenUnderpaid() public {
-        (PoolKey memory key,) = _payerCreate(address(0), 0, 0);
+        (PoolKey memory key,) = _payerCreate(address(0));
         vm.warp(START + 100);
         SwapParameters buy = createSwapParameters(tickToSqrtRatio(-50_000), int128(2 ether), false, 0);
         vm.prank(PAYER);
@@ -452,19 +546,19 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     // ---------------------------------------------------------------------------------------------
-    // Direct funding.
+    // Funding and fee claims through LaunchRouter.
     // ---------------------------------------------------------------------------------------------
 
     function testFuzz_fundPaysFromSenderAndUnblocksMigration(bool tokenIs0) public {
-        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), 0, 0, QUOTE_1E18_TICK);
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), QUOTE_1E18_TICK);
         _finish(key);
         assertEq(_locked(key), 0);
         uint256 quoteBefore = TestToken(_quoteToken(tokenIs0)).balanceOf(PAYER);
         (uint128 a0, uint128 a1) = (tokenIs0 ? 0 : 1e18, tokenIs0 ? 1e18 : 0);
         vm.expectEmit(true, true, true, true, address(vault));
-        emit PrincipalReceived(key.toPoolId(), PAYER, a0, a1);
+        emit PrincipalReceived(key.toPoolId(), address(launchRouter), a0, a1);
         vm.prank(PAYER);
-        vault.fund(key.toPoolId(), a0, a1);
+        launchRouter.fund(key.toPoolId(), a0, a1);
         assertEq(TestToken(_quoteToken(tokenIs0)).balanceOf(PAYER), quoteBefore - 1e18);
         vault.migrate(key.toPoolId());
         assertGt(_locked(key), 0);
@@ -472,16 +566,18 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
     }
 
     function test_fundNativeRequiresExactValue() public {
-        (PoolKey memory key,) = _payerCreate(address(0), 0, 0, QUOTE_1E18_TICK);
+        (PoolKey memory key,) = _payerCreate(address(0), QUOTE_1E18_TICK);
         _finish(key);
         PoolId id = key.toPoolId();
         vm.startPrank(PAYER);
-        vm.expectRevert(LockedLaunchLiquidity.InvalidPayment.selector);
-        vault.fund{value: 1 ether - 1}(id, 1 ether, 0);
-        vm.expectRevert(LockedLaunchLiquidity.InvalidPayment.selector);
-        vault.fund{value: 1}(id, 0, 1e18);
+        vm.expectRevert(LaunchRouter.InvalidPayment.selector);
+        launchRouter.fund{value: 1 ether - 1}(id, 1 ether, 0);
+        vm.expectRevert(LaunchRouter.InvalidPayment.selector);
+        launchRouter.fund{value: 1 ether + 1}(id, 1 ether, 0);
+        vm.expectRevert(LaunchRouter.InvalidPayment.selector);
+        launchRouter.fund{value: 1}(id, 0, 1e18);
         uint256 before = PAYER.balance;
-        vault.fund{value: 1 ether}(id, 1 ether, 0);
+        launchRouter.fund{value: 1 ether}(id, 1 ether, 0);
         vm.stopPrank();
         assertEq(PAYER.balance, before - 1 ether);
         (uint128 v0,) = _balances(address(vault), key, PoolId.unwrap(id));
@@ -491,10 +587,40 @@ contract LaunchEntryPointsTest is ScheduledLaunchTest {
         _assertHoldsNothing(key);
     }
 
+    function testFuzz_fundErc20RejectsValue(bool tokenIs0) public {
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), QUOTE_1E18_TICK);
+        _finish(key);
+        vm.prank(PAYER);
+        vm.expectRevert(LaunchRouter.InvalidPayment.selector);
+        launchRouter.fund{value: 1}(key.toPoolId(), tokenIs0 ? 0 : 1e18, tokenIs0 ? 1e18 : 0);
+        _assertHoldsNothing(key);
+    }
+
     function testFuzz_fundRequiresMigratedLaunch(bool tokenIs0) public {
-        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0), 0, 0);
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0));
         vm.prank(PAYER);
         vm.expectRevert(LockedLaunchLiquidity.UnknownLaunch.selector);
-        vault.fund(key.toPoolId(), 1e18, 1e18);
+        launchRouter.fund(key.toPoolId(), 1e18, 1e18);
+    }
+
+    function testFuzz_nonCreatorClaimFeesReverts(bool tokenIs0) public {
+        (PoolKey memory key,) = _payerCreate(_quoteToken(tokenIs0));
+        vm.warp(START + 100);
+        _routerSwap(key, _buyParams(tokenIs0, 1_000e18), 1, RECIPIENT);
+        address[3] memory others = [OWNER, address(this), RECIPIENT];
+        for (uint256 i; i < others.length; i++) {
+            vm.prank(others[i]);
+            vm.expectRevert(LaunchRouter.CreatorOnly.selector);
+            launchRouter.claimFees(key, others[i]);
+        }
+        vm.prank(PAYER);
+        vm.expectRevert(LaunchRouter.InvalidRecipient.selector);
+        launchRouter.claimFees(key, address(0));
+        (uint128 fee0, uint128 fee1) = _fees(key);
+        vm.prank(PAYER);
+        (uint128 a0, uint128 a1) = launchRouter.claimFees(key, RECIPIENT);
+        assertEq(a0, fee0);
+        assertEq(a1, fee1);
+        _assertHoldsNothing(key);
     }
 }

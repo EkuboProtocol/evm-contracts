@@ -3,6 +3,7 @@ pragma solidity =0.8.33;
 
 import {ScheduledLaunchTest} from "./ScheduledLaunch.t.sol";
 import {ScheduledLaunch} from "../../src/extensions/ScheduledLaunch.sol";
+import {LaunchRouter} from "../../src/LaunchRouter.sol";
 import {MintableERC20} from "../../src/MintableERC20.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
@@ -15,7 +16,8 @@ import {TestToken} from "../TestToken.sol";
 
 /// @dev EKU-645 evaluation of PR #371 at 6767d6cc. These pin behavior the launchpad's
 /// provenance, analytics and trade preparation depend on. EKU-657 changed the three stall tests
-/// to assert that the launch keeps selling; the other seven are unchanged.
+/// to assert that the launch keeps selling; the other seven are unchanged. EKU-816 creates through
+/// LaunchRouter and ends every test by asserting that no launch contract holds ETH or an ERC-20.
 contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
     using CoreLib for *;
 
@@ -37,15 +39,16 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         return MintableERC20(extension.getLaunch(key.toPoolId()).token);
     }
 
-    /// LaunchCreated.owner is a beneficiary chosen by whoever pays for creation, not a consenting creator.
-    function testFuzz_eval_anyPayerCanNameAnyOwner(bool tokenIs0) public {
+    /// Through LaunchRouter the owner of record is always the router, and the creator is the caller; a named
+    /// config.owner is ignored. (Was `anyPayerCanNameAnyOwner`: direct creation recorded any named owner.)
+    function testFuzz_eval_routerIsOwnerOfRecordAndCallerIsCreator(bool tokenIs0) public {
         ScheduledLaunch.LaunchConfig memory config = _config(_quote(tokenIs0));
         config.owner = NAMED_OWNER;
         vm.prank(STRANGER);
-        PoolKey memory key = _launch(config);
-        assertEq(extension.getLaunch(key.toPoolId()).owner, NAMED_OWNER);
-        assertEq(vm.getNonce(NAMED_OWNER), 0);
-        assertEq(NAMED_OWNER.code.length, 0);
+        (PoolKey memory key,) = launchRouter.create(config);
+        assertEq(extension.getLaunch(key.toPoolId()).owner, address(launchRouter));
+        assertEq(launchRouter.creator(key.toPoolId()), STRANGER);
+        _assertNoCustody();
     }
 
     /// Name and symbol are not identity: identical metadata yields distinct tokens and pools.
@@ -56,6 +59,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         assertNotEq(PoolId.unwrap(a.toPoolId()), PoolId.unwrap(b.toPoolId()));
         assertEq(_token(a).symbol(), _token(b).symbol());
         assertEq(_token(a).name(), _token(b).name());
+        _assertNoCustody();
     }
 
     /// The fee schedule accepts values just under 100%, leaving an exact-input buyer with dust.
@@ -71,6 +75,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         uint128 fee = tokenIs0 ? fee0 : fee1;
         assertGt(fee, 1e18);
         assertLt(bought, 1e3);
+        _assertNoCustody();
     }
 
     /// Exact-input buys pay the creator fee in the launch token, so the creator's claimable
@@ -86,8 +91,9 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         uint256 bps = uint256(tokenFee) * 10_000 / (uint256(bought) + tokenFee);
         assertApproxEqAbs(bps, 910, 1);
         assertEq(_token(key).balanceOf(address(this)), bought);
-        extension.claimFees(key, address(this));
+        _claimFees(key, address(this));
         assertEq(_token(key).balanceOf(address(this)), uint256(bought) + tokenFee);
+        _assertNoCustody();
     }
 
     /// Supply acquirable by any buyer, however large, is bounded by the linear release schedule.
@@ -101,6 +107,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         assertEq(releasedNow, uint128(uint256(SUPPLY) * elapsed / (END - START)));
         assertLe(uint256(bought) + (tokenIs0 ? fee0 : fee1), releasedNow);
         assertGt(bought, 0);
+        _assertNoCustody();
     }
 
     /// EKU-657: a default-limit buy in the start-timestamp block still finds an empty pool, but it now stops
@@ -118,6 +125,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         assertGt(_buy(key, 10_000e18), 0);
         assertGt(extension.getLaunch(key.toPoolId()).deployed, 0);
         assertEq(extension.released(key.toPoolId()), SUPPLY / 2);
+        _assertNoCustody();
     }
 
     /// EKU-657: a default-limit buyout exhausts released inventory and stops at the top of the range.
@@ -131,6 +139,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         vm.warp(START + 600);
         assertGt(_buy(key, 10_000e18), 0);
         assertGt(extension.getLaunch(key.toPoolId()).deployed, deployed);
+        _assertNoCustody();
     }
 
     /// EKU-657: the start-block push no longer leaves the supply unsold; the launch sells and migrates.
@@ -145,6 +154,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         assertGt(_locked(key), 0);
         (uint128 r0, uint128 r1) = _balances(address(vault), key, PoolId.unwrap(key.toPoolId()));
         assertLt(tokenIs0 ? r0 : r1, SUPPLY);
+        _assertNoCustody();
     }
 
     /// Ending a launch needs no creator action, and the terminal pool trades through the standard Router.
@@ -165,6 +175,7 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         uint128 out = uint128(-(tokenIs0 ? update.delta0() : update.delta1()));
         assertGt(out, 0);
         assertEq(_token(key).balanceOf(address(this)) - before, out);
+        _assertNoCustody();
     }
 
     /// The creator can redirect fee income but holds no path to locked principal or to minting.
@@ -174,16 +185,13 @@ contract ScheduledLaunchEvaluationTest is ScheduledLaunchTest {
         _buy(key, 10_000e18);
         _finish(key);
         uint128 locked = _locked(key);
-        vm.startPrank(STRANGER);
-        vm.expectRevert(ScheduledLaunch.OwnerOnly.selector);
-        extension.claimFees(key, STRANGER);
-        vm.expectRevert();
-        vault.claimFees(key.toPoolId(), STRANGER);
-        vm.stopPrank();
-        extension.claimFees(key, address(this));
-        vault.claimFees(key.toPoolId(), address(this));
+        vm.prank(STRANGER);
+        vm.expectRevert(LaunchRouter.CreatorOnly.selector);
+        launchRouter.claimFees(key, STRANGER);
+        _claimFees(key, address(this));
         assertEq(_locked(key), locked);
         assertEq(_token(key).owner(), address(0));
         assertEq(_token(key).totalSupply(), SUPPLY);
+        _assertNoCustody();
     }
 }

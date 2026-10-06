@@ -35,7 +35,6 @@ contract ScheduledLaunchVectorsTest is ScheduledLaunchTest {
     struct Case {
         string name;
         Quote quote;
-        uint128 quoteAmount;
         // Optional earlier buy of quote at priorTime.
         uint128 priorBuy;
         uint64 priorTime;
@@ -48,28 +47,27 @@ contract ScheduledLaunchVectorsTest is ScheduledLaunchTest {
     }
 
     function _cases() internal pure returns (Case[] memory c) {
-        c = new Case[](27);
+        c = new Case[](23);
         uint256 n;
         for (uint256 i; i < 2; i++) {
             Quote q = i == 0 ? Quote.Token1 : Quote.Token0;
             string memory side = i == 0 ? "launch_token0" : "launch_token1";
-            c[n++] = Case(string.concat(side, "_buy_exact_in"), q, 0, 0, 0, START + 300, true, false, 1_000e18);
-            c[n++] = Case(string.concat(side, "_buy_exact_out"), q, 0, 0, 0, START + 300, true, true, 50_000e18);
+            c[n++] = Case(string.concat(side, "_buy_exact_in"), q, 0, 0, START + 300, true, false, 1_000e18);
+            c[n++] = Case(string.concat(side, "_buy_exact_out"), q, 0, 0, START + 300, true, true, 50_000e18);
             // A sell in the same second as a buy, before any further release.
             c[n++] =
-                Case(string.concat(side, "_sell_exact_in"), q, 0, 10_000e18, START + 300, START + 300, false, false, 0);
+                Case(string.concat(side, "_sell_exact_in"), q, 10_000e18, START + 300, START + 300, false, false, 0);
             c[n++] = Case(
-                string.concat(side, "_sell_exact_out"), q, 0, 10_000e18, START + 300, START + 300, false, true, 1_000e18
+                string.concat(side, "_sell_exact_out"), q, 10_000e18, START + 300, START + 300, false, true, 1_000e18
             );
             // The swap's advance releases inventory first, which sells back toward the target.
             c[n++] = Case(
-                string.concat(side, "_sell_after_release"), q, 0, 900_000e18, START + 100, START + 150, false, false, 0
+                string.concat(side, "_sell_after_release"), q, 900_000e18, START + 100, START + 150, false, false, 0
             );
             // Nothing is offered below the target: the advance re-sells to the target and the sell fills zero.
             c[n++] = Case(
                 string.concat(side, "_sell_at_target_fills_zero"),
                 q,
-                0,
                 10_000e18,
                 START + 100,
                 START + 300,
@@ -77,33 +75,17 @@ contract ScheduledLaunchVectorsTest is ScheduledLaunchTest {
                 false,
                 0
             );
+            c[n++] =
+                Case(string.concat(side, "_buy_partial_fill_range_top"), q, 0, 0, START + 100, true, false, 900_000e18);
+            c[n++] = Case(string.concat(side, "_buy_first_second"), q, 0, 0, START, true, false, 1_000e18);
             c[n++] = Case(
-                string.concat(side, "_buy_partial_fill_range_top"), q, 0, 0, 0, START + 100, true, false, 900_000e18
+                string.concat(side, "_buy_last_second"), q, 10_000e18, START + 100, END - 1, true, false, 1_000e18
             );
-            c[n++] = Case(string.concat(side, "_buy_first_second"), q, 0, 0, 0, START, true, false, 1_000e18);
-            c[n++] = Case(
-                string.concat(side, "_buy_last_second"), q, 0, 10_000e18, START + 100, END - 1, true, false, 1_000e18
-            );
-            c[n++] = Case(
-                string.concat(side, "_sell_last_second"), q, 0, 10_000e18, END - 1, END - 1, false, true, 1_000e18
-            );
-            c[n++] = Case(
-                string.concat(side, "_quote_seed_buy_exact_in"), q, 50_000e18, 0, 0, START + 500, true, false, 1_000e18
-            );
-            c[n++] = Case(
-                string.concat(side, "_quote_seed_sell_exact_in"),
-                q,
-                50_000e18,
-                10_000e18,
-                START + 500,
-                START + 500,
-                false,
-                false,
-                0
-            );
-            c[n++] = Case(string.concat(side, "_buy_exact_out_last_second"), q, 0, 0, 0, END - 1, true, true, 10_000e18);
+            c[n++] =
+                Case(string.concat(side, "_sell_last_second"), q, 10_000e18, END - 1, END - 1, false, true, 1_000e18);
+            c[n++] = Case(string.concat(side, "_buy_exact_out_last_second"), q, 0, 0, END - 1, true, true, 10_000e18);
         }
-        c[n++] = Case("native_quote_buy_exact_in", Quote.Native, 0, 0, 0, START + 300, true, false, 1e18);
+        c[n++] = Case("native_quote_buy_exact_in", Quote.Native, 0, 0, START + 300, true, false, 1e18);
         assert(n == c.length);
     }
 
@@ -123,10 +105,10 @@ contract ScheduledLaunchVectorsTest is ScheduledLaunchTest {
     function _run(Case memory c) internal returns (string memory) {
         address quote = c.quote == Quote.Native ? address(0) : c.quote == Quote.Token0 ? LOW_QUOTE : HIGH_QUOTE;
         ScheduledLaunch.LaunchConfig memory config = _config(quote);
-        config.quoteAmount = c.quoteAmount;
         vm.deal(address(this), 1_000 ether);
         vm.deal(address(actor), 1_000 ether);
-        (PoolKey memory key, address token) = extension.create{value: quote == address(0) ? c.quoteAmount : 0}(config);
+        (PoolKey memory key, address token) = launchRouter.create(config);
+        _track(token);
         MintableERC20(token).approve(address(actor), type(uint256).max);
         bool tokenIs0 = key.token0 == token;
 
@@ -146,6 +128,7 @@ contract ScheduledLaunchVectorsTest is ScheduledLaunchTest {
         string memory pre = _state(key);
         vm.recordLogs();
         PoolBalanceUpdate update = actor.swap(extension, key, params);
+        _assertNoCustody();
         (uint128 fee, bool feeIsToken1) = _feeFromLogs(key);
         return string.concat(
             "    {\n      \"name\": \"",
@@ -209,8 +192,6 @@ contract ScheduledLaunchVectorsTest is ScheduledLaunchTest {
         return string.concat(
             "\"totalSupply\": \"",
             vm.toString(uint256(config.totalSupply)),
-            "\", \"quoteAmount\": \"",
-            vm.toString(uint256(config.quoteAmount)),
             "\", \"startTime\": ",
             vm.toString(uint256(config.startTime)),
             ", \"endTime\": ",

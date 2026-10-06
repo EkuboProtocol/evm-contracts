@@ -5,10 +5,11 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {ScheduledLaunch} from "../src/extensions/ScheduledLaunch.sol";
 import {DeployScheduledLaunch} from "./DeployScheduledLaunch.s.sol";
 
-/// @notice Deploys ScheduledLaunch and its LockedLaunchLiquidity onto a local fork of a chain with Ekubo Core,
-/// TWAMM and the Yul router, and writes launchpad-manifest.json. Run through script/launchpad-local.sh.
+/// @notice Deploys ScheduledLaunch, its LockedLaunchLiquidity and the LaunchRouter periphery onto a local fork
+/// of a chain with Ekubo Core, TWAMM and the Yul router, and writes launchpad-manifest.json. Run through
+/// script/launchpad-local.sh.
 /// @dev Local forks only. FORK_BLOCK and GIT_REVISION come from the wrapper. Launch pools trade through the
-/// production router's forwarded hop, so no launch-specific router is deployed.
+/// production router's forwarded hop; LaunchRouter only creates, funds and claims fees.
 contract DeployLaunchpadLocal is DeployScheduledLaunch {
     bytes32 internal constant SALT = keccak256("ekubo launchpad local");
 
@@ -21,6 +22,7 @@ contract DeployLaunchpadLocal is DeployScheduledLaunch {
 
         vm.startBroadcast();
         extension = _deploy(core, twamm, SALT, address(0));
+        address launchRouter = address(_deployRouter(core, extension, SALT, address(0)));
         vm.stopBroadcast();
 
         string memory contracts = "contracts";
@@ -28,6 +30,7 @@ contract DeployLaunchpadLocal is DeployScheduledLaunch {
         _entry(contracts, "twamm", twamm);
         _entry(contracts, "scheduled_launch", address(extension));
         _entry(contracts, "locked_launch_liquidity", address(extension.LIQUIDITY()));
+        _entry(contracts, "launch_router", launchRouter);
         contracts = _entry(contracts, "router", router);
 
         string memory manifest = "manifest";

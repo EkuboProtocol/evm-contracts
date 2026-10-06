@@ -3,8 +3,11 @@ pragma solidity =0.8.33;
 
 // Capital-accounted attacker economics for the EKU-648 attack (EKU-645 gate P2). The attacker starts with
 // quote only and gets launch tokens through a forwarded Router buy, never a cheatcode. It seeds the TWAMM
-// terminal pool, leaves pending TWAMM flow across endTime, lets advance() migrate, arbitrages back to the
+// terminal pool, leaves pending TWAMM flow across the first deposit of principal, arbitrages back to the
 // reference price and unwinds everything. Each attack is compared with a matched control without the order.
+// With no creation seed (EKU-816), advance() at endTime registers the principal and defers because its own
+// ratio is off-market; the counterpart quote is then funded through LaunchRouter, as the seed used to be,
+// and migrate() makes the first deposit against the attacker's pool and pending flow.
 
 import {Vm} from "forge-std/Vm.sol";
 import {console2} from "forge-std/console2.sol";
@@ -37,9 +40,9 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
     uint128 constant ATTACKER_QUOTE = 1e24;
     uint128 constant BUY_QUOTE = 1e22;
     uint64 constant BUY_TIME = 1000;
-    uint64 constant ORDER_START = 1024;
-    uint64 constant ORDER_END = 1280;
-    uint64 constant MIGRATE_TIME = END + 20; // 96 seconds of pending flow
+    uint64 constant ORDER_START = 1280;
+    uint64 constant ORDER_END = 1536;
+    uint64 constant MIGRATE_TIME = ORDER_START + 96; // 96 seconds of pending flow
     int32 constant BOUND_TICKS = 2_000; // +/-0.2% around the reference price
     // Principal holds this much more launch token than quote at the reference price, so migration sells
     // launch token while the attacker's order sells quote: the crossing case of EKU-648.
@@ -105,6 +108,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
             TestToken(quote).approve(address(lpPositions), type(uint256).max);
             TestToken(quote).approve(address(orders), type(uint256).max);
             TestToken(quote).approve(address(router), type(uint256).max);
+            TestToken(quote).approve(address(launchRouter), type(uint256).max);
             vm.stopPrank();
         }
     }
@@ -118,9 +122,8 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         return a0 + a1;
     }
 
-    function _config(bool tokenIs0, uint128 quoteAmount) internal view returns (ScheduledLaunch.LaunchConfig memory c) {
+    function _config(bool tokenIs0) internal view returns (ScheduledLaunch.LaunchConfig memory c) {
         c = _config(_quote(tokenIs0));
-        c.quoteAmount = quoteAmount;
         c.migrationTickLower = boundLower;
         c.migrationTickUpper = boundUpper;
     }
@@ -134,25 +137,18 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         bought = uint128(-(tokenIs0 ? update.delta0() : update.delta1()));
     }
 
-    /// @dev The launch pool is at its target when the buy lands, so the buy fills from released launch
-    /// tokens only and its output does not depend on quoteAmount. One dry run fixes quoteAmount so the
-    /// principal that reaches migration holds exactly LAUNCH_EXCESS more launch token than principalDivisor
-    /// times its quote.
-    function _calibratedQuoteAmount(bool tokenIs0) internal returns (uint128) {
-        uint256 snapshot = vm.snapshotState();
-        PoolKey memory key = _launch(_config(tokenIs0, 0));
-        uint256 bought = _attackerBuy(key, tokenIs0);
+    /// @dev Quote to fund so the principal that reaches migration holds exactly LAUNCH_EXCESS more launch
+    /// token than principalDivisor times its quote.
+    function _fundingQuote(PoolKey memory key, bool tokenIs0, uint256 bought) internal view returns (uint128) {
         (uint128 f0, uint128 f1) = _fees(key);
         uint256 fee = tokenIs0 ? f0 : f1;
-        vm.revertToState(snapshot);
         return uint128((SUPPLY - bought - fee - LAUNCH_EXCESS) / principalDivisor - BUY_QUOTE);
     }
 
     function _run(bool tokenIs0, uint128 orderAmount) internal returns (Run memory r) {
         r.tokenIs0 = tokenIs0;
         r.orderAmount = orderAmount;
-        uint128 quoteAmount = _calibratedQuoteAmount(tokenIs0);
-        r.key = _launch(_config(tokenIs0, quoteAmount));
+        r.key = _launch(_config(tokenIs0));
         r.terminal = extension.terminalPool(r.key);
         address launchToken = extension.getLaunch(r.key.toPoolId()).token;
         address quote = _quote(tokenIs0);
@@ -167,7 +163,13 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         assertEq(r.quotePaid, BUY_QUOTE);
         assertEq(MintableERC20(launchToken).balanceOf(ATTACKER), r.tokensBought);
 
-        // 2. Seed the terminal pool at the reference price, keeping the rest of the launch tokens to
+        // 2. Anyone advances at endTime: principal registers and defers off-market; a funder adds the quote.
+        vm.recordLogs();
+        _finish(r.key);
+        assertEq(_locked(r.key), 0, "off-market principal defers");
+        _fundQuote(r.key, _fundingQuote(r.key, tokenIs0, r.tokensBought));
+
+        // 3. Seed the terminal pool at the reference price, keeping the rest of the launch tokens to
         // arbitrage the price back down if migration leaves it above the reference.
         vm.startPrank(ATTACKER);
         lpPositions.maybeInitializePool(r.terminal, 0);
@@ -177,7 +179,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         (r.lpId, r.lpLiquidity, a0, a1) = lpPositions.mintAndDeposit(r.terminal, MIN_TICK, MAX_TICK, seed, seed, 0);
         (r.lpTokens, r.lpQuote) = tokenIs0 ? (uint256(a0), uint256(a1)) : (uint256(a1), uint256(a0));
 
-        // 3. Pending TWAMM flow selling quote across endTime. Quote is token1 when the launch is token0.
+        // 4. Pending TWAMM flow selling quote across the migration. Quote is token1 when the launch is token0.
         OrderKey memory order = OrderKey({
             token0: r.terminal.token0,
             token1: r.terminal.token1,
@@ -190,12 +192,11 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         }
         vm.stopPrank();
 
-        // 4. Anyone advances at endTime; migration executes the pending flow, balances and deposits.
+        // 5. Anyone migrates; migration executes the pending flow, balances and deposits.
         vm.warp(MIGRATE_TIME);
         SqrtRatio p0 = SqrtRatio.wrap(0);
         p0 = core.poolState(r.terminal.toPoolId()).sqrtRatio();
-        vm.recordLogs();
-        extension.advance(r.key);
+        vault.migrate(r.key.toPoolId());
         _readMigrationLogs(r, vm.getRecordedLogs());
         r.principalBefore = _p0Value(r.principalIn0, r.principalIn1);
         SqrtRatio pm = core.poolState(r.terminal.toPoolId()).sqrtRatio();
@@ -204,7 +205,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         r.deposited = r.lockedLiquidity != 0;
         r.principalAtMigrationPrice = _principal(r, pm);
 
-        // 5. Arbitrage back to the reference price, then unwind the order and the LP position.
+        // 6. Arbitrage back to the reference price, then unwind the order and the LP position.
         vm.startPrank(ATTACKER);
         if (pm != p0) router.swapAllowPartialFill(r.terminal, pm < p0, type(int128).max, p0, 0);
         assertEq(SqrtRatio.unwrap(core.poolState(r.terminal.toPoolId()).sqrtRatio()), SqrtRatio.unwrap(p0));
@@ -225,6 +226,7 @@ contract ScheduledLaunchCapitalAccountedTest is ScheduledLaunchTest {
         r.principalDelta = int256(r.principalAfter) - int256(r.principalBefore);
         r.creatorFees = _creatorFees(r);
         _assertCoreFullyAttributed(r, p0);
+        _assertNoCustody();
         _log(r);
     }
 

@@ -11,6 +11,8 @@ import {TestToken} from "./TestToken.sol";
 import {ScheduledLaunch, scheduledLaunchCallPoints} from "../src/extensions/ScheduledLaunch.sol";
 import {twammCallPoints} from "../src/extensions/TWAMM.sol";
 import {MintableERC20} from "../src/MintableERC20.sol";
+import {LaunchRouter} from "../src/LaunchRouter.sol";
+import {ICore} from "../src/interfaces/ICore.sol";
 import {PoolKey} from "../src/types/poolKey.sol";
 import {PoolConfig} from "../src/types/poolConfig.sol";
 
@@ -20,6 +22,7 @@ contract LaunchYulRouterTest is Test {
     bytes32 constant YUL_ROUTER_CODEHASH = 0x6fa0a732d67d2511a1fea42ae5cf7c7435f620fa2ecbd6712cc4d6b81f4a9c87;
 
     ScheduledLaunch extension;
+    LaunchRouter launchRouter;
 
     function setUp() public {
         vm.warp(1);
@@ -29,6 +32,7 @@ contract LaunchYulRouterTest is Test {
         address target = address(uint160(scheduledLaunchCallPoints().toUint8()) << 152);
         deployCodeTo("ScheduledLaunch.sol", abi.encode(CORE, twamm), target);
         extension = ScheduledLaunch(target);
+        launchRouter = new LaunchRouter(ICore(CORE), extension);
         vm.etch(YUL_ROUTER, vm.parseBytes(vm.trim(vm.readFile("test/fixtures/yul-router-runtime.hex"))));
         assertEq(YUL_ROUTER.codehash, YUL_ROUTER_CODEHASH, "fixture is the deployed router");
     }
@@ -41,7 +45,6 @@ contract LaunchYulRouterTest is Test {
             symbol: "LAUNCH",
             decimals: 18,
             totalSupply: 1_000_000e18,
-            quoteAmount: 0,
             startTime: 100,
             endTime: 1100,
             targetTick: 0,
@@ -105,12 +108,21 @@ contract LaunchYulRouterTest is Test {
         return _decode(result);
     }
 
+    function _assertNoCustody(address quote, address token) internal view {
+        address[3] memory holders = [address(extension), address(extension.LIQUIDITY()), address(launchRouter)];
+        for (uint256 h; h < holders.length; h++) {
+            assertEq(holders[h].balance, 0, "holds ETH");
+            assertEq(TestToken(quote).balanceOf(holders[h]), 0, "holds quote");
+            assertEq(MintableERC20(token).balanceOf(holders[h]), 0, "holds launch token");
+        }
+    }
+
     function test_yulRouterTradesAndQuotesLaunchPool() public {
         for (uint256 i; i < 2; i++) {
             uint256 snapshot = vm.snapshotState();
             address quote = i == 0 ? address(0x10000) : address(type(uint160).max);
             deployCodeTo("TestToken.sol", abi.encode(address(this)), quote);
-            (PoolKey memory key, address token) = extension.create(_config(quote));
+            (PoolKey memory key, address token) = launchRouter.create(_config(quote));
             assertEq(key.token0 == token, i == 1);
             TestToken(quote).approve(YUL_ROUTER, type(uint256).max);
             MintableERC20(token).approve(YUL_ROUTER, type(uint256).max);
@@ -141,6 +153,7 @@ contract LaunchYulRouterTest is Test {
             (paid,) = _swap(_route(key, quote, token, 900_000e18, true));
             assertLt(paid, 900_000e18);
             assertEq(quoteBefore - TestToken(quote).balanceOf(address(this)), uint256(paid), "partial paid");
+            _assertNoCustody(quote, token);
             vm.revertToState(snapshot);
         }
     }

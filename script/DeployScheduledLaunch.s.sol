@@ -6,11 +6,13 @@ import {console2} from "forge-std/console2.sol";
 import {ICore} from "../src/interfaces/ICore.sol";
 import {CoreLib} from "../src/libraries/CoreLib.sol";
 import {ScheduledLaunch, scheduledLaunchCallPoints} from "../src/extensions/ScheduledLaunch.sol";
-import {deployExtension} from "./DeployAll.s.sol";
+import {LaunchRouter} from "../src/LaunchRouter.sol";
+import {deployExtension, deployIfNeeded} from "./DeployAll.s.sol";
 
-/// @notice Deploys ScheduledLaunch, which deploys its LockedLaunchLiquidity, on any chain with Ekubo Core and
-/// TWAMM. CORE_ADDRESS and TWAMM_ADDRESS are required. SALT is the starting salt for the hook-prefix search
-/// and SCHEDULED_LAUNCH_ADDRESS optionally pins the expected address.
+/// @notice Deploys ScheduledLaunch, which deploys its LockedLaunchLiquidity, and the LaunchRouter periphery on
+/// any chain with Ekubo Core and TWAMM: three contracts. CORE_ADDRESS and TWAMM_ADDRESS are required. SALT is
+/// the starting salt for the hook-prefix search and the router's CREATE2 salt; SCHEDULED_LAUNCH_ADDRESS and
+/// LAUNCH_ROUTER_ADDRESS optionally pin the expected addresses.
 /// @dev Dry run by default: transactions are recorded only with BROADCAST=true, and sent only when forge
 /// also gets --broadcast.
 contract DeployScheduledLaunch is Script {
@@ -19,16 +21,19 @@ contract DeployScheduledLaunch is Script {
     error MissingDeployment(string name, address expected);
     error TwammMismatch(address expected, address actual);
     error TwammNotRegistered(address twamm);
+    error RouterMismatch(address router);
 
     function run() public virtual returns (ScheduledLaunch extension) {
         ICore core = ICore(payable(vm.envAddress("CORE_ADDRESS")));
         address twamm = vm.envAddress("TWAMM_ADDRESS");
         bytes32 salt = vm.envOr("SALT", bytes32(0));
         address expected = vm.envOr("SCHEDULED_LAUNCH_ADDRESS", address(0));
+        address expectedRouter = vm.envOr("LAUNCH_ROUTER_ADDRESS", address(0));
         bool broadcast = vm.envOr("BROADCAST", false);
 
         if (broadcast) vm.startBroadcast();
         extension = _deploy(core, twamm, salt, expected);
+        LaunchRouter launchRouter = _deployRouter(core, extension, salt, expectedRouter);
         if (broadcast) vm.stopBroadcast();
 
         console2.log("chain id", block.chainid);
@@ -37,6 +42,25 @@ contract DeployScheduledLaunch is Script {
         console2.log("ScheduledLaunch code hash", vm.toString(address(extension).codehash));
         console2.log("LockedLaunchLiquidity", address(extension.LIQUIDITY()));
         console2.log("LockedLaunchLiquidity code hash", vm.toString(address(extension.LIQUIDITY()).codehash));
+        console2.log("LaunchRouter", address(launchRouter));
+        console2.log("LaunchRouter code hash", vm.toString(address(launchRouter).codehash));
+    }
+
+    /// @dev Plain CREATE2 through the deterministic deployer; the router needs no address prefix.
+    function _deployRouter(ICore core, ScheduledLaunch extension, bytes32 salt, address expected)
+        internal
+        returns (LaunchRouter launchRouter)
+    {
+        (address deployed,) = deployIfNeeded(
+            abi.encodePacked(type(LaunchRouter).creationCode, abi.encode(core, extension)),
+            salt,
+            expected,
+            "LaunchRouter"
+        );
+        launchRouter = LaunchRouter(deployed);
+        if (launchRouter.EXTENSION() != extension || launchRouter.LIQUIDITY() != extension.LIQUIDITY()) {
+            revert RouterMismatch(deployed);
+        }
     }
 
     function _deploy(ICore core, address twamm, bytes32 salt, address expected)

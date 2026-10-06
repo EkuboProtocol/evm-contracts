@@ -30,7 +30,7 @@ contract ScheduledLaunchRangeTest is ScheduledLaunchTest {
         config.upperTick = 88_722_800;
         assertLe(config.upperTick, MAX_TICK);
         vm.expectRevert(ScheduledLaunch.InvalidLaunch.selector);
-        extension.create(config);
+        launchRouter.create(config);
     }
 
     /// A high but sellable range still recovers from a start-block push.

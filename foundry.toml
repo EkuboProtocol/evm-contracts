@@ -17,7 +17,12 @@ optimizer = true
 optimizer_runs = 9999999
 via_ir = true
 ignored_error_codes = [2394, 6321, 3860, 5574, 2424, 8429, 4591]
-fs_permissions = [{ access = "read", path = "./snapshots" }]
+fs_permissions = [
+    { access = "read", path = "./snapshots" },
+    { access = "write", path = "./launchpad-manifest.json" },
+    { access = "read-write", path = "./test/vectors" },
+    { access = "read", path = "./test/fixtures" },
+]
 
 # Explicit opt-in for regenerating NFT artwork fixtures.
 # UPDATE_SNAPSHOTS=true FOUNDRY_PROFILE=snapshots forge test --offline --match-contract FreeLPMetadataTest

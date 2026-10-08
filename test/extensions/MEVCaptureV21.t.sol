@@ -784,15 +784,21 @@ contract MEVCaptureV21Test is MEVCaptureV21Base {
     }
 
     function test_idle_drop_restore_bound_6_bits() public {
-        assertLe(_idleDropRestore(6), 3 * cfg.tau);
+        uint256 frozen = _idleDropRestore(6);
+        assertLe(frozen, 3 * cfg.tau);
+        assertGe(frozen, 3 * cfg.tau - 12, "restore actually happened");
     }
 
     function test_idle_drop_restore_bound_12_bits() public {
-        assertLe(_idleDropRestore(12), 9 * cfg.tau);
+        uint256 frozen = _idleDropRestore(12);
+        assertLe(frozen, 9 * cfg.tau);
+        assertGe(frozen, 9 * cfg.tau - 12, "restore actually happened");
     }
 
     function test_idle_drop_restore_bound_20_bits() public {
-        assertLe(_idleDropRestore(20), 17 * cfg.tau);
+        uint256 frozen = _idleDropRestore(20);
+        assertLe(frozen, 17 * cfg.tau);
+        assertGe(frozen, 17 * cfg.tau - 12, "restore actually happened");
     }
 
     function _edgePool_noWarm() internal {

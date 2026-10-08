@@ -14,6 +14,8 @@ import {SwapParameters, createSwapParameters} from "../../src/types/swapParamete
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {exp2} from "../../src/math/exp2.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
+import {MEVCaptureV21, bitLength} from "../../src/extensions/MEVCaptureV21.sol";
+import {MEVCaptureV21PoolState} from "../../src/types/mevCaptureV21PoolState.sol";
 
 /// @notice Independent reference model of the MEVCapture v2.1 rules (EKU-946 rev 5 §(b)), written directly from the
 ///   spec text in original (not mirrored) coordinates, with naive loops instead of closed forms.
@@ -369,8 +371,6 @@ contract V21Actor is BaseLocker {
     }
 }
 
-import {MEVCaptureV21} from "../../src/extensions/MEVCaptureV21.sol";
-
 /// @notice Deployable anywhere (skips Core registration) to test constructor validation
 contract MEVCaptureV21Unregistered is MEVCaptureV21 {
     constructor(ICore core, uint32 a, uint8 b, uint8 c, uint8 d, uint16 e, uint32 f, uint8 g)
@@ -379,5 +379,60 @@ contract MEVCaptureV21Unregistered is MEVCaptureV21 {
 
     function _registerInConstructor() internal pure override returns (bool) {
         return false;
+    }
+}
+
+/// @notice Exposes the extension's internal rules for vector tests
+contract MEVCaptureV21Harness is MEVCaptureV21Unregistered {
+    constructor(ICore core, uint32 a, uint8 b, uint8 c, uint8 d, uint16 e, uint32 f, uint8 g)
+        MEVCaptureV21Unregistered(core, a, b, c, d, e, f, g)
+    {}
+
+    function anchorUpdate(bytes32 state, int32 tickNow, uint128 liquidityNow, uint32 currentTime)
+        external
+        view
+        returns (bytes32 next, bool passed, uint256 lObs, uint256 eRef)
+    {
+        MEVCaptureV21PoolState n;
+        (n, passed, lObs, eRef) = _anchorUpdate(MEVCaptureV21PoolState.wrap(state), tickNow, liquidityNow, currentTime);
+        next = MEVCaptureV21PoolState.unwrap(n);
+    }
+
+    function refresh(bytes32 state, uint128 liquidityAfter, uint32 currentTime) external view returns (bytes32) {
+        return MEVCaptureV21PoolState.unwrap(_refresh(MEVCaptureV21PoolState.wrap(state), liquidityAfter, currentTime));
+    }
+
+    function snapshot(bytes32 state, uint128 activeLiquidity, uint32 currentTime) external pure returns (bytes32) {
+        MEVCaptureV21PoolState s = MEVCaptureV21PoolState.wrap(state);
+        if (s.lastPosTime() == currentTime) return state;
+        return MEVCaptureV21PoolState.unwrap(s.withSnapshot(currentTime, uint8(bitLength(activeLiquidity))));
+    }
+
+    /// @notice `count` away segments in original coordinates starting with the first boundary beyond Core tick `tick`
+    ///   (before the sqrt-ratio check that skips a boundary the price sits on): (hiX16, fee) pairs
+    function segments(int64 anchorX16, bool increasing, int32 tick, uint256 poolFee, uint8 spacingExp, uint256 count)
+        external
+        view
+        returns (int256[] memory his, uint256[] memory fees, uint256 firstK)
+    {
+        int256 a = increasing ? int256(anchorX16) : -int256(anchorX16);
+        uint256 wShift = uint256(spacingExp) + SEGMENT_EXP + 16;
+        int256 g1 = ((a >> wShift) + 1) << wShift;
+        int256 gJ = g1 + (int256(J_LIN - 1) << wShift);
+        int256 p = increasing ? int256(tick) : -int256(tick) - 1;
+        firstK = _firstSegment(p, g1, gJ, wShift);
+        his = new int256[](count);
+        fees = new uint256[](count);
+        for (uint256 i; i < count; i++) {
+            uint256 k = firstK + i;
+            int256 hi = _boundary(k, g1, gJ, wShift);
+            int256 lo = k == 1 ? a : _boundary(k - 1, g1, gJ, wShift);
+            his[i] = increasing ? hi : -hi;
+            fees[i] = _segmentFee(poolFee, uint256(lo + hi - 2 * a), spacingExp);
+        }
+    }
+
+    function halfLife() external view returns (uint256) {
+        return HALF_LIFE;
     }
 }

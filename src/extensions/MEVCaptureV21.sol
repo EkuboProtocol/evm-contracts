@@ -403,9 +403,9 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
         uint256 minFee = params.minFee();
         uint256 n;
 
+        int256 lo = k == 1 ? a : _boundary(k - 1, g1, gJ, wShift);
         while (true) {
             int256 hi = _boundary(k, g1, gJ, wShift);
-            int256 lo = k == 1 ? a : _boundary(k - 1, g1, gJ, wShift);
             uint256 fee = _segmentFee(poolFee, uint256(lo + hi - 2 * a), spacingExp);
 
             SqrtRatio limit = userLimit;
@@ -415,6 +415,7 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
                     SqrtRatio boundary = tickToSqrtRatio(int32(increasing ? hiTick : -hiTick));
                     // segment membership is by sqrt ratio: skip a boundary the price already sits on
                     if (increasing ? boundary <= sqrtRatio : boundary >= sqrtRatio) {
+                        lo = hi;
                         unchecked {
                             k++;
                         }
@@ -436,6 +437,7 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
 
             if (remaining == 0 || limit == userLimit || stateAfter.sqrtRatio() != limit) break;
             sqrtRatio = limit;
+            lo = hi;
             unchecked {
                 k++;
             }

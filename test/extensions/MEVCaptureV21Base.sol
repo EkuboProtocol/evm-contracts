@@ -70,11 +70,15 @@ abstract contract MEVCaptureV21Base is FullTest {
     }
 
     function createPools(uint16 fee, uint8 spacingExp, int32 tick) internal {
+        createPools(fee, spacingExp, tick, 0);
+    }
+
+    function createPools(uint16 fee, uint8 spacingExp, int32 tick, uint64 salt) internal {
         pool = createPool(
-            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, spacingExp, address(v21), 0)
+            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, spacingExp, address(v21), salt)
         );
         twin = createPool(
-            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, spacingExp, address(0), 0)
+            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, spacingExp, address(0), salt)
         );
         poolFee = fee;
         spacing = uint256(1) << spacingExp;

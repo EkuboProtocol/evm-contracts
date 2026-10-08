@@ -24,6 +24,11 @@ fs_permissions = [{ access = "read", path = "./snapshots" }, { access = "read", 
 [profile.snapshots]
 fs_permissions = [{ access = "read-write", path = "./snapshots" }]
 
+# Regenerates the MEVCapture v2.1 end-to-end swap vectors:
+# FOUNDRY_PROFILE=v21vectors WRITE_V21_VECTORS=true forge test --offline --match-contract MEVCaptureV21SwapVectorsTest
+[profile.v21vectors]
+fs_permissions = [{ access = "read", path = "./snapshots" }, { access = "read-write", path = "./test/data/mevcapture-v21" }]
+
 [invariant]
 fail_on_revert = true
 runs = 1

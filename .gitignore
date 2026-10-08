@@ -22,3 +22,6 @@ docs/
 
 # Gas snapshot file (snapshots/ directory is tracked instead)
 .gas-snapshot
+
+# Python bytecode
+__pycache__/

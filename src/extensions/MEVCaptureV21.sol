@@ -260,7 +260,11 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
                 else if (move < -limit) move = -limit;
                 anchor += move;
 
-                (refBits, raiseTime) = _raise(eRef, lObs, currentTime, raiseTime);
+                // rev 6 (EKU-1034 Q1): a pass restores the reference toward its stored value, never above it, so
+                // decay over idle time between passes is recovered; then the H1 raise (+1 bit, once per tau)
+                uint256 base = lObs < refBits ? lObs : refBits;
+                if (base < eRef) base = eRef;
+                (refBits, raiseTime) = _raise(base, lObs, currentTime, raiseTime);
                 refTime = currentTime;
             }
 

@@ -120,7 +120,8 @@ def anchor_update(cfg, s, tick_now, liquidity_now, now):
     off_new = -mag if off < 0 else mag
     lim = (cfg.clamp << 16) * min(dt, cfg.tau) // cfg.tau
     move = max(-lim, min(lim, off_new - off))
-    bits, raise_time = _raise(cfg, s, e, l_obs, now)
+    base = max(e, min(s.l_ref_bits, l_obs))  # rev 6 (EKU-1034 Q1): restore toward the stored reference
+    bits, raise_time = _raise(cfg, s, base, l_obs, now)
     return (
         replace(s, last_update_time=now, l_ref_time=now, l_ref_bits=bits, raise_time=raise_time,
                 anchor_x16=s.anchor_x16 + move),

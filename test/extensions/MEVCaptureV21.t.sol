@@ -729,23 +729,70 @@ contract MEVCaptureV21Test is MEVCaptureV21Base {
         assertEq(SqrtRatio.unwrap(first.limit), SqrtRatio.unwrap(tickToSqrtRatio(0)));
     }
 
-    /// @notice Spec observation (raised with the CSO review): a pool touched at most once per tau can never raise its
-    ///   reference above one bit, because each pass first decays it by floor(dt / tau) >= 1 bit and then raises it by
-    ///   at most one. The gate is then always lenient and empty-range parking drags at the clamp rate instead of 0.
-    function test_quiet_pool_reference_cannot_climb() public {
-        _edgePool_noWarm();
-        for (uint256 i; i < 50; i++) {
-            advanceTime(cfg.tau);
+    /// @notice Rev 6 (EKU-1034 Q1): a pool touched less often than tau keeps its warmed reference, so per-timestamp
+    ///   empty-range parking still freezes the anchor (with an event per update) instead of dragging it
+    function test_quiet_pool_reference_holds_and_j1_freezes() public {
+        _edgePool();
+        uint256 warmed = _lRefBits();
+        for (uint256 i; i < 60; i++) {
+            advanceTime(360);
             this.swapCheckedExt(i % 2 == 0, 1, SqrtRatio.wrap(0), 0);
+            assertEq(_lRefBits(), warmed, "reference holds on a pool touched every 3 tau");
         }
-        assertLe(_lRefBits(), 1, "reference stuck at <= 1 bit");
-        // consequence: an empty-range park passes the gate and drags the anchor at the clamp rate
         int256 a0 = _anchor();
-        _swapChecked(true, type(int128).max >> 8, _limitAt(50_000), 0);
-        advanceTime(cfg.tau);
-        _swapChecked(false, type(int128).max >> 8, _limitAt(0), 0);
+        uint256 failures;
+        for (uint256 i; i < 30; i++) {
+            this.swapCheckedExt(true, type(int128).max >> 8, _limitAt(50_000), 0);
+            advanceTime(12);
+            this.swapCheckedExt(false, type(int128).max >> 8, _limitAt(0), 0);
+            if (lastGateFailed) failures++;
+        }
+        assertEq(failures, 30, "gate fails on every parked update");
+        assertEq(_anchor(), a0, "anchor frozen, not dragged");
+    }
+
+    /// @notice Warm-up correction: from init the reference rises one bit per touch when touches are >= tau apart
+    function test_quiet_pool_warmup_one_bit_per_touch() public {
+        _edgePool_noWarm();
+        for (uint256 i = 1; i <= 20; i++) {
+            advanceTime(360);
+            this.swapCheckedExt(i % 2 == 0, 1, SqrtRatio.wrap(0), 0);
+            assertEq(_lRefBits(), i);
+        }
+    }
+
+    /// @notice Rev 6 residual: honest liquidity fell by D bits while the pool was idle; an attacker holding liquidity
+    ///   across one boundary restores the stored reference, freezing the anchor for at most (D - 3)+ tau
+    function _idleDropRestore(uint256 d) internal returns (uint256 frozen) {
+        _edgePool();
+        uint256 stored = _lRefBits();
+        _lp(bytes24(uint192(1)), -40 * S, 2 * S, -(L66 - (L66 >> d)));
+        advanceTime(3600 - 1);
+        _lp(bytes24(uint192(60)), -S, S, L66); // held across the boundary into the next timestamp
+        advanceTime(1);
+        this.swapCheckedExt(false, 1, SqrtRatio.wrap(0), 0);
         assertFalse(lastGateFailed);
-        assertEq(_abs(_anchor() - a0), uint256(2500) << 16);
+        assertEq(_lRefBits(), stored, "restored to the stored reference, not above");
+        _lp(bytes24(uint192(60)), -S, S, -L66);
+        uint32 removed = _now();
+        for (uint256 i; i < 400; i++) {
+            advanceTime(12);
+            this.swapCheckedExt(i % 2 == 0, 1e9, SqrtRatio.wrap(0), 0);
+            if (!lastGateFailed) return _now() - removed;
+        }
+        revert("never reopened");
+    }
+
+    function test_idle_drop_restore_bound_6_bits() public {
+        assertLe(_idleDropRestore(6), 3 * cfg.tau);
+    }
+
+    function test_idle_drop_restore_bound_12_bits() public {
+        assertLe(_idleDropRestore(12), 9 * cfg.tau);
+    }
+
+    function test_idle_drop_restore_bound_20_bits() public {
+        assertLe(_idleDropRestore(20), 17 * cfg.tau);
     }
 
     function _edgePool_noWarm() internal {

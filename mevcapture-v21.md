@@ -1,6 +1,6 @@
 # MEVCapture v2.1
 
-`src/extensions/MEVCaptureV21.sol` implements the EKU-946 design rev 5, §(b) ("v2.1"): an in-swap, segmented,
+`src/extensions/MEVCaptureV21.sol` implements the EKU-946 design rev 5, §(b), with the rev 6 gate rule required by the CSO in EKU-1034 (below) ("v2.1"): an in-swap, segmented,
 away-only surcharge around a time-decaying anchor, with a liquidity gate and a rate limit on anchor movement. It is a new,
 forward-only extension. `MEVCapture.sol` (v1) and `Core` are unchanged. Nothing here is deployed.
 
@@ -31,7 +31,7 @@ Call points: `beforeInitializePool` (state init; rejects stableswap/full-range, 
 `handleForwardData` (every swap):
 1. On the first swap of a timestamp, the anchor update: observation `L_obs` (the snapshot if a position changed earlier
    in the timestamp), decayed reference `e_ref`, gate `L_obs + M_GATE ≥ e_ref`; on a pass the exp2 decay toward the pool
-   tick, clamped to `CLAMP·min(Δt, τ)/τ`, and `lRefBits = raise(e_ref, L_obs)`; on a fail `AnchorGateFailed(poolId,
+   tick, clamped to `CLAMP·min(Δt, τ)/τ`, and `lRefBits = raise(max(e_ref, min(lRefBits, L_obs)), L_obs)` (rev 6); on a fail `AnchorGateFailed(poolId,
    L_obs, e_ref)`.
 2. The swap: one Core call toward the anchor (limit = the rounded anchor, floor from below / ceil from above, minFee =
    the caller's), then one Core call per away segment with `minFee = max(caller minFee, fee_j)`, segments chosen by sqrt
@@ -79,7 +79,7 @@ Implementation choices the spec leaves open (all mirrored by the vectors):
 - `test/extensions/mevcapture-v21/ref_model.py`: exact integer model written from the spec (bit-exact exp2 port).
 - `test/extensions/mevcapture-v21/gen_vectors.py` regenerates `test/data/mevcapture-v21/{gateScenarios,anchorUpdates,schedules}.json`
   and fails unless the model agrees with the design models copied to `models/`: every `v23_gate_model.py` scenario (H1
-  tests 1–3, G1, G2, G3.1, G3.2, J1) step by step (pass/fail and `lRefBits` identical, anchor within 1e-3 tick), and the
+  tests 1–3, G1, G2, G3.1, G3.2, J1) plus the rev 6 Q1 scenarios, replayed with `v24_gate_model.py`, step by step (pass/fail and `lRefBits` identical, anchor within 1e-3 tick), and the
   `v21_attacks.py` segment boundaries (exact) and rates (within the 0.16 ceil).
 - `MEVCaptureV21VectorsTest` checks the contract's internal rules against those files.
 - `test/data/mevcapture-v21/swaps.json`: end-to-end swap vectors (pool layout, state before/after, every Core call with
@@ -96,16 +96,16 @@ Identical toolchain: forge 1.8.3, solc 0.8.33, via-IR, optimizer 9 999 999 runs,
 
 | scenario | v1 | v2.1 J_LIN 16 (calls) | v2.1 J_LIN 64 (calls) |
 |---|---|---|---|
-| exact-in, 1 away segment | 123,376 | 106,283 (1) | 106,283 (1) |
-| exact-in, 3 away segments | 123,795 | 128,086 (3) | 128,086 (3) |
-| exact-out, 3 away segments | 123,779 | 127,611 (3) | 127,611 (3) |
-| exact-in, 16 away segments | 124,031 | 270,055 (16) | 270,055 (16) |
-| exact-in to 64 spacings | 124,095 | 325,470 (21) | 801,255 (64) |
-| exact-in to MAX_FEE, merged | 185,598 | 397,093 (22) | 905,909 (68) |
-| sparse pool (liquidity only at 300–400 spacings) | 149,267 | 292,441 (22) | 688,879 (68) |
-| first swap in timestamp, 1 segment | 99,958 | 105,194 | |
+| exact-in, 1 away segment | 123,376 | 106,376 (1) | 106,376 (1) |
+| exact-in, 3 away segments | 123,795 | 128,179 (3) | 128,179 (3) |
+| exact-out, 3 away segments | 123,779 | 127,704 (3) | 127,704 (3) |
+| exact-in, 16 away segments | 124,031 | 270,148 (16) | 270,148 (16) |
+| exact-in to 64 spacings | 124,095 | 325,563 (21) | 801,348 (64) |
+| exact-in to MAX_FEE, merged | 185,598 | 397,186 (22) | 906,002 (68) |
+| sparse pool (liquidity only at 300–400 spacings) | 149,267 | 292,534 (22) | 688,972 (68) |
+| first swap in timestamp, 1 segment | 99,958 | 105,287 | |
 | later swap in same timestamp, 1 segment | 93,870 | 98,248 | |
-| toward the anchor (4 spacings, 1 call) | 111,068 | 104,497 | |
+| toward the anchor (4 spacings, 1 call) | 111,068 | 104,590 | |
 
 Position hook (`Positions.deposit`):
 
@@ -121,16 +121,31 @@ Bytecode (same settings, `forge build --sizes`):
 | contract | runtime (B) | initcode (B) |
 |---|---|---|
 | MEVCapture (v1) | 5,182 | 5,687 |
-| MEVCaptureV21 | 12,256 | 13,592 |
+| MEVCaptureV21 | 12,312 | 13,648 |
 
-## Spec observation for the CSO review (Q1)
+## Rev 6 gate rule (EKU-1034 Q1)
 
-With rev 5, a pass first decays the reference by `⌊(now − lRefTime)/τ⌋` bits and then raises it by at most one bit.
-A pool whose swaps are at least τ apart therefore cannot raise its reference (from init it stays at ≤ 1 bit), and a
-warmed reference decays by one bit per touch once touches are more than 2τ apart. On such pools the gate is always
-lenient, so per-timestamp empty-range parking (J1) does not freeze the anchor but drags it at the clamp rate
-(CLAMP·min(Δt, τ)/τ, the accepted ≤ CLAMP/τ residual), without the dust the residual table assumes. The design models
-show the same (`v23_gate_model.Pool5` touched every 120 s stays at 1 bit; `gateScenarios.json` scenario
-`quiet_pool_touched_every_tau`; `test_quiet_pool_reference_cannot_climb`). The Ethereum calibration pool 4494 averages
-about one swap per 6 minutes (3τ). The implementation follows the spec as written; a possible fix, if the CSO wants one,
-is to not decay on a pass whose observation is at or above the stored reference.
+The CSO review (EKU-1034) required one change to the rev 5 spec. Under rev 5, a passing check first decayed the
+reference by `⌊(now − lRefTime)/τ⌋` bits and then raised it by at most one bit. A pool touched at least τ apart therefore
+lost its reference: pool 4494 averages about one swap per 3τ. With the gate inert, J1 parking dragged the anchor at
+CLAMP/τ with no dust.
+
+Rev 6, on a passing first swap:
+
+    base     = max(e_ref, min(lRefBits, L_obs))   // restore toward the stored reference, never above it
+    lRefBits = raise(base, L_obs); lRefTime = now // H1 raise unchanged
+
+The fail path, the post-swap refresh, decay from `lRefTime`, the snapshot and `lRefRaiseTime` are unchanged. The stored
+reference still rises by at most one bit per τ. The design model is `models/v24_gate_model.py` (the CSO's `Pool6`).
+
+Residual and disclosure deltas:
+- **Restore after an idle drop.** If honest liquidity fell by D bits while the pool was idle, an attacker holding
+  liquidity across one boundary can restore the stored reference. That freezes the anchor for at most (D − 3)+ τ. It
+  costs capital, about 2^lRefBits of liquidity, and freezes rather than drags. Tests: `test_idle_drop_restore_bound_{6,12,20}_bits`.
+- **Warm-up.** From init the reference rises one bit per touch when touches are τ or more apart. "Lenient for the first
+  ~64 τ" holds only for pools touched at least every τ. A pool touched every 6 min reaches 60 bits after about 6 h; one
+  touched every 12 min reaches 30 bits. Treat the warm-up window as gate-off (drag ≤ CLAMP/τ). Test:
+  `test_quiet_pool_warmup_one_bit_per_touch`.
+- Quiet pools keep a warmed reference, and J1 freezes the anchor: `test_quiet_pool_reference_holds_and_j1_freezes`.
+
+`AnchorGateFailed` now indexes `poolId` (topic 1), so the monitor can filter by pool.

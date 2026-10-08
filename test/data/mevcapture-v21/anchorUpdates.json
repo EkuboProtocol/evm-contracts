@@ -96,7 +96,7 @@
     "lastPosTime": "1700614264",
     "lRefBits": "40",
     "snapBits": "64",
-    "lRefRaiseTime": "1700614269",
+    "lRefRaiseTime": "1700614149",
     "anchorX16": "5663948800"
    }
   },
@@ -122,7 +122,7 @@
     "lastPosTime": "1700351850",
     "lRefBits": "1",
     "snapBits": "0",
-    "lRefRaiseTime": "1700351855",
+    "lRefRaiseTime": "1700351735",
     "anchorX16": "64978204176"
    }
   },
@@ -146,7 +146,7 @@
     "lastUpdateTime": "1700129904",
     "lRefTime": "1700129904",
     "lastPosTime": "1700129899",
-    "lRefBits": "0",
+    "lRefBits": "1",
     "snapBits": "30",
     "lRefRaiseTime": "1700129844",
     "anchorX16": "7811058428"
@@ -224,7 +224,7 @@
     "lastUpdateTime": "1700878412",
     "lRefTime": "1700878412",
     "lastPosTime": "1700878407",
-    "lRefBits": "1",
+    "lRefBits": "4",
     "snapBits": "30",
     "lRefRaiseTime": "1700878412",
     "anchorX16": "-26921513556"
@@ -302,7 +302,7 @@
     "lastUpdateTime": "1700929069",
     "lRefTime": "1700929069",
     "lastPosTime": "1700929069",
-    "lRefBits": "35",
+    "lRefBits": "40",
     "snapBits": "70",
     "lRefRaiseTime": "1700929009",
     "anchorX16": "5783883546624"
@@ -328,7 +328,7 @@
     "lastUpdateTime": "1700628522",
     "lRefTime": "1700628522",
     "lastPosTime": "1700628517",
-    "lRefBits": "0",
+    "lRefBits": "40",
     "snapBits": "30",
     "lRefRaiseTime": "1700628522",
     "anchorX16": "-5792280150016"
@@ -406,7 +406,7 @@
     "lastUpdateTime": "1700257524",
     "lRefTime": "1700257524",
     "lastPosTime": "1700257524",
-    "lRefBits": "39",
+    "lRefBits": "40",
     "snapBits": "70",
     "lRefRaiseTime": "1700257524",
     "anchorX16": "-26813923328"
@@ -770,7 +770,7 @@
     "lastUpdateTime": "1700069949",
     "lRefTime": "1700069949",
     "lastPosTime": "1700069944",
-    "lRefBits": "26",
+    "lRefBits": "60",
     "snapBits": "64",
     "lRefRaiseTime": "1700069949",
     "anchorX16": "-28363128832"
@@ -796,7 +796,7 @@
     "lastUpdateTime": "1700686974",
     "lRefTime": "1700686974",
     "lastPosTime": "1700686969",
-    "lRefBits": "1",
+    "lRefBits": "2",
     "snapBits": "0",
     "lRefRaiseTime": "1700686974",
     "anchorX16": "-26775519232"
@@ -822,7 +822,7 @@
     "lastUpdateTime": "1700024689",
     "lRefTime": "1700024689",
     "lastPosTime": "1700024684",
-    "lRefBits": "0",
+    "lRefBits": "64",
     "snapBits": "70",
     "lRefRaiseTime": "1700024629",
     "anchorX16": "49859788800"
@@ -1056,7 +1056,7 @@
     "lastUpdateTime": "1700632398",
     "lRefTime": "1700632398",
     "lastPosTime": "1700632393",
-    "lRefBits": "1",
+    "lRefBits": "4",
     "snapBits": "64",
     "lRefRaiseTime": "1700632398",
     "anchorX16": "29069422797"
@@ -1082,7 +1082,7 @@
     "lastUpdateTime": "1700982649",
     "lRefTime": "1700982649",
     "lastPosTime": "1700982644",
-    "lRefBits": "0",
+    "lRefBits": "1",
     "snapBits": "64",
     "lRefRaiseTime": "1700982589",
     "anchorX16": "41483894784"
@@ -1108,7 +1108,7 @@
     "lastUpdateTime": "1700596628",
     "lRefTime": "1700596628",
     "lastPosTime": "1700596623",
-    "lRefBits": "1",
+    "lRefBits": "2",
     "snapBits": "70",
     "lRefRaiseTime": "1700596628",
     "anchorX16": "-31653139713"
@@ -1186,7 +1186,7 @@
     "lastUpdateTime": "1700583083",
     "lRefTime": "1700583083",
     "lastPosTime": "1700583078",
-    "lRefBits": "1",
+    "lRefBits": "2",
     "snapBits": "64",
     "lRefRaiseTime": "1700583083",
     "anchorX16": "4217360984"
@@ -1264,7 +1264,7 @@
     "lastUpdateTime": "1700045853",
     "lRefTime": "1700045853",
     "lastPosTime": "1700045848",
-    "lRefBits": "60",
+    "lRefBits": "65",
     "snapBits": "30",
     "lRefRaiseTime": "1700045853",
     "anchorX16": "-12827885568"
@@ -1368,9 +1368,9 @@
     "lastUpdateTime": "1700501053",
     "lRefTime": "1700501053",
     "lastPosTime": "1700501048",
-    "lRefBits": "36",
+    "lRefBits": "40",
     "snapBits": "64",
-    "lRefRaiseTime": "1700501053",
+    "lRefRaiseTime": "1700500053",
     "anchorX16": "56314213925"
    }
   },
@@ -1446,7 +1446,7 @@
     "lastUpdateTime": "1700605460",
     "lRefTime": "1700605460",
     "lastPosTime": "1700605455",
-    "lRefBits": "0",
+    "lRefBits": "3",
     "snapBits": "70",
     "lRefRaiseTime": "1700605400",
     "anchorX16": "-46136544162"
@@ -1498,7 +1498,7 @@
     "lastUpdateTime": "1700356785",
     "lRefTime": "1700356785",
     "lastPosTime": "1700356780",
-    "lRefBits": "0",
+    "lRefBits": "3",
     "snapBits": "0",
     "lRefRaiseTime": "1700356785",
     "anchorX16": "27425447540"
@@ -1602,7 +1602,7 @@
     "lastUpdateTime": "1700763924",
     "lRefTime": "1700763924",
     "lastPosTime": "1700763924",
-    "lRefBits": "1",
+    "lRefBits": "4",
     "snapBits": "30",
     "lRefRaiseTime": "1700763924",
     "anchorX16": "57279925929"
@@ -1628,7 +1628,7 @@
     "lastUpdateTime": "1700377171",
     "lRefTime": "1700377171",
     "lastPosTime": "1700377171",
-    "lRefBits": "40",
+    "lRefBits": "41",
     "snapBits": "64",
     "lRefRaiseTime": "1700377171",
     "anchorX16": "-3931996595"
@@ -1706,7 +1706,7 @@
     "lastUpdateTime": "1700373327",
     "lRefTime": "1700373327",
     "lastPosTime": "1700373322",
-    "lRefBits": "0",
+    "lRefBits": "67",
     "snapBits": "30",
     "lRefRaiseTime": "1700373327",
     "anchorX16": "62783080052"
@@ -1784,7 +1784,7 @@
     "lastUpdateTime": "1700654229",
     "lRefTime": "1700654229",
     "lastPosTime": "1700654224",
-    "lRefBits": "0",
+    "lRefBits": "1",
     "snapBits": "0",
     "lRefRaiseTime": "1700654229",
     "anchorX16": "39151534080"
@@ -1836,7 +1836,7 @@
     "lastUpdateTime": "1700689885",
     "lRefTime": "1700689885",
     "lastPosTime": "1700689880",
-    "lRefBits": "59",
+    "lRefBits": "64",
     "snapBits": "0",
     "lRefRaiseTime": "1700689885",
     "anchorX16": "14013592973"
@@ -2018,7 +2018,7 @@
     "lastUpdateTime": "1700318681",
     "lRefTime": "1700318681",
     "lastPosTime": "1700318676",
-    "lRefBits": "0",
+    "lRefBits": "40",
     "snapBits": "64",
     "lRefRaiseTime": "1700318681",
     "anchorX16": "3013765763"
@@ -2252,7 +2252,7 @@
     "lastUpdateTime": "1700324394",
     "lRefTime": "1700324394",
     "lastPosTime": "1700324389",
-    "lRefBits": "27",
+    "lRefBits": "68",
     "snapBits": "64",
     "lRefRaiseTime": "1700324394",
     "anchorX16": "-64463503360"
@@ -2408,9 +2408,9 @@
     "lastUpdateTime": "1700605454",
     "lRefTime": "1700605454",
     "lastPosTime": "1700605454",
-    "lRefBits": "1",
+    "lRefBits": "64",
     "snapBits": "64",
-    "lRefRaiseTime": "1700605454",
+    "lRefRaiseTime": "1700604454",
     "anchorX16": "11278093791"
    }
   },
@@ -2538,7 +2538,7 @@
     "lastUpdateTime": "1700721200",
     "lRefTime": "1700721200",
     "lastPosTime": "1700721200",
-    "lRefBits": "0",
+    "lRefBits": "1",
     "snapBits": "70",
     "lRefRaiseTime": "1700721200",
     "anchorX16": "-3255714397"
@@ -2564,9 +2564,9 @@
     "lastUpdateTime": "1700153731",
     "lRefTime": "1700153731",
     "lastPosTime": "1700153726",
-    "lRefBits": "1",
+    "lRefBits": "60",
     "snapBits": "64",
-    "lRefRaiseTime": "1700153731",
+    "lRefRaiseTime": "1700152731",
     "anchorX16": "29756057230"
    }
   },
@@ -2668,9 +2668,9 @@
     "lastUpdateTime": "1700492572",
     "lRefTime": "1700492572",
     "lastPosTime": "1700492567",
-    "lRefBits": "1",
+    "lRefBits": "60",
     "snapBits": "70",
-    "lRefRaiseTime": "1700492572",
+    "lRefRaiseTime": "1700491572",
     "anchorX16": "-55131582371"
    }
   },
@@ -2720,7 +2720,7 @@
     "lastUpdateTime": "1700120994",
     "lRefTime": "1700120994",
     "lastPosTime": "1700120994",
-    "lRefBits": "0",
+    "lRefBits": "1",
     "snapBits": "70",
     "lRefRaiseTime": "1700120934",
     "anchorX16": "62788139650"
@@ -2876,7 +2876,7 @@
     "lastUpdateTime": "1700272852",
     "lRefTime": "1700272852",
     "lastPosTime": "1700272847",
-    "lRefBits": "0",
+    "lRefBits": "40",
     "snapBits": "0",
     "lRefRaiseTime": "1700272852",
     "anchorX16": "37330051729"
@@ -2928,7 +2928,7 @@
     "lastUpdateTime": "1700727902",
     "lRefTime": "1700727902",
     "lastPosTime": "1700727897",
-    "lRefBits": "1",
+    "lRefBits": "41",
     "snapBits": "0",
     "lRefRaiseTime": "1700727902",
     "anchorX16": "-44353195773"
@@ -2980,7 +2980,7 @@
     "lastUpdateTime": "1700736149",
     "lRefTime": "1700736149",
     "lastPosTime": "1700736144",
-    "lRefBits": "3",
+    "lRefBits": "4",
     "snapBits": "70",
     "lRefRaiseTime": "1700736149",
     "anchorX16": "43649335295"
@@ -3032,7 +3032,7 @@
     "lastUpdateTime": "1700211181",
     "lRefTime": "1700211181",
     "lastPosTime": "1700211176",
-    "lRefBits": "62",
+    "lRefBits": "67",
     "snapBits": "0",
     "lRefRaiseTime": "1700211121",
     "anchorX16": "42719903744"
@@ -3058,7 +3058,7 @@
     "lastUpdateTime": "1700063511",
     "lRefTime": "1700063511",
     "lastPosTime": "1700063506",
-    "lRefBits": "1",
+    "lRefBits": "2",
     "snapBits": "0",
     "lRefRaiseTime": "1700063511",
     "anchorX16": "11921326080"
@@ -3110,7 +3110,7 @@
     "lastUpdateTime": "1700642825",
     "lRefTime": "1700642825",
     "lastPosTime": "1700642820",
-    "lRefBits": "0",
+    "lRefBits": "3",
     "snapBits": "64",
     "lRefRaiseTime": "1700642765",
     "anchorX16": "-15487991808"

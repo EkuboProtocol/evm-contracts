@@ -4,8 +4,8 @@ Run from the repository root:  python3 test/extensions/mevcapture-v21/gen_vector
 Writes test/data/mevcapture-v21/{gateScenarios,anchorUpdates,schedules}.json. The forge test MEVCaptureV21VectorsTest checks the contract against it.
 
 Cross-checks (the script fails if any does not hold):
-  - gate: every scenario of models/v23_gate_model.py (rev 5: H1, G1, G2, G3, J1) is replayed step by step through the
-    exact integer model; pass/fail and lRefBits must be identical and the anchor equal within 1e-3 tick.
+  - gate: every scenario of models/v23_gate_model.py (H1, G1, G2, G3, J1) plus the rev 6 Q1 scenarios is replayed step
+    by step through the exact integer model and models/v24_gate_model.py (rev 6 = rev 5 + the EKU-1034 Q1 rule); pass/fail and lRefBits must be identical and the anchor equal within 1e-3 tick.
   - segment schedule: boundaries equal models/v21_attacks.py seg_bounds exactly, and every uncapped segment rate is
     within one 0.16 unit (the ceil) of seg_rate.
 """
@@ -33,7 +33,7 @@ def _load(name):
     return mod
 
 
-v23 = _load("v23_gate_model")
+v24 = _load("v24_gate_model")
 v21 = _load("v21_attacks")
 
 CFG = m.Config()
@@ -60,7 +60,7 @@ class Twin:
     """Runs the exact model and the v23 float model side by side and records vector steps."""
 
     def __init__(self, lref, anchor_ticks=0, lref_from_init=False):
-        self.f = v23.Pool5(lref, anchor=float(anchor_ticks))
+        self.f = v24.Pool6(lref, anchor=float(anchor_ticks))
         self.s = m.State(T0, T0, 0, lref, 0, (T0 - CFG.tau) % m.U32, anchor_ticks * 65536)
         self.initial = self.s
         self.steps = []
@@ -147,12 +147,28 @@ def gate_scenarios():
     for now in range(12, 1_201, 12):
         t.swap(now, 1_000_000, 0)
     out.append(t.vector("j1_per_timestamp_parking", "J1: gate fails every update; anchor frozen"))
-    t = Twin(0)
-    for now in range(120, 120 * 31, 120):
-        t.swap(now, 5_000, 64)
-    assert t.s.l_ref_bits <= 1
-    out.append(t.vector("quiet_pool_touched_every_tau",
-                        "Spec observation: touched once per tau, the reference cannot climb above 1 bit"))
+    for period in (360, 720):
+        t = Twin(64)
+        for now in range(period, 6 * 3600 + 1, period):
+            t.swap(now, 5_000, 64)
+        assert t.s.l_ref_bits == 64
+        out.append(t.vector(f"q1_quiet_pool_warmed_touched_every_{period}s", "Rev 6 Q1: a warmed reference holds"))
+        t = Twin(0)
+        for now in range(period, 6 * 3600 + 1, period):
+            t.swap(now, 5_000, 64)
+        out.append(t.vector(f"q1_quiet_pool_warmup_every_{period}s", "Rev 6 Q1: warm-up is 1 bit per touch"))
+    t = Twin(64)
+    for now in range(12, 3_601, 12):
+        if now % 360 == 0:
+            t.swap(now, 1_000_000, 64)
+        else:
+            t.swap(now, 1_000_000, 0)
+    out.append(t.vector("q1_j1_parking_quiet_pool", "Rev 6 Q1: J1 parking on a pool with honest touches every 360 s"))
+    for d in (6, 12, 20):
+        t = Twin(64)
+        t.swap(3_600, 0, 64)
+        t.honest_until_pass(3_612, bits=64 - d, tick=0)
+        out.append(t.vector(f"q1_idle_drop_{d}_bits_restore", "Rev 6 residual: restore after an idle drop freezes <= (D-3)+ tau"))
     return out
 
 
@@ -264,7 +280,7 @@ def main():
             json.dump({**meta, name: vec[name]}, f, indent=1)
             f.write("\n")
     print(f"wrote {OUT_DIR}: {len(vec['gateScenarios'])} gate scenarios, {len(vec['anchorUpdates'])} anchor updates, "
-          f"{len(vec['schedules'])} schedules; cross-checks against v23_gate_model and v21_attacks passed")
+          f"{len(vec['schedules'])} schedules; cross-checks against v24_gate_model (rev 6) and v21_attacks passed")
 
 if __name__ == "__main__":
     main()

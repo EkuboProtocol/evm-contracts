@@ -103,7 +103,10 @@ library V21Ref {
             if (mv > lim) mv = lim;
             if (mv < -lim) mv = -lim;
             s.anchorX16 += mv;
-            s.lRefBits = raise(c, s, e, lObs, nowT);
+            // rev 6: restore toward the stored reference (never above it), then the H1 raise
+            uint256 base = s.lRefBits < lObs ? s.lRefBits : lObs;
+            if (base < e) base = e;
+            s.lRefBits = raise(c, s, base, lObs, nowT);
             s.lRefTime = nowT;
         }
         s.lastUpdateTime = nowT;

@@ -37,7 +37,7 @@ interface IMEVCaptureV21 is IExposedStorage, IForwardee, IExtension {
     /// @param poolId The pool whose anchor did not move
     /// @param lObs The observed active liquidity, as a bit length
     /// @param eRef The decayed gate reference, as a bit length
-    event AnchorGateFailed(PoolId poolId, uint8 lObs, uint8 eRef);
+    event AnchorGateFailed(PoolId indexed poolId, uint8 lObs, uint8 eRef);
 
     /// @notice Thrown when trying to use the extension on a stableswap or full-range pool
     error ConcentratedLiquidityPoolsOnly();

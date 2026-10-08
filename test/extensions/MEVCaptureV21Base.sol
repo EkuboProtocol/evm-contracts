@@ -207,13 +207,14 @@ abstract contract MEVCaptureV21Base is FullTest {
         (u, st) = _swapRaw(isToken1, amount, limit, minFee);
         Vm.AccountAccess[] memory accesses = vm.stopAndReturnStateDiff();
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        _checkCoreCalls(accesses, nCalls);
+        _checkCoreCalls(accesses, nCalls, minFee);
 
         uint256 gateEvents;
         for (uint256 i; i < logs.length; i++) {
             if (logs[i].emitter == address(v21) && logs[i].topics[0] == GATE_FAILED_TOPIC) {
                 gateEvents++;
-                (bytes32 pid, uint8 lo, uint8 er) = abi.decode(logs[i].data, (bytes32, uint8, uint8));
+                bytes32 pid = logs[i].topics[1];
+                (uint8 lo, uint8 er) = abi.decode(logs[i].data, (uint8, uint8));
                 assertEq(pid, PoolId.unwrap(pool.toPoolId()), "event pool");
                 assertEq(lo, lObs, "event lObs");
                 assertEq(er, eRef, "event eRef");
@@ -233,7 +234,7 @@ abstract contract MEVCaptureV21Base is FullTest {
 
     /// @notice The extension must make exactly the reference's Core swap calls (limit, fee, amount, in order), and never
     ///   update a position from the forwarded handler (G1 a)
-    function _checkCoreCalls(Vm.AccountAccess[] memory accesses, uint256 nCalls) internal view {
+    function _checkCoreCalls(Vm.AccountAccess[] memory accesses, uint256 nCalls, uint16 callerMinFee) internal view {
         uint256 seen;
         for (uint256 i; i < accesses.length; i++) {
             Vm.AccountAccess memory a = accesses[i];
@@ -249,7 +250,7 @@ abstract contract MEVCaptureV21Base is FullTest {
                 p := mload(add(d, 132))
             }
             // every segment fee is at most MAX_FEE unless the caller asked for more (invariant 10)
-            assertLe(p.minFee(), cfg.maxFee > p.minFee() ? cfg.maxFee : p.minFee(), "segment fee cap");
+            assertLe(p.minFee(), cfg.maxFee > callerMinFee ? cfg.maxFee : callerMinFee, "segment fee cap");
             if (nCalls != 0) {
                 V21Actor.RefCall memory r = actor.refCall(seen);
                 assertEq(SqrtRatio.unwrap(p.sqrtRatioLimit()), SqrtRatio.unwrap(r.limit), "call limit");
@@ -294,8 +295,7 @@ abstract contract MEVCaptureV21Base is FullTest {
     }
 
     /// @notice Raises the gate reference to the bit length of the current active liquidity with one tiny swap per
-    ///   half tau. (Touching only once per tau would not work: the pass decays the reference by one bit before the +1
-    ///   raise, see test_quiet_pool_reference_cannot_climb.)
+    ///   half tau (one bit per tau)
     function _warmReference() internal {
         uint256 target = V21Ref.bitlen(_poolState().liquidity());
         for (uint256 i; i < 400 && _lRefBits() < target; i++) {

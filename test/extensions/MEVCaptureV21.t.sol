@@ -299,6 +299,79 @@ contract MEVCaptureV21Test is MEVCaptureV21Base {
         assertEq(moved, uint256(2500) << 16, "one idle park earns at most CLAMP");
     }
 
+    function test_park_with_dust_allowance_rounds_up() public {
+        uint256 moved = _dustPark(7);
+        assertEq(moved, ((uint256(2500) << 16) * 7 + 119) / 120, "fractional allowance rounds up");
+    }
+
+    // ================================================================ inv 2 (V12 F-13): frequent updates never slow the anchor
+
+    function _displacedPools(V21Ref.Cfg memory c, int32 displacement)
+        internal
+        returns (PoolKey memory other, MEVCaptureV21 ext, int256 a0)
+    {
+        useExtension(deployV21(c, 7), c);
+        // liquidity only around the anchor, so the push beyond it is a free empty-range move
+        createPools(FEE_30BP, SP, 0);
+        _lp(bytes24(uint192(1)), -S, S, L66);
+        (other, ext) = createOtherPool(FEE_30BP, SP, 0, 8);
+        _lpOn(other, bytes24(uint192(1)), -S, S, L66);
+        a0 = _anchor();
+        // same timestamp as the initialization: no anchor update runs, the anchor stays at the initial tick
+        _swapChecked(true, type(int128).max >> 8, _limitAt(displacement));
+        _swapRawOn(other, ext, _params(true, type(int128).max >> 8, _limitAt(displacement)));
+        assertEq(_anchor(), a0, "push leaves the anchor");
+        assertEq(_state(ext, other).anchorX16, a0);
+        assertEq(_poolState().tick(), displacement);
+    }
+
+    /// @notice V12 run 57 F-13: with `CLAMP_TICKS = 1` and `HALF_LIFE = 2^20`, a floored per-update allowance was 0
+    ///   for every dt < 16, so a zero-amount forward every second consumed the interval without granting movement and
+    ///   froze the anchor indefinitely. The allowance rounds up: every consumed interval grants at least one unit
+    function test_f13_zero_amount_forwards_every_second_cannot_freeze_anchor() public {
+        V21Ref.Cfg memory c = V21Ref.defaults();
+        c.tau = 1 << 20;
+        c.clamp = 1;
+        (PoolKey memory other, MEVCaptureV21 ext, int256 a0) = _displacedPools(c, 1000);
+        for (uint256 i; i < 32; i++) {
+            advanceTime(1);
+            _swapChecked(true, 0, SqrtRatio.wrap(0));
+            assertEq(_state(pool).lastUpdateTime, _now(), "the zero-amount forward consumed the interval");
+            assertEq(uint256(_anchor() - a0), i + 1, "each touched second grants ceil(2^16 / 2^20) = 1 unit");
+        }
+        // one update over the same 32 s grants ceil(2^16 * 32 / 2^20) = 2 units: touching never slows the anchor and
+        // adds at most one unit per touched timestamp
+        _swapRawOn(other, ext, _params(true, 0, SqrtRatio.wrap(0)));
+        assertEq(_state(ext, other).anchorX16 - a0, 2, "single update over 32 s");
+    }
+
+    /// @notice For any config and clamp-bound displacement, n per-second updates move the anchor exactly
+    ///   n * ceil(CLAMP * 2^16 / tau): never less than one update over the same n seconds, and at most n units more
+    ///   than the exact rate CLAMP * 2^16 * n / tau
+    function test_fuzz_frequent_updates_never_slow_anchor(uint32 tauSeed, uint32 clampSeed, uint8 nSeed) public {
+        V21Ref.Cfg memory c = V21Ref.defaults();
+        c.tau = bound(tauSeed, 1, 1 << 20);
+        c.clamp = bound(clampSeed, 1, 4096);
+        uint256 n = bound(nSeed, 1, 48);
+        // the clamp binds on every update while the offset exceeds about 2.2 * (CLAMP + 16) ticks; per-second updates
+        // move at most CLAMP + 1 ticks each, so this displacement keeps it binding for all n <= 48 updates
+        (PoolKey memory other, MEVCaptureV21 ext, int256 a0) = _displacedPools(c, int32(int256(70 * c.clamp + 128)));
+        uint256 unitsPerTau = c.clamp << 16;
+        for (uint256 i; i < n; i++) {
+            advanceTime(1);
+            _swapChecked(true, 0, SqrtRatio.wrap(0));
+        }
+        uint256 touched = uint256(_anchor() - a0);
+        assertEq(touched, n * ((unitsPerTau + c.tau - 1) / c.tau), "n per-second updates");
+
+        _swapRawOn(other, ext, _params(true, 0, SqrtRatio.wrap(0)));
+        uint256 single = uint256(_state(ext, other).anchorX16 - a0);
+        assertEq(single, (unitsPerTau * (n < c.tau ? n : c.tau) + c.tau - 1) / c.tau, "one update over n seconds");
+
+        assertGe(touched, single, "frequent updates slowed the anchor");
+        assertLe(touched * c.tau, n * unitsPerTau + n * c.tau, "more than one extra unit per touched second");
+    }
+
     // ================================================================ inv 4: crossing after an empty-range push
 
     function test_crossing_after_empty_range_push_pays_same_as_from_anchor() public {

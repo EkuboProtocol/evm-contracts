@@ -12,7 +12,8 @@ import {PoolId} from "../../types/poolId.sol";
 ///   `Core.accumulateAsFees` immediately after each charged Core call inside `forward`. Every charged Core call is
 ///   cut to stop before the next rate boundary and before the next initialized tick; each initialized tick is then
 ///   crossed by its own uncharged bridge call. The anchor decays toward the pool tick with half-life `HALF_LIFE`,
-///   moves at most `CLAMP_TICKS` per `HALF_LIFE`, and only moves when the active liquidity passes a gate against a
+///   moves at most `CLAMP_TICKS` per `HALF_LIFE` plus one 2^-16 tick per updated timestamp (the per-update allowance
+///   rounds up, so frequent updates never slow it), and only moves when the active liquidity passes a gate against a
 ///   reference that rises and falls by at most one bit per `HALF_LIFE`.
 interface IMEVCaptureV21 is IExposedStorage, IForwardee, IExtension {
     /// @notice The immutable configuration of the extension

@@ -366,7 +366,8 @@ abstract contract MEVCaptureV21Base is FullTest {
         }
     }
 
-    /// @notice Invariant 2: same sign, |offset| non-increasing, |move| <= CLAMP * min(dt, tau) / tau, no move on a fail
+    /// @notice Invariant 2: same sign, |offset| non-increasing, |move| <= ceil(CLAMP * min(dt, tau) / tau), no move on
+    ///   a fail
     function _checkDecay(int256 a0, int256 a1, int32 tick, uint256 dt, bool passed) internal view {
         if (!passed) {
             assertEq(a1, a0, "anchor moved on a failed gate");
@@ -377,7 +378,7 @@ abstract contract MEVCaptureV21Base is FullTest {
         int256 o1 = a1 - t16;
         assertTrue(o1 == 0 || (o0 < 0) == (o1 < 0), "decay changed sign");
         assertLe(_abs(o1), _abs(o0), "offset grew");
-        uint256 lim = (cfg.clamp << 16) * (dt < cfg.tau ? dt : cfg.tau) / cfg.tau;
+        uint256 lim = ((cfg.clamp << 16) * (dt < cfg.tau ? dt : cfg.tau) + cfg.tau - 1) / cfg.tau;
         assertLe(_abs(a1 - a0), lim, "move beyond clamp");
     }
 

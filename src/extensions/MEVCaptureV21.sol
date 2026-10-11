@@ -272,7 +272,11 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
                 magnitude = ((magnitude >> (dt / HALF_LIFE)) << 64) / exp2(((dt % HALF_LIFE) << 64) / HALF_LIFE);
                 int256 decayed = offset < 0 ? -int256(magnitude) : int256(magnitude);
 
-                int256 limit = int256(((CLAMP_TICKS << 16) * (dt < HALF_LIFE ? dt : HALF_LIFE)) / HALF_LIFE);
+                // CLAMP_TICKS * min(dt, tau) / tau in 16.16, rounded up: every update that consumes elapsed time
+                // grants at least one unit, so touching the pool every timestamp cannot slow the anchor below the
+                // configured rate (it can only add at most one unit per timestamp, i.e. one tick per 2^16 seconds)
+                int256 limit =
+                    int256(((CLAMP_TICKS << 16) * (dt < HALF_LIFE ? dt : HALF_LIFE) + HALF_LIFE - 1) / HALF_LIFE);
                 int256 move = decayed - offset;
                 if (move > limit) move = limit;
                 else if (move < -limit) move = -limit;

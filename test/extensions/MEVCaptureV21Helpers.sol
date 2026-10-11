@@ -101,7 +101,8 @@ library V21Ref {
             mag = halvings >= 256 ? 0 : mag / (uint256(1) << halvings);
             mag = mag * (uint256(1) << 64) / exp2(((dt % c.tau) * (uint256(1) << 64)) / c.tau);
             int256 offNew = off < 0 ? -int256(mag) : int256(mag);
-            int256 lim = int256(c.clamp * 65536 * (dt < c.tau ? dt : c.tau) / c.tau);
+            // rounded up (F-13): a consumed interval always grants at least one unit
+            int256 lim = int256((c.clamp * 65536 * (dt < c.tau ? dt : c.tau) + c.tau - 1) / c.tau);
             int256 mv = offNew - off;
             if (mv > lim) mv = lim;
             if (mv < -lim) mv = -lim;

@@ -218,6 +218,9 @@ contract V21Actor is BaseLocker {
     uint8 internal constant FORWARD_SWAP = 1;
     uint8 internal constant CORE_SWAP = 2;
     uint8 internal constant COLLECT = 3;
+    uint8 internal constant REVERT = 4;
+
+    error Forced();
 
     struct Action {
         uint8 kind;
@@ -299,6 +302,8 @@ contract V21Actor is BaseLocker {
                     (uint128 f0, uint128 f1) = core.collectFees(act.poolKey, PositionId.wrap(act.a));
                     results[i] = abi.encode(f0, f1);
                     _settle(act.poolKey, -int128(f0), -int128(f1));
+                } else if (act.kind == REVERT) {
+                    revert Forced();
                 }
             }
             result = abi.encode(results);

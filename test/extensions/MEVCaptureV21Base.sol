@@ -258,6 +258,7 @@ abstract contract MEVCaptureV21Base is FullTest {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         _checkCoreCalls(accesses, nCalls);
         _checkEvents(logs, passed, lObs, eRef);
+        _afterSwapTrace(accesses, logs, before, p);
 
         assertEq(PoolBalanceUpdate.unwrap(u), PoolBalanceUpdate.unwrap(ur), "balance update vs reference");
         assertEq(PoolState.unwrap(st), PoolState.unwrap(str), "state after vs reference");
@@ -267,6 +268,10 @@ abstract contract MEVCaptureV21Base is FullTest {
         _assertStateEq(_state(pool), s);
         lastCalls = nCalls;
     }
+
+    /// @notice Hook for tests that check the recorded Core calls and logs of a checked swap directly against Core's
+    ///   state, independently of the reference model
+    function _afterSwapTrace(Vm.AccountAccess[] memory, Vm.Log[] memory, PoolState, SwapParameters) internal virtual {}
 
     /// @notice The extension must make exactly the reference's Core swap calls (limit, amount, in order), call
     ///   `accumulateAsFees` with the reference's surcharge right after each charged call with a nonzero fee and never

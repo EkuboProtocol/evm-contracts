@@ -1188,6 +1188,181 @@ contract MEVCaptureV21RulesTest is MEVCaptureV21Base {
         // Core's token balances equal the pools' deposits plus fees: the payer's balances moved by exactly the deltas
         // (checked per swap by the actor settling the returned amounts)
     }
+
+    // ================================================================ quoter vectors
+    // Emits the traced Core calls of deterministic scenarios as JSON lines (the vectors published for the `main`
+    // quoter/indexer; run with `-vv --match-test test_vectors`)
+
+    function _st(SqrtRatio r, int32 t, uint128 l) internal pure returns (string memory) {
+        return string.concat(
+            '{"sqrtRatio":"',
+            vm.toString(SqrtRatio.unwrap(r)),
+            '","tick":',
+            vm.toString(t),
+            ',"liquidity":"',
+            vm.toString(l),
+            '"}'
+        );
+    }
+
+    function _dump(string memory name, PoolState before, SwapParameters p, PoolBalanceUpdate u, PoolState after_)
+        internal
+    {
+        string memory calls = "[";
+        for (uint256 i; i < trace.length; i++) {
+            Call memory c = trace[i];
+            V21Actor.RefCall memory r = actor.refCall(i);
+            calls = string.concat(
+                calls,
+                i == 0 ? "" : ",",
+                '{"limit":"',
+                vm.toString(SqrtRatio.unwrap(c.limit)),
+                '","amount":"',
+                vm.toString(c.amount),
+                '","kind":"',
+                r.kind == 0 ? "charged" : (r.kind == 1 ? "toward" : "bridge"),
+                '","surcharge":"',
+                vm.toString(r.sur),
+                '","before":',
+                _st(c.before, c.tickBefore, c.liqBefore),
+                ',"after":',
+                _st(c.after_, c.tickAfter, c.liqAfter),
+                ',"delta0":"',
+                vm.toString(c.d0),
+                '","delta1":"',
+                vm.toString(c.d1),
+                '","fee0":"',
+                vm.toString(c.fee0),
+                '","fee1":"',
+                vm.toString(c.fee1),
+                '"}'
+            );
+        }
+        (SqrtRatio br, int32 bt, uint128 bl) = before.parse();
+        (SqrtRatio ar, int32 at, uint128 al) = after_.parse();
+        emit log_string(string.concat(
+                '{"name":"',
+                name,
+                '","cfg":{"tau":',
+                vm.toString(cfg.tau),
+                ',"slopeK":',
+                vm.toString(cfg.slopeK),
+                ',"segExp":',
+                vm.toString(cfg.segExp),
+                ',"jLin":',
+                vm.toString(cfg.jLin),
+                ',"maxFee":"',
+                vm.toString(cfg.maxFee),
+                '","clampTicks":',
+                vm.toString(cfg.clamp),
+                ',"mGate":',
+                vm.toString(cfg.mGate),
+                '},"pool":{"fee":"',
+                vm.toString(poolFee),
+                '","tickSpacing":',
+                vm.toString(spacing),
+                '},"anchorX16":"',
+                vm.toString(_anchor()),
+                '","params":{"isToken1":',
+                p.isToken1() ? "true" : "false",
+                ',"amount":"',
+                vm.toString(p.amount()),
+                '","sqrtRatioLimit":"',
+                vm.toString(SqrtRatio.unwrap(p.withDefaultSqrtRatioLimit().sqrtRatioLimit())),
+                '","skipAhead":',
+                vm.toString(p.skipAhead()),
+                '},"before":',
+                _st(br, bt, bl),
+                ',"calls":',
+                calls,
+                '],"total":{"delta0":"',
+                vm.toString(u.delta0()),
+                '","delta1":"',
+                vm.toString(u.delta1()),
+                '"},"after":',
+                _st(ar, at, al),
+                "}"
+            ));
+    }
+
+    function _vector(string memory name, bool isToken1, int128 amount, SqrtRatio limit, uint256 skipAhead) internal {
+        PoolState before = _poolState();
+        (PoolBalanceUpdate u, PoolState st) = _swapChecked(isToken1, amount, limit, skipAhead);
+        _dump(name, before, _params(isToken1, amount, limit, skipAhead), u, st);
+    }
+
+    function test_vectors_increasing_decreasing_cut_bridge() public {
+        _wide();
+        _lp(bytes24(uint192(2)), 3 * S, 7 * S, L66);
+        _lp(bytes24(uint192(3)), -7 * S, -3 * S, L66);
+        _vector("inc_exact_in_cut_bridge_rate", true, _big(), _at(12 * S), 0);
+        _vector("dec_toward_then_away_exact_in", false, _big(), _at(-12 * S), 0);
+        advanceTime(12);
+        _vector("inc_exact_out_after_anchor_update", false, -3e18, SqrtRatio.wrap(0), 0);
+        _vector("dec_exact_out_partial", true, -2e18, SqrtRatio.wrap(0), 0);
+        _vector("inc_exact_in_partial_mid_segment", true, 7e17, SqrtRatio.wrap(0), 0);
+    }
+
+    function test_vectors_exact_tick_and_fee_only() public {
+        createPools(FEE_30BP, SP, 3 * S);
+        _lp(bytes24(uint192(1)), -40 * S, 40 * S, L66);
+        _lp(bytes24(uint192(2)), 3 * S, 7 * S, L66);
+        _vector("exact_tick_state_dec_from_tick_T", false, _big(), _at(2 * S), 0);
+        _vector("inc_through_T_toward_uncut", true, _big(), _at(5 * S), 0);
+        _vector("dec_onto_T_tick_T_minus_1", false, _big(), _at(3 * S), 0);
+        _vector("exact_tick_state_inc_from_tick_T_minus_1", true, _big(), _at(4 * S), 0);
+        _vector("dec_onto_T_again", false, _big(), _at(3 * S), 0);
+        _vector("fee_only_1_wei_exact_in_at_T", true, 1, SqrtRatio.wrap(0), 0);
+    }
+
+    function test_vectors_bridge_25pct_and_1ulp() public {
+        createPools(FEE_25PCT, SP, 0);
+        _lp(bytes24(uint192(1)), -40 * S, 40 * S, L66);
+        _lp(bytes24(uint192(2)), 2 * S, 3 * S, L66);
+        _vector("bridge_25pct_exact_in", true, _big(), _at(2 * S + S / 2), 0);
+        advanceTime(12);
+        _vector("bridge_25pct_exact_out_dec", true, -1e18, SqrtRatio.wrap(0), 0);
+        createPools(1, SP, 0);
+        _lp(bytes24(uint192(1)), -40 * S, 40 * S, L66);
+        _lp(bytes24(uint192(2)), 2 * S, 3 * S, L66);
+        _vector("bridge_1ulp_exact_in", true, _big(), _at(2 * S + S / 2), 0);
+    }
+
+    function test_vectors_uninitialized_endpoints_and_cap() public {
+        createPools(FEE_30BP, SP, 0);
+        _lp(bytes24(uint192(1)), -S, S, L66);
+        _lp(bytes24(uint192(2)), 1000 * S, 1001 * S, L66);
+        _vector("empty_words_skip0", true, _big(), _at(1000 * S + S / 2), 0);
+        advanceTime(12);
+        _vector("return_toward_skip0", false, _big(), _at(0), 0);
+        advanceTime(12);
+        _vector("empty_words_skip3", true, _big(), _at(1000 * S + S / 2), 3);
+        // a second pool pair on the same tokens needs another extension instance and a distinct twin key (no pool
+        // salt on main): use a different fee
+        V21Ref.Cfg memory c = V21Ref.defaults();
+        useExtension(deployV21(c, 11), c);
+        createPools(FEE_30BP + 1, SP, 0);
+        _lp(bytes24(uint192(1)), -20_000 * S, 20_000 * S, int128(1) << 40);
+        _lp(bytes24(uint192(2)), 3000 * S, 3001 * S, 1e9);
+        _vector("cap_tail_to_max", true, _big(), MAX_SQRT_RATIO, 0);
+    }
+
+    function test_vectors_segexp_offgrid_and_negative_anchor() public {
+        V21Ref.Cfg memory c = V21Ref.defaults();
+        c.segExp = 2;
+        useExtension(deployV21(c, 7), c);
+        _wide();
+        _lp(bytes24(uint192(2)), 3 * S, 7 * S, L66 * 2);
+        _lp(bytes24(uint192(3)), 8 * S, 9 * S, L66);
+        _vector("segexp2_offgrid_ticks_inc", true, _big(), _at(12 * S), 0);
+        int32 sp = 3000;
+        createPools(FEE_30BP, uint32(sp), -123_457);
+        _lp(bytes24(uint192(1)), -200 * sp, 100 * sp, L66);
+        _lp(bytes24(uint192(2)), -50 * sp, -30 * sp, L66);
+        _vector("spacing3000_negative_anchor_dec", false, _big(), _at(-80 * sp), 0);
+        advanceTime(12);
+        _vector("spacing3000_negative_anchor_inc", true, _big(), _at(-20 * sp), 0);
+    }
 }
 
 /// @notice A locker that runs another locker's action list inside its own (outer) lock

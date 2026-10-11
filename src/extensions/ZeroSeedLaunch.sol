@@ -29,6 +29,9 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// @dev Highest creator fee rate, Q0.64: floor(2**64 / 10) = 10%.
 uint64 constant MAX_CREATOR_FEE = 1844674407370955161;
 
+/// @dev Longest token name or symbol in bytes: `MintableERC20` packs each with its length into one word.
+uint256 constant MAX_METADATA_LENGTH = 31;
+
 function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
         beforeInitializePool: true,
@@ -49,6 +52,9 @@ function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
 /// `finalFee` after `feeDuration`, and it stays there.
 /// @dev No admin, upgrade, withdrawal, migration or staging path. The pool fee is zero; the creator fee is taken
 /// on the calculated side of each forwarded swap and saved in Core under this extension, salt = pool id.
+/// Every launch of one deployment uses the single quote token fixed in the constructor. The deployer must pass a
+/// plain token (no transfer fee, rebase, callback, pause, blocklist, upgrade or misreported balance); nothing here
+/// can detect a token that only behaves later.
 contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee, BaseLocker {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
@@ -56,9 +62,14 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee, BaseLo
     uint256 private constant ACTION_CREATE = 0;
     uint256 private constant ACTION_CLAIM = 1;
 
+    address private immutable QUOTE_TOKEN;
+
     mapping(PoolId => Launch) private _launches;
 
-    constructor(ICore core) BaseExtension(core) BaseForwardee(core) BaseLocker(core) {}
+    constructor(ICore core, address quote) BaseExtension(core) BaseForwardee(core) BaseLocker(core) {
+        if (quote == NATIVE_TOKEN_ADDRESS || quote.code.length == 0) revert UnsupportedQuoteToken();
+        QUOTE_TOKEN = quote;
+    }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return zeroSeedLaunchCallPoints();
@@ -87,8 +98,18 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee, BaseLo
     /// @inheritdoc IZeroSeedLaunch
     function claimFees(PoolKey calldata poolKey, address recipient) external returns (uint128, uint128) {
         if (_launches[poolKey.toPoolId()].creator != msg.sender) revert CreatorOnly();
-        if (recipient == address(0)) revert InvalidRecipient();
+        // Tokens sent to any of these are stranded: Core and this extension book nothing for a bare transfer, and
+        // neither pool token can return a balance held at its own address.
+        if (
+            recipient == address(0) || recipient == address(CORE) || recipient == address(this)
+                || recipient == poolKey.token0 || recipient == poolKey.token1
+        ) revert InvalidRecipient();
         return abi.decode(lock(abi.encode(ACTION_CLAIM, abi.encode(poolKey, recipient))), (uint128, uint128));
+    }
+
+    /// @inheritdoc IZeroSeedLaunch
+    function quoteToken() external view returns (address) {
+        return QUOTE_TOKEN;
     }
 
     /// @inheritdoc IZeroSeedLaunch
@@ -113,6 +134,7 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee, BaseLo
         returns (Installation memory installation)
     {
         installation.token = _tokenAddress(creator, parameters);
+        if (installation.token.code.length != 0) revert LaunchTokenExists(installation.token);
         bool tokenIs0 = installation.token < parameters.quoteToken;
         installation.poolKey = PoolKey({
             token0: tokenIs0 ? installation.token : parameters.quoteToken,
@@ -298,8 +320,12 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee, BaseLo
     }
 
     function _validate(LaunchParameters memory parameters) private view {
-        address quote = parameters.quoteToken;
-        if (quote == NATIVE_TOKEN_ADDRESS || quote.code.length == 0) revert UnsupportedQuoteToken();
+        if (parameters.quoteToken != QUOTE_TOKEN) revert UnsupportedQuoteToken();
+        if (
+            bytes(parameters.name).length > MAX_METADATA_LENGTH || bytes(parameters.symbol).length > MAX_METADATA_LENGTH
+        ) {
+            revert MetadataTooLong();
+        }
         if (parameters.supply == 0 || parameters.supply > uint128(type(int128).max)) revert InvalidParameters();
         if (
             parameters.tickSpacing == 0 || parameters.tickSpacing > MAX_TICK_SPACING || parameters.askTick < MIN_TICK

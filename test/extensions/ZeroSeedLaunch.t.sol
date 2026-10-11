@@ -10,6 +10,8 @@ import {ZeroSeedLaunch, zeroSeedLaunchCallPoints, MAX_CREATOR_FEE} from "../../s
 import {MintableERC20} from "../../src/MintableERC20.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
+import {CoreStorageLayout} from "../../src/libraries/CoreStorageLayout.sol";
+import {StorageSlot} from "../../src/types/storageSlot.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
 import {PoolId} from "../../src/types/poolId.sol";
@@ -23,6 +25,13 @@ import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
 
+interface IWETH9 {
+    function deposit() external payable;
+    function withdraw(uint256) external;
+}
+
+/// @dev Plain 6-decimal ERC-20, used only as the constructor quote for the 18/6 math vectors. The reference
+/// deployment quote is WETH (`WETH9_FIXTURE`).
 contract DecimalsToken is ERC20 {
     uint8 private immutable _DECIMALS;
 
@@ -123,6 +132,11 @@ abstract contract ZeroSeedLaunchBase is Test {
     address constant QUOTE_HIGH = address(type(uint160).max);
     address constant QUOTE_LOW = address(0x10000);
 
+    /// @dev Runtime of WETH9 at Base 0x4200000000000000000000000000000000000006, read at Base block 52,449,112 (solc
+    /// 0.5.17 build), with its three metadata slots as read at the same block. Local fixture only.
+    string constant WETH9_FIXTURE = "test/fixtures/weth9-0x4200-base-52449112.hex";
+    bytes32 constant WETH9_CODEHASH = 0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c;
+
     ZeroSeedLaunch launch;
     LaunchSwapper swapper;
     address creator = makeAddr("creator");
@@ -131,16 +145,47 @@ abstract contract ZeroSeedLaunchBase is Test {
     function setUp() public virtual {
         vm.warp(1);
         deployCodeTo("Core.sol:Core", CORE);
-        address target = address(uint160(zeroSeedLaunchCallPoints().toUint8()) << 152);
-        deployCodeTo("ZeroSeedLaunch.sol:ZeroSeedLaunch", abi.encode(CORE), target);
-        launch = ZeroSeedLaunch(target);
         swapper = new LaunchSwapper(ICore(CORE));
+        _quote(true, 18);
     }
 
+    /// @dev Real WETH9 runtime and metadata slots at `at`, funded with 2**128 - 1 wei deposited by this test.
+    function _etchWeth(address at) internal {
+        vm.etch(at, vm.parseBytes(vm.trim(vm.readFile(WETH9_FIXTURE))));
+        assertEq(at.codehash, WETH9_CODEHASH, "WETH9 fixture");
+        vm.store(at, bytes32(0), 0x577261707065642045746865720000000000000000000000000000000000001a);
+        vm.store(at, bytes32(uint256(1)), 0x5745544800000000000000000000000000000000000000000000000000000008);
+        vm.store(at, bytes32(uint256(2)), bytes32(uint256(18)));
+        vm.deal(address(this), type(uint128).max);
+        IWETH9(at).deposit{value: type(uint128).max}();
+    }
+
+    function _launchTarget() internal pure returns (address) {
+        return address(uint160(zeroSeedLaunchCallPoints().toUint8()) << 152);
+    }
+
+    /// @dev Deploys the extension at its callpoint address with `quote` as the constructor quote token. A test that
+    /// switches quote redeploys at the same address, so the Core registration flag is cleared first; launch storage
+    /// and token addresses stay where they were.
+    function _deployLaunch(address quote) internal {
+        address target = _launchTarget();
+        vm.store(CORE, StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(target)), bytes32(0));
+        deployCodeTo("ZeroSeedLaunch.sol:ZeroSeedLaunch", abi.encode(CORE, quote), target);
+        launch = ZeroSeedLaunch(target);
+        assertEq(launch.quoteToken(), quote, "constructor quote");
+    }
+
+    /// @dev Quote for the requested order: WETH9 for 18 decimals, the plain 6-decimal token otherwise. Redeploys the
+    /// extension bound to it.
     function _quote(bool tokenIs0, uint8 quoteDecimals) internal returns (address quote) {
         quote = tokenIs0 ? QUOTE_HIGH : QUOTE_LOW;
-        deployCodeTo("ZeroSeedLaunch.t.sol:DecimalsToken", abi.encode(address(this), quoteDecimals), quote);
+        if (quoteDecimals == 18) {
+            _etchWeth(quote);
+        } else {
+            deployCodeTo("ZeroSeedLaunch.t.sol:DecimalsToken", abi.encode(address(this), quoteDecimals), quote);
+        }
         ERC20(quote).approve(address(swapper), type(uint256).max);
+        _deployLaunch(quote);
     }
 
     function _parameters(address quote, int32 ask, uint128 supply, uint32 duration)
@@ -412,6 +457,16 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         p = _copy(base);
         p.quoteToken = address(0xdead);
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.UnsupportedQuoteToken.selector));
+        // A plain ERC-20 with code that is not the constructor quote is refused too.
+        p = _copy(base);
+        p.quoteToken = address(new DecimalsToken(address(this), 18));
+        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.UnsupportedQuoteToken.selector));
+        p = _copy(base);
+        p.name = "abcdefghijklmnopqrstuvwxyz012345"; // 32 bytes
+        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.MetadataTooLong.selector));
+        p = _copy(base);
+        p.symbol = "abcdefghijklmnopqrstuvwxyz012345";
+        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.MetadataTooLong.selector));
         p = _copy(base);
         p.supply = 0;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidParameters.selector));
@@ -479,9 +534,13 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
     }
 
     function test_create_sameSaltSameCreatorRefused_otherCreatorIndependent() public {
-        (, IZeroSeedLaunch.LaunchParameters memory p) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory first, IZeroSeedLaunch.LaunchParameters memory p) =
+            _create(true, 18, DURATION);
+        bytes memory exists = abi.encodeWithSelector(IZeroSeedLaunch.LaunchTokenExists.selector, first.token);
+        vm.expectRevert(exists);
+        launch.previewInstallation(creator, p);
         vm.prank(creator);
-        vm.expectRevert();
+        vm.expectRevert(exists);
         launch.create(p);
         // Another creator with the same parameters gets a different token address and its own pool.
         address other = makeAddr("other");
@@ -567,9 +626,12 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
         _buy(inst.poolKey, inst.token, 1e18, false);
         vm.expectRevert(IZeroSeedLaunch.CreatorOnly.selector);
         launch.claimFees(inst.poolKey, address(this));
-        vm.prank(creator);
-        vm.expectRevert(IZeroSeedLaunch.InvalidRecipient.selector);
-        launch.claimFees(inst.poolKey, address(0));
+        address[5] memory sinks = [address(0), CORE, address(launch), inst.poolKey.token0, inst.poolKey.token1];
+        for (uint256 i; i < sinks.length; i++) {
+            vm.prank(creator);
+            vm.expectRevert(IZeroSeedLaunch.InvalidRecipient.selector);
+            launch.claimFees(inst.poolKey, sinks[i]);
+        }
         PoolKey memory unknown = PoolKey(address(0x1234), inst.poolKey.token1, inst.poolKey.config);
         vm.prank(creator);
         vm.expectRevert(IZeroSeedLaunch.CreatorOnly.selector);
@@ -784,8 +846,28 @@ contract ZeroSeedLaunchTradingTest is ZeroSeedLaunchBase {
                 _ustr(tokenIs0 ? a1 : a0)
             )
         );
-        (tokenDust, quoteDust) = _assertLedger(inst, quote, f.quoteIn, f.quoteOut, MAX_DUST);
-        console2.log(string.concat(tag, "|dustExhausted|token=", _ustr(tokenDust), "|quote=", _ustr(quoteDust)));
+        // Two different metrics, both in raw units. Upper-bound residue: launch tokens the position held before
+        // the exhausting buy that the buyer did not receive (that buy's fee is in quote). Core unbooked dust: Core
+        // balance minus position amount minus fee ledger, accumulated over every swap so far; the residue is part
+        // of it. Neither is owned or claimable by the creator.
+        uint256 residue = remaining - got;
+        (uint256 tokenDustExhausted, uint256 quoteDustExhausted) =
+            _assertLedger(inst, quote, f.quoteIn, f.quoteOut, MAX_DUST);
+        assertEq(tokenDustExhausted, tokenDust + residue, "residue is booked as new token dust");
+        console2.log(
+            string.concat(
+                tag,
+                "|upperResidue|positionTokenBefore=",
+                _ustr(remaining),
+                "|delivered=",
+                _ustr(got),
+                "|residueToken=",
+                _ustr(residue)
+            )
+        );
+        console2.log(
+            string.concat(tag, "|dustExhausted|token=", _ustr(tokenDustExhausted), "|quote=", _ustr(quoteDustExhausted))
+        );
     }
 
     function test_trade_token0_18_18() public {

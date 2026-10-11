@@ -13,7 +13,9 @@ import {PositionId} from "../../types/positionId.sol";
 /// which is always zero.
 interface IZeroSeedLaunch {
     struct LaunchParameters {
+        /// @dev Must equal `quoteToken()`, the one quote token this deployment accepts.
         address quoteToken;
+        /// @dev At most 31 bytes, as is `symbol`.
         string name;
         string symbol;
         uint8 decimals;
@@ -52,6 +54,8 @@ interface IZeroSeedLaunch {
 
     error InvalidParameters();
     error UnsupportedQuoteToken();
+    error MetadataTooLong();
+    error LaunchTokenExists(address token);
     error FeeTooHigh();
     error InvalidFeeSchedule();
     error InvalidTradingStart();
@@ -100,12 +104,19 @@ interface IZeroSeedLaunch {
 
     /// @notice For `creator`, the largest liquidity `supply` buys and the exact supply that liquidity takes. Passing
     /// the returned `liquidity` and `installedSupply` as `liquidity` and `supply` makes `create` install exactly.
+    /// Applies the same parameter, metadata and token-address checks as `create`, so it refuses an unsupported quote,
+    /// an oversized name or symbol and a creator/salt/metadata whose token already exists. It is installation math
+    /// at the current state, not a dry run: `create` can still fail later, for example once `tradingStart` passes.
     function previewInstallation(address creator, LaunchParameters calldata parameters)
         external
         view
         returns (Installation memory installation);
 
-    /// @notice Sends the whole creator fee ledger of a launch to `recipient`. Creator only.
+    /// @notice The only quote token this deployment accepts, fixed at construction.
+    function quoteToken() external view returns (address);
+
+    /// @notice Sends the whole creator fee ledger of a launch to `recipient`, both assets in one transfer pair or
+    /// nothing. Creator only. `recipient` must not be zero, Core, this extension or either pool token.
     function claimFees(PoolKey calldata poolKey, address recipient) external returns (uint128 amount0, uint128 amount1);
 
     function feeAt(PoolId poolId, uint256 timestamp) external view returns (uint64);

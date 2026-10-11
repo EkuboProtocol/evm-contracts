@@ -22,6 +22,3 @@ docs/
 
 # Gas snapshot file (snapshots/ directory is tracked instead)
 .gas-snapshot
-launchpad-manifest.json
-launchpad-abis/
-/broadcast/DeployLaunchpadLocal.s.sol/

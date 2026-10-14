@@ -1,0 +1,687 @@
+{
+ "version": 2,
+ "fixture": {
+  "core": "evm-contracts main 98d1be1 Core runtime keccak c5f90c9d..., equal to Base 0x00000000000014aA86C5d3c41765bb24e11bd701 at block 52449112",
+  "router": "Base 0x03c8B90854b90AA22448b11e885F692972DA441C runtime keccak 32ba8475... at block 52449112",
+  "supply_requested": "1000000000000000000000000000",
+  "tick_spacing": 100,
+  "width_ticks": 4605200,
+  "ask_tick_18_18": -13815500,
+  "ask_tick_18_6": -41446500,
+  "trading_start": 1000,
+  "fee_initial_q64": "922337203685477580",
+  "fee_final_q64": "55340232221128654",
+  "fee_durations": [
+   3600,
+   600
+  ],
+  "label": "LOCAL FIXTURE VECTORS - not live evidence; numeric start margin/cap are a local-reference proposal, not live parameters",
+  "quote_18": "WETH9 runtime from Base 0x4200000000000000000000000000000000000006 at block 52449112 (test/fixtures/weth9-0x4200-base-52449112.hex, 2041 bytes, keccak 0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c), slots 0-2 as read at that block; bound as the extension constructor quote",
+  "quote_6": "plain 6-decimal solady ERC-20 (DecimalsToken), bound as the constructor quote for math vectors only"
+ },
+ "create": [
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "ask": "-13815500",
+   "upper": "-9210300",
+   "requested": "1000000000000000000000000000",
+   "installed": "999999999999999999999999210",
+   "liquidity": "1111119116089565312897934",
+   "tickLower": "-13815500",
+   "tickUpper": "-9210300",
+   "initialTick": "-13815500",
+   "withdrawable": "999999999999999999999999209",
+   "ideal_liquidity": "1111119116089565312897934",
+   "relative_error": "6.356e-27"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "ask": "-41446500",
+   "upper": "-36841300",
+   "requested": "1000000000000000000000000000",
+   "installed": "999999999999999999302656786",
+   "liquidity": "1111138522742929536",
+   "tickLower": "-41446500",
+   "tickUpper": "-36841300",
+   "initialTick": "-41446500",
+   "withdrawable": "999999999999999999302656785",
+   "ideal_liquidity": "1111138522742929536",
+   "relative_error": "2.037e-20"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "ask": "-13815500",
+   "upper": "-9210300",
+   "requested": "1000000000000000000000000000",
+   "installed": "999999999999999999999999422",
+   "liquidity": "1111119116089565312898036",
+   "tickLower": "9210300",
+   "tickUpper": "13815500",
+   "initialTick": "13815500",
+   "withdrawable": "999999999999999999999999421",
+   "ideal_liquidity": "1111119116089565312897934",
+   "relative_error": "9.158e-23"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "ask": "-41446500",
+   "upper": "-36841300",
+   "requested": "1000000000000000000000000000",
+   "installed": "999999999999999999282285400",
+   "liquidity": "1111138522742929536",
+   "tickLower": "36841300",
+   "tickUpper": "41446500",
+   "initialTick": "41446500",
+   "withdrawable": "999999999999999999282285399",
+   "ideal_liquidity": "1111138522742929536",
+   "relative_error": "2.875e-29"
+  }
+ ],
+ "trade": [
+  {
+   "order": "t0",
+   "decimals": "18/18",
+   "step": "buyExactIn",
+   "quoteIn": "1000000000000000000",
+   "gross": "999083373736809197508878",
+   "fee": "49954168686840459832116",
+   "net": "949129205049968737676762"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/18",
+   "step": "buyExactOut",
+   "tokenOut": "949129205049968737676762",
+   "calcQuote": "951668650101832044",
+   "fee": "50087823689570108",
+   "paid": "1001756473791402152"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/18",
+   "step": "dustExhausted",
+   "token": "191",
+   "quote": "90"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/18",
+   "step": "dust",
+   "token": "102",
+   "quote": "2"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/18",
+   "step": "exhaust",
+   "requested": "999950046831313159540166992",
+   "got": "999950045831313159540166903",
+   "principalToken": "0",
+   "principalQuote": "10000312219037842827169"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/18",
+   "step": "reverse",
+   "leftHeld": "0",
+   "principalQuote": "49957287200176383",
+   "principalToken": "999950045831313159540166992"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/18",
+   "step": "sellExactIn",
+   "tokenIn": "949129205049968737676762",
+   "quoteOut": "904085217596740440"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/6",
+   "step": "buyExactIn",
+   "quoteIn": "1000000",
+   "gross": "999048506325137632526244",
+   "fee": "49952425316256881582986",
+   "net": "949096081008880750943258"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/6",
+   "step": "buyExactOut",
+   "tokenOut": "949096081008880750943258",
+   "calcQuote": "951669",
+   "fee": "50088",
+   "paid": "1001757"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/6",
+   "step": "dustExhausted",
+   "token": "94478106",
+   "quote": "100"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/6",
+   "step": "dust",
+   "token": "94478017",
+   "quote": "2"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/6",
+   "step": "exhaust",
+   "requested": "999950048574683742326595783",
+   "got": "999950047574683742326595694",
+   "principalToken": "0",
+   "principalQuote": "10000661550"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/6",
+   "step": "reverse",
+   "leftHeld": "0",
+   "principalQuote": "49957",
+   "principalToken": "999950047574683742326595783"
+  },
+  {
+   "order": "t0",
+   "decimals": "18/6",
+   "step": "sellExactIn",
+   "tokenIn": "949096081008880750943258",
+   "quoteOut": "904084"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/18",
+   "step": "buyExactIn",
+   "quoteIn": "1000000000000000000",
+   "gross": "999083373736809197249895",
+   "fee": "49954168686840459819167",
+   "net": "949129205049968737430728"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/18",
+   "step": "buyExactOut",
+   "tokenOut": "949129205049968737430728",
+   "calcQuote": "951668650101832044",
+   "fee": "50087823689570108",
+   "paid": "1001756473791402152"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/18",
+   "step": "dustExhausted",
+   "token": "428919",
+   "quote": "86"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/18",
+   "step": "dust",
+   "token": "428825",
+   "quote": "3"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/18",
+   "step": "exhaust",
+   "requested": "999950046831313159539751430",
+   "got": "999950045831313159539751336",
+   "principalToken": "0",
+   "principalQuote": "10000312219037842827184"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/18",
+   "step": "reverse",
+   "leftHeld": "0",
+   "principalQuote": "49957287200176384",
+   "principalToken": "999950045831313159539751430"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/18",
+   "step": "sellExactIn",
+   "tokenIn": "949129205049968737430728",
+   "quoteOut": "904085217596740439"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/6",
+   "step": "buyExactIn",
+   "quoteIn": "1000000",
+   "gross": "999048148471968146393535",
+   "fee": "49952407423598407276350",
+   "net": "949095741048369739117185"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/6",
+   "step": "buyExactOut",
+   "tokenOut": "949095741048369739117185",
+   "calcQuote": "951669",
+   "fee": "50088",
+   "paid": "1001757"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/6",
+   "step": "dustExhausted",
+   "token": "91",
+   "quote": "90"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/6",
+   "step": "dust",
+   "token": "1",
+   "quote": "2"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/6",
+   "step": "exhaust",
+   "requested": "999950048592576400875009049",
+   "got": "999950047592576400875008959",
+   "principalToken": "0",
+   "principalQuote": "10000661550"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/6",
+   "step": "reverse",
+   "leftHeld": "0",
+   "principalQuote": "49957",
+   "principalToken": "999950047592576400875009049"
+  },
+  {
+   "order": "t1",
+   "decimals": "18/6",
+   "step": "sellExactIn",
+   "tokenIn": "949095741048369739117185",
+   "quoteOut": "904084"
+  }
+ ],
+ "fee": [
+  {
+   "duration": 3600,
+   "t_minus_start": 0,
+   "fee_q64": "922337203685477580"
+  },
+  {
+   "duration": 3600,
+   "t_minus_start": 1800,
+   "fee_q64": "488838717953303117"
+  },
+  {
+   "duration": 3600,
+   "t_minus_start": 18446744073709550615,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "duration": 3600,
+   "t_minus_start": 1,
+   "fee_q64": "922096371193404150"
+  },
+  {
+   "duration": 3600,
+   "t_minus_start": -1,
+   "fee_q64": "922337203685477580"
+  },
+  {
+   "duration": 3600,
+   "t_minus_start": 315360000,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "duration": 3600,
+   "t_minus_start": 3599,
+   "fee_q64": "55581064713202085"
+  },
+  {
+   "duration": 3600,
+   "t_minus_start": 3600,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "duration": 3600,
+   "t_minus_start": 3601,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "duration": 600,
+   "t_minus_start": 0,
+   "fee_q64": "922337203685477580"
+  },
+  {
+   "duration": 600,
+   "t_minus_start": 18446744073709550615,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "duration": 600,
+   "t_minus_start": 1,
+   "fee_q64": "920892208733036999"
+  },
+  {
+   "duration": 600,
+   "t_minus_start": -1,
+   "fee_q64": "922337203685477580"
+  },
+  {
+   "duration": 600,
+   "t_minus_start": 300,
+   "fee_q64": "488838717953303117"
+  },
+  {
+   "duration": 600,
+   "t_minus_start": 315360000,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "duration": 600,
+   "t_minus_start": 599,
+   "fee_q64": "56785227173569236"
+  },
+  {
+   "duration": 600,
+   "t_minus_start": 600,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "duration": 600,
+   "t_minus_start": 601,
+   "fee_q64": "55340232221128654"
+  }
+ ],
+ "router": [
+  {
+   "order": "t0",
+   "paid": "1000000000000000000",
+   "got": "949129205049968737676762"
+  },
+  {
+   "order": "t1",
+   "paid": "1000000000000000000",
+   "got": "949129205049968737430728"
+  }
+ ],
+ "gas": [
+  {
+   "order": "t0",
+   "create": "1310580",
+   "firstBuy": "102504",
+   "secondBuy": "34274",
+   "sell": "34258",
+   "claim": "66450"
+  },
+  {
+   "order": "t1",
+   "create": "1269935",
+   "firstBuy": "105810",
+   "secondBuy": "34398",
+   "sell": "34607",
+   "claim": "66450"
+  }
+ ],
+ "other": [
+  {
+   "kind": "dust",
+   "quoteIn": "1",
+   "net": "949971",
+   "fee": "49999",
+   "raw": "VEC|dust|t0|quoteIn=1|net=949971|fee=49999"
+  },
+  {
+   "kind": "recapture",
+   "quoteIn": "10e18",
+   "netOfFee": "9415099531871718329641155",
+   "afterClaim": "9910631086180756136011948",
+   "raw": "VEC|recapture|t0|quoteIn=10e18|netOfFee=9415099531871718329641155|afterClaim=9910631086180756136011948"
+  }
+ ],
+ "gas_note": "In-test warm gas on the WETH9 fixture quote. Same-WETH-fixture comparison against 39ca191 protocol source is in the EKU-1528 packet; old plain synthetic ERC-20 measurements are not a comparable baseline.",
+ "residue_metrics": {
+  "definitions": {
+   "core_unbooked_dust": "Per token: Core balance - position amount (rounded down) - creator fee ledger, accumulated over all swaps; raw units of that token. Unowned: not creator principal, not creator fees, unreachable by claims.",
+   "upper_bound_residue": "Raw launch-token units the position held before the exhausting buy that the buy did not deliver when it stopped at the upper bound. Becomes Core unbooked dust: dust_after.token = dust_before.token + residue (asserted)."
+  },
+  "scenarios": [
+   {
+    "order": "t0",
+    "decimals": "18/18",
+    "upper_residue_raw_token": "89",
+    "position_token_before_exhaust": "999950045831313159540166992",
+    "delivered_raw_token": "999950045831313159540166903",
+    "core_dust_before_exhaust": {
+     "raw_token": "102",
+     "raw_quote": "2"
+    },
+    "core_dust_after_exhaust": {
+     "raw_token": "191",
+     "raw_quote": "90"
+    }
+   },
+   {
+    "order": "t0",
+    "decimals": "18/6",
+    "upper_residue_raw_token": "89",
+    "position_token_before_exhaust": "999950047574683742326595783",
+    "delivered_raw_token": "999950047574683742326595694",
+    "core_dust_before_exhaust": {
+     "raw_token": "94478017",
+     "raw_quote": "2"
+    },
+    "core_dust_after_exhaust": {
+     "raw_token": "94478106",
+     "raw_quote": "100"
+    }
+   },
+   {
+    "order": "t1",
+    "decimals": "18/18",
+    "upper_residue_raw_token": "94",
+    "position_token_before_exhaust": "999950045831313159539751430",
+    "delivered_raw_token": "999950045831313159539751336",
+    "core_dust_before_exhaust": {
+     "raw_token": "428825",
+     "raw_quote": "3"
+    },
+    "core_dust_after_exhaust": {
+     "raw_token": "428919",
+     "raw_quote": "86"
+    }
+   },
+   {
+    "order": "t1",
+    "decimals": "18/6",
+    "upper_residue_raw_token": "90",
+    "position_token_before_exhaust": "999950047592576400875009049",
+    "delivered_raw_token": "999950047592576400875008959",
+    "core_dust_before_exhaust": {
+     "raw_token": "1",
+     "raw_quote": "2"
+    },
+    "core_dust_after_exhaust": {
+     "raw_token": "91",
+     "raw_quote": "90"
+    }
+   }
+  ]
+ },
+ "start": {
+  "contract": [
+   {
+    "block_time": 5000,
+    "tradingStart": "4999",
+    "create": "InvalidTradingStart (create and preview)",
+    "trade_at_block_time": null,
+    "trade_at_start": null
+   },
+   {
+    "block_time": 5000,
+    "tradingStart": "5000",
+    "create": "ok",
+    "trade_at_block_time": "ok",
+    "trade_at_start": "ok"
+   },
+   {
+    "block_time": 5000,
+    "tradingStart": "5001",
+    "create": "ok",
+    "trade_at_block_time": "TradingNotStarted",
+    "trade_at_start": "ok"
+   },
+   {
+    "block_time": 5000,
+    "tradingStart": "91400",
+    "create": "ok",
+    "trade_at_block_time": "TradingNotStarted",
+    "trade_at_start": "ok"
+   },
+   {
+    "block_time": 5000,
+    "tradingStart": "18446744073709551615",
+     "create": "ok (contract has no cap; effectively indefinite self-lock)",
+    "trade_at_block_time": "TradingNotStarted",
+     "trade_at_start": "not exercised (astronomically distant timestamp)"
+   }
+  ],
+  "contract_mined_late": {
+   "previewed_at": 5000,
+   "tradingStart": 5000,
+   "mined_at": 5001,
+   "create": "InvalidTradingStart, no token and no pool left"
+  },
+  "producer_proposal": {
+   "status": "local reference proposal for CTO freeze; not a live/hosted selection",
+   "rule": "buildTime + minMargin <= tradingStart <= buildTime + maxDelay and buildTime < expiry <= tradingStart; never rewrite a signed start",
+   "minMargin_s": 300,
+   "maxDelay_s": 86400,
+   "vectors": [
+    {
+     "buildTime": 1000,
+     "tradingStart": 1000,
+     "expiry": 1000,
+     "verdict": "refuse: start-now (start <= buildTime)"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1299,
+     "expiry": 1299,
+     "verdict": "refuse: start below margin"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1300,
+     "expiry": 1300,
+     "verdict": "accept: minimum start, expiry at start"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1300,
+     "expiry": 1301,
+     "verdict": "refuse: expiry after start"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1300,
+     "expiry": 1000,
+     "verdict": "refuse: expiry not after buildTime"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1300,
+     "expiry": 1001,
+     "verdict": "accept"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 87400,
+     "expiry": 1300,
+     "verdict": "accept: maximum start"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 87400,
+     "expiry": 87400,
+     "verdict": "accept"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 87401,
+     "expiry": 1300,
+     "verdict": "refuse: start above cap"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 18446744073709551615,
+     "expiry": 1300,
+     "verdict": "refuse: start above cap (contract alone would accept and self-lock)"
+    }
+   ],
+   "why": "Bounds the requested start to maxDelay after buildTime. Submission before expiry does not guarantee mining before start: late mining reverts atomically. No inclusion-latency guarantee."
+  }
+ },
+ "claim_recipient_refusals": {
+  "error": "InvalidRecipient()",
+  "refused": [
+   "address(0)",
+   "Core",
+   "extension (address(this))",
+   "poolKey.token0",
+   "poolKey.token1"
+  ],
+  "accepted_examples": [
+   "creator",
+   "EOA",
+   "other contract"
+  ],
+  "atomicity": "both assets or neither; ledgers, principal and Core balances unchanged on revert; retry to another recipient pays both in full"
+ },
+ "metadata": {
+  "max_bytes": 31,
+  "unit": "UTF-8 bytes",
+  "error": "MetadataTooLong()",
+  "checked_in": [
+   "create",
+   "previewInstallation"
+  ],
+  "vectors": [
+   {
+    "field": "name",
+    "bytes": 31,
+    "verdict": "accept"
+   },
+   {
+    "field": "name",
+    "bytes": 32,
+    "verdict": "MetadataTooLong"
+   },
+   {
+    "field": "symbol",
+    "bytes": 32,
+    "verdict": "MetadataTooLong"
+   },
+   {
+    "field": "name",
+    "bytes": 33,
+    "note": "11 x U+20AC",
+    "verdict": "MetadataTooLong"
+   }
+  ]
+ },
+ "collision": {
+  "error": "LaunchTokenExists(address token)",
+  "checked_in": [
+   "create",
+   "previewInstallation"
+  ],
+  "rule": "token address = CREATE2(extension, keccak256(abi.encode(creator, salt)), MintableERC20 init code with name/symbol/decimals); refused when it already has code. Same salt with other metadata, or other salt, is independent."
+ }
+}

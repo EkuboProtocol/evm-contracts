@@ -24,10 +24,21 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: v1.8.3
+      # The two toolchains are independent of each other; halmos is installed
+      # after the group because it needs uv on PATH.
+      - parallel:
+          - name: Install Foundry
+            uses: foundry-rs/foundry-toolchain@v1
+            with:
+              version: v1.8.3
+
+          - name: Install the latest version of uv
+            uses: astral-sh/setup-uv@v6
+
+      - name: Install halmos
+        run: |
+          # install the latest version of halmos for the current user and add it to PATH
+          uv tool install --python 3.12 halmos
 
       - name: Show Forge version
         run: |
@@ -38,11 +49,18 @@ jobs:
         run: forge fmt --check
         id: fmt
 
+      # halmos compiles with `--ast --extra-output storageLayout metadata`.
+      # Requesting the same outputs here makes its build a cache hit instead of
+      # a second full via-IR compile of the whole project.
       - name: Run Forge build
         run: |
-          forge build --sizes
+          forge build --sizes --ast --extra-output storageLayout metadata
         id: build
 
+      # The remaining forge-based steps stay sequential on purpose: every forge
+      # invocation rewrites cache/solidity-files-cache.json non-atomically, so
+      # concurrent consumers of the shared out/ and cache/ directories can race
+      # into a full recompile.
       - name: Run DeployAll script
         run: |
           forge script script/DeployAll.s.sol
@@ -52,14 +70,6 @@ jobs:
         run: |
           forge test --gas-snapshot-check=true -vvv
         id: test
-
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Install halmos
-        run: |
-          # install the latest version of halmos for the current user and add it to PATH
-          uv tool install --python 3.12 halmos
 
       - name: Run halmos
         run: halmos --match-test '^check_'

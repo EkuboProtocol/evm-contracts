@@ -24,6 +24,7 @@ import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
+import {decayedFee} from "../../src/math/feeDecay.sol";
 
 interface IWETH9 {
     function deposit() external payable;
@@ -115,6 +116,10 @@ abstract contract ZeroSeedLaunchBase is Test {
     uint64 constant FEE_03 = 55340232221128654;
     uint32 constant DURATION = 3600;
     uint32 constant DURATION_SHORT = 600;
+    /// @dev Study decay factors, literal Q0.64 per-second multipliers: about six underlying half-lives over 3,600 s
+    /// and over 600 s. Study constants, not selected parameters.
+    uint64 constant FACTOR_3600 = 18425445863997925462;
+    uint64 constant FACTOR_600 = 18319323104848571946;
     uint64 constant START = 1000;
     uint32 constant SPACING = 100;
     /// @dev ln(100)/ln(1.000001) = 4605172.4, rounded up to the spacing: upper/ask = 1.000001**4605200 = 100.0028x.
@@ -164,13 +169,18 @@ abstract contract ZeroSeedLaunchBase is Test {
         return address(uint160(zeroSeedLaunchCallPoints().toUint8()) << 152);
     }
 
+    /// @dev Artifact deployed at the extension address; a study harness may substitute a comparator variant.
+    function _launchArtifact() internal view virtual returns (string memory) {
+        return "ZeroSeedLaunch.sol:ZeroSeedLaunch";
+    }
+
     /// @dev Deploys the extension at its callpoint address with `quote` as the constructor quote token. A test that
     /// switches quote redeploys at the same address, so the Core registration flag is cleared first; launch storage
     /// and token addresses stay where they were.
     function _deployLaunch(address quote) internal {
         address target = _launchTarget();
         vm.store(CORE, StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(target)), bytes32(0));
-        deployCodeTo("ZeroSeedLaunch.sol:ZeroSeedLaunch", abi.encode(CORE, quote), target);
+        deployCodeTo(_launchArtifact(), abi.encode(CORE, quote), target);
         launch = ZeroSeedLaunch(target);
         assertEq(launch.quoteToken(), quote, "constructor quote");
     }
@@ -207,6 +217,7 @@ abstract contract ZeroSeedLaunchBase is Test {
             feeDuration: duration,
             initialFee: FEE_5,
             finalFee: FEE_03,
+            decayFactor: duration == DURATION_SHORT ? FACTOR_600 : FACTOR_3600,
             salt: bytes32(uint256(1))
         });
     }
@@ -322,14 +333,15 @@ abstract contract ZeroSeedLaunchBase is Test {
         }
     }
 
-    function _referenceFee(uint64 initialFee, uint64 finalFee, uint256 start, uint256 duration, uint256 t)
+    /// @dev Timestamp clamp plus the shared decay math; exact values are pinned by the vectors tests and the Python
+    /// reference, which recomputes the floor chain independently.
+    function _referenceFee(uint64 initialFee, uint64 finalFee, uint64 factor, uint256 start, uint32 duration, uint256 t)
         internal
         pure
         returns (uint64)
     {
         if (t <= start) return initialFee;
-        if (t - start >= duration) return finalFee;
-        return initialFee - uint64(uint256(initialFee - finalFee) * (t - start) / duration);
+        return decayedFee(initialFee, finalFee, factor, duration, t - start);
     }
 
     function _str(int256 v) internal pure returns (string memory) {
@@ -482,12 +494,25 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         p = _copy(base);
         p.initialFee = MAX_CREATOR_FEE + 1;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.FeeTooHigh.selector));
+        // The largest encodable rate is above the cap, so it is refused like any other value above it.
+        p = _copy(base);
+        p.initialFee = type(uint64).max;
+        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.FeeTooHigh.selector));
+        p = _copy(base);
+        p.initialFee = type(uint64).max;
+        p.finalFee = type(uint64).max;
+        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.FeeTooHigh.selector));
         p = _copy(base);
         p.finalFee = p.initialFee + 1;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
         p = _copy(base);
         p.feeDuration = 0;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
+        p = _copy(base);
+        p.decayFactor = 0;
+        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
+        vm.expectRevert(IZeroSeedLaunch.InvalidFeeSchedule.selector);
+        launch.previewInstallation(creator, p);
         vm.warp(START + 1);
         _expectCreateRevert(base, abi.encodeWithSelector(IZeroSeedLaunch.InvalidTradingStart.selector));
         vm.warp(1);
@@ -497,9 +522,16 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         vm.prank(creator);
         vm.expectRevert();
         launch.create(p);
-        // MAX_CREATOR_FEE itself is accepted.
+        // MAX_CREATOR_FEE itself is accepted, as are the smallest and largest nonzero factors.
         p = _copy(base);
         p.initialFee = MAX_CREATOR_FEE;
+        p.decayFactor = 1;
+        vm.prank(creator);
+        launch.create(p);
+        p = _copy(base);
+        p.salt = bytes32(uint256(2));
+        p.decayFactor = type(uint64).max;
+        p.feeDuration = type(uint32).max;
         vm.prank(creator);
         launch.create(p);
     }
@@ -973,9 +1005,10 @@ contract ZeroSeedLaunchTimeTest is ZeroSeedLaunchBase {
             uint256(type(uint64).max)
         ];
         PoolState state = ICore(CORE).poolState(id);
+        uint64 factor = duration == DURATION_SHORT ? FACTOR_600 : FACTOR_3600;
         for (uint256 i; i < ts.length; i++) {
             uint64 fee = launch.feeAt(id, ts[i]);
-            assertEq(fee, _referenceFee(FEE_5, FEE_03, START, duration, ts[i]), "reference schedule");
+            assertEq(fee, _referenceFee(FEE_5, FEE_03, factor, START, duration, ts[i]), "reference schedule");
             console2.log(
                 string.concat(
                     "VEC|fee|duration=",
@@ -993,10 +1026,13 @@ contract ZeroSeedLaunchTimeTest is ZeroSeedLaunchBase {
                 assertEq(ICore(CORE).poolPositions(id, address(launch), inst.positionId).liquidity, inst.liquidity, "L");
             }
         }
-        // Midpoint exact value and a live swap at each boundary that is open for trading.
+        // Midpoint exact value (Python reference) and a live swap at each boundary that is open for trading. Both
+        // study factors give about six underlying half-lives, so the normalized midpoint is close to 1/64 of the
+        // excess rather than half of it.
         assertEq(
             launch.feeAt(id, START + duration / 2),
-            FEE_5 - uint64((uint256(FEE_5 - FEE_03) * (duration / 2)) / duration)
+            duration == DURATION_SHORT ? 151673229050500755 : 151673229050500749,
+            "midpoint"
         );
         vm.warp(START + duration);
         PoolBalanceUpdate u = _buy(inst.poolKey, inst.token, 1e18, false);
@@ -1270,20 +1306,26 @@ contract ZeroSeedLaunchVectorsTest is ZeroSeedLaunchBase {
         PoolId id = inst.poolKey.toPoolId();
         assertEq(launch.feeAt(id, START - 1), 922337203685477580);
         assertEq(launch.feeAt(id, START), 922337203685477580);
-        assertEq(launch.feeAt(id, START + 1), 922096371193404150);
-        assertEq(launch.feeAt(id, START + 1800), 488838717953303117);
-        assertEq(launch.feeAt(id, START + 3599), 55581064713202085);
+        assertEq(launch.feeAt(id, START + 1), 921320298688452636);
+        assertEq(launch.feeAt(id, START + 10), 912220825711290707);
+        assertEq(launch.feeAt(id, START + 60), 863355419786439717);
+        assertEq(launch.feeAt(id, START + 600), 481957789608347955);
+        assertEq(launch.feeAt(id, START + 1800), 151673229050500749);
+        assertEq(launch.feeAt(id, START + 3599), 55356139728168999);
         assertEq(launch.feeAt(id, START + 3600), 55340232221128654);
         assertEq(launch.feeAt(id, type(uint64).max), 55340232221128654);
+        assertEq(launch.feeAt(id, type(uint256).max), 55340232221128654);
     }
 
     function test_vectors_feeSchedule600() public {
         (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION_SHORT);
         PoolId id = inst.poolKey.toPoolId();
         assertEq(launch.feeAt(id, START), 922337203685477580);
-        assertEq(launch.feeAt(id, START + 1), 920892208733036999);
-        assertEq(launch.feeAt(id, START + 300), 488838717953303117);
-        assertEq(launch.feeAt(id, START + 599), 56785227173569236);
+        assertEq(launch.feeAt(id, START + 1), 916253358061131122);
+        assertEq(launch.feeAt(id, START + 10), 863355419786439719);
+        assertEq(launch.feeAt(id, START + 60), 622662496147522948);
+        assertEq(launch.feeAt(id, START + 300), 151673229050500755);
+        assertEq(launch.feeAt(id, START + 599), 55435953504208715);
         assertEq(launch.feeAt(id, START + 600), 55340232221128654);
     }
 }

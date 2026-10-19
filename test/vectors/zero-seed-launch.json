@@ -1,5 +1,5 @@
 {
- "version": 2,
+ "version": 3,
  "fixture": {
   "core": "evm-contracts main 98d1be1 Core runtime keccak c5f90c9d..., equal to Base 0x00000000000014aA86C5d3c41765bb24e11bd701 at block 52449112",
   "router": "Base 0x03c8B90854b90AA22448b11e885F692972DA441C runtime keccak 32ba8475... at block 52449112",
@@ -15,6 +15,12 @@
    3600,
    600
   ],
+  "fee_decay_factors_q64": {
+   "3600": "18425445863997925462",
+   "600": "18319323104848571946"
+  },
+  "fee_schedule": "finalFee + floor((initialFee - finalFee) * (powQ64(b, t) - powQ64(b, D)) / (2**64 - powQ64(b, D))) for 0 < t < D; initialFee at t <= 0; finalFee at t >= D. powQ64 is square-and-multiply with floor after every Q64 multiply (src/math/feeDecay.sol). Study factors, not selected parameters.",
+  "max_creator_fee_q64": "18262276632972456099",
   "label": "LOCAL FIXTURE VECTORS - not live evidence; numeric start margin/cap are a local-reference proposal, not live parameters",
   "quote_18": "WETH9 runtime from Base 0x4200000000000000000000000000000000000006 at block 52449112 (test/fixtures/weth9-0x4200-base-52449112.hex, 2041 bytes, keccak 0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c), slots 0-2 as read at that block; bound as the extension constructor quote",
   "quote_6": "plain 6-decimal solady ERC-20 (DecimalsToken), bound as the constructor quote for math vectors only"
@@ -311,91 +317,109 @@
   {
    "duration": 3600,
    "t_minus_start": 0,
+   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "922337203685477580"
   },
   {
    "duration": 3600,
    "t_minus_start": 1800,
-   "fee_q64": "488838717953303117"
+   "decay_factor_q64": "18425445863997925462",
+   "fee_q64": "151673229050500749"
   },
   {
    "duration": 3600,
    "t_minus_start": 18446744073709550615,
+   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 3600,
    "t_minus_start": 1,
-   "fee_q64": "922096371193404150"
+   "decay_factor_q64": "18425445863997925462",
+   "fee_q64": "921320298688452636"
   },
   {
    "duration": 3600,
    "t_minus_start": -1,
+   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "922337203685477580"
   },
   {
    "duration": 3600,
    "t_minus_start": 315360000,
+   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 3600,
    "t_minus_start": 3599,
-   "fee_q64": "55581064713202085"
+   "decay_factor_q64": "18425445863997925462",
+   "fee_q64": "55356139728168999"
   },
   {
    "duration": 3600,
    "t_minus_start": 3600,
+   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 3600,
    "t_minus_start": 3601,
+   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 600,
    "t_minus_start": 0,
+   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "922337203685477580"
   },
   {
    "duration": 600,
    "t_minus_start": 18446744073709550615,
+   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 600,
    "t_minus_start": 1,
-   "fee_q64": "920892208733036999"
+   "decay_factor_q64": "18319323104848571946",
+   "fee_q64": "916253358061131122"
   },
   {
    "duration": 600,
    "t_minus_start": -1,
+   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "922337203685477580"
   },
   {
    "duration": 600,
    "t_minus_start": 300,
-   "fee_q64": "488838717953303117"
+   "decay_factor_q64": "18319323104848571946",
+   "fee_q64": "151673229050500755"
   },
   {
    "duration": 600,
    "t_minus_start": 315360000,
+   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 600,
    "t_minus_start": 599,
-   "fee_q64": "56785227173569236"
+   "decay_factor_q64": "18319323104848571946",
+   "fee_q64": "55435953504208715"
   },
   {
    "duration": 600,
    "t_minus_start": 600,
+   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 600,
    "t_minus_start": 601,
+   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "55340232221128654"
   }
  ],
@@ -414,19 +438,19 @@
  "gas": [
   {
    "order": "t0",
-   "create": "1310580",
-   "firstBuy": "102504",
-   "secondBuy": "34274",
-   "sell": "34258",
-   "claim": "66450"
+   "create": "1311122",
+   "firstBuy": "102513",
+   "secondBuy": "34283",
+   "sell": "34267",
+   "claim": "66472"
   },
   {
    "order": "t1",
-   "create": "1269935",
-   "firstBuy": "105810",
-   "secondBuy": "34398",
-   "sell": "34607",
-   "claim": "66450"
+   "create": "1270477",
+   "firstBuy": "105819",
+   "secondBuy": "34407",
+   "sell": "34616",
+   "claim": "66472"
   }
  ],
  "other": [
@@ -547,9 +571,9 @@
    {
     "block_time": 5000,
     "tradingStart": "18446744073709551615",
-     "create": "ok (contract has no cap; effectively indefinite self-lock)",
+    "create": "ok (contract has no cap; effectively indefinite self-lock)",
     "trade_at_block_time": "TradingNotStarted",
-     "trade_at_start": "not exercised (astronomically distant timestamp)"
+    "trade_at_start": "not exercised (astronomically distant timestamp)"
    }
   ],
   "contract_mined_late": {
@@ -683,5 +707,139 @@
    "previewInstallation"
   ],
   "rule": "token address = CREATE2(extension, keccak256(abi.encode(creator, salt)), MintableERC20 init code with name/symbol/decimals); refused when it already has code. Same salt with other metadata, or other salt, is independent."
+ },
+ "fee_curve": {
+  "note": "Exponential schedule study on the fixture. Digests: SHA-256 chain h = sha256(h || fee as 8-byte big-endian) over t = 0..D inclusive, h0 = 32 zero bytes; asserted in Solidity (ZeroSeedLaunchFeeCurve.t.sol) and recomputed by the Python reference.",
+  "rates_q64": {
+   "5": "922337203685477580",
+   "50": "9223372036854775808",
+   "75": "13835058055282163712",
+   "90": "16602069666338596454",
+   "99": "18262276632972456099",
+   "max": "18446744073709551615"
+  },
+  "final_fee_q64": "55340232221128654",
+  "all_second_digests_sha256": {
+   "600": {
+    "5": "6346e95d7a66797ce3270ff25d5fc19e64c2e9ccabf1c2dbc03a946276fe64b5",
+    "50": "73b08ebf1a8d045805ec42c84200bbd841e25e515a1aef7f7fb6d246c6b6027a",
+    "75": "ac34495b80e94c660319b488c697f7ecf05af9eeb3f4a03c27c1b7bc79d4e5f4",
+    "90": "87c5e5119e29faddc71e59753cca77fea297b4d76419fd0b66a78a340c4b7cef",
+    "99": "af32943cbe63a0991532e385ad42960e1ce4040d59981ca6d4a4d4b86dc20cb0",
+    "max": "dce005ce818ddc4248d259c7a6e2b9c0652cb4b4705b70cf9f4f04f1270023af"
+   },
+   "3600": {
+    "5": "306aaf4b3acfabe5ba98a1ee86cf91ba6564e010f806d1f592f3a403620bfd77",
+    "50": "ac4fa207bb2beec03e9a122e5839482d14abb55c72a4b65c155da02ea15baf51",
+    "75": "c7eaeb00462cc16f7ce3684309604d97a9a22a1eaec15a1b8862bbfd68705771",
+    "90": "fb0df6da40ddcacfe08f4a599b3078a1e6dbe0017b97e73b6b4e384563247354",
+    "99": "ee35ebedb9d7c09c69675d9517cdc1dc26e177eb61e0aa76fd13eb63dee8cba8",
+    "max": "82e00f48c0d5dc03d757e417a60a410a8ee9cfd0d41c12cfb72547bfc73ac4f7"
+   }
+  },
+  "half_life_fixture": {
+   "factor_q64": "18439641936446208053",
+   "duration": 4294967295,
+   "initial_q64": "922337203685477580",
+   "final_q64": "55340232221128654",
+   "values": [
+    {
+     "t": 0,
+     "fee_q64": "922337203685477580"
+    },
+    {
+     "t": 1,
+     "fee_q64": "922003403234100432"
+    },
+    {
+     "t": 10,
+     "fee_q64": "919004976445628917"
+    },
+    {
+     "t": 60,
+     "fee_q64": "902534965489818689"
+    },
+    {
+     "t": 600,
+     "fee_q64": "743476184499003893"
+    },
+    {
+     "t": 1800,
+     "fee_q64": "488838717953303091"
+    },
+    {
+     "t": 3600,
+     "fee_q64": "272089475087215860"
+    },
+    {
+     "t": 107173,
+     "fee_q64": "55340232221128655"
+    },
+    {
+     "t": 107174,
+     "fee_q64": "55340232221128654"
+    },
+    {
+     "t": 115200,
+     "fee_q64": "55340232221128654"
+    }
+   ],
+   "note": "Equal underlying 1,800 s half-life, not equal duration: the fee reaches the final value at t = 107,174 when the scaled power term floors to zero; the power chain itself floors to zero at t = 115,200."
+  },
+  "integer_chord_exceptions": {
+   "note": "Nearly flat factors where floor-rpow normalization lies above the integer linear chord. exp <= linear is asserted only for the two study factors; boundedness, endpoints and monotonicity hold everywhere.",
+   "rows": [
+    {
+     "factor": "18446744073692774400",
+     "duration": 600,
+     "elapsed": 561,
+     "initial": "6145946118234823704",
+     "final": "3773859608321006899",
+     "exponential": "3928045231480721956",
+     "linear": "3928045231465404992",
+     "excess_q64": "15316964"
+    },
+    {
+     "factor": "18446744073675997184",
+     "duration": 600,
+     "elapsed": 596,
+     "initial": "18262276632972456099",
+     "final": "16093730704593406921",
+     "exponential": "16108187677454293848",
+     "linear": "16108187677449267249",
+     "excess_q64": "5026599"
+    },
+    {
+     "factor": "18446744073709551608",
+     "duration": 4294967295,
+     "elapsed": 4197406844,
+     "initial": "18446744073709551615",
+     "final": "18012629042273719369",
+     "exponential": "18022489992398216608",
+     "linear": "18022489992391328815",
+     "excess_q64": "6887793"
+    },
+    {
+     "factor": "18446744073709551608",
+     "duration": 4294967295,
+     "elapsed": 4028198074,
+     "initial": "18446744073709551615",
+     "final": "14193599660735192734",
+     "exponential": "14457771176879541746",
+     "linear": "14457771176818802869",
+     "excess_q64": "60738877"
+    },
+    {
+     "factor": "18446744073709551608",
+     "duration": 4294967295,
+     "elapsed": 4074259523,
+     "initial": "18446744073709551615",
+     "final": "11939927239388337278",
+     "exponential": "12274296501798491214",
+     "linear": "12274296501754310277",
+     "excess_q64": "44180937"
+    }
+   ]
+  }
  }
 }

@@ -10,7 +10,8 @@ import {PositionId} from "../../types/positionId.sol";
 /// @dev Ticks in `LaunchParameters` are economic: log base 1.000001 of raw quote units per raw launch token unit,
 /// independent of address order. The pool tick is the same for a token0 launch and negated for a token1 launch.
 /// Creator fees are Q0.64 fractions (2**64 = 100%) held by this extension, separate from the pool config fee,
-/// which is always zero.
+/// which is always zero. The fee is `initialFee` at `tradingStart` and decays exponentially, rescaled to reach
+/// `finalFee` exactly `feeDuration` seconds later (see `src/math/feeDecay.sol`).
 interface IZeroSeedLaunch {
     struct LaunchParameters {
         /// @dev Must equal `quoteToken()`, the one quote token this deployment accepts.
@@ -30,6 +31,8 @@ interface IZeroSeedLaunch {
         uint32 feeDuration;
         uint64 initialFee;
         uint64 finalFee;
+        /// @dev Per-second Q0.64 multiplier of the unscaled decay, in (0, 2**64). Not a half-life.
+        uint64 decayFactor;
         bytes32 salt;
     }
 
@@ -41,6 +44,7 @@ interface IZeroSeedLaunch {
         uint64 finalFee;
         int32 tickLower;
         int32 tickUpper;
+        uint64 decayFactor;
     }
 
     struct Installation {

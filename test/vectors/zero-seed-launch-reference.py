@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Independent integer/Decimal checks of the local vectors; no Solidity or network.
-Run: python3 test/vectors/zero-seed-launch-reference.py
+Run: python3 test/vectors/zero-seed-launch-reference.py [--export DIR]
+--export writes every second of both study schedules at all six rates as JSON rows
+[initial, final, duration, factor, elapsed, fee] (all decimal strings) for other implementations.
 Numeric producer rules are a CTO-freeze proposal, not live parameters.
 """
+import hashlib
 import json
+import sys
 from decimal import Decimal, getcontext
 from pathlib import Path
 
@@ -22,10 +26,76 @@ def check(condition):
     checks += 1
 
 
+
+
+def power(factor, exponent):
+    """Square-and-multiply in Q0.64, floor after every multiply; the operation order is normative."""
+    result = Q
+    while exponent:
+        if exponent & 1:
+            result = result * factor // Q
+        exponent >>= 1
+        if exponent:
+            factor = factor * factor // Q
+    return result
+
+
+def fee_at(initial, final, duration, factor, elapsed):
+    if elapsed <= 0:
+        return initial
+    if elapsed >= duration:
+        return final
+    end = power(factor, duration)
+    return final + (initial - final) * (power(factor, elapsed) - end) // (Q - end)
+
+
+def linear_at(initial, final, duration, elapsed):
+    if elapsed <= 0:
+        return initial
+    if elapsed >= duration:
+        return final
+    return initial - (initial - final) * elapsed // duration
+
+
+factors = {int(k): int(x) for k, x in v["fixture"]["fee_decay_factors_q64"].items()}
 for r in v["fee"]:
     t, dur = int(r["t_minus_start"]), int(r["duration"])
-    expected = i if t <= 0 else f if t >= dur else i - (i - f) * t // dur
-    check(int(r["fee_q64"]) == expected)
+    check(int(r["decay_factor_q64"]) == factors[dur])
+    check(int(r["fee_q64"]) == fee_at(i, f, dur, factors[dur], t))
+
+curve = v["fee_curve"]
+rates = {k: int(x) for k, x in curve["rates_q64"].items()}
+final = int(curve["final_fee_q64"])
+check(final == f)
+export = []
+for dur, digests in curve["all_second_digests_sha256"].items():
+    dur = int(dur)
+    for label, rate in rates.items():
+        digest = bytes(32)
+        previous = rate
+        for t in range(dur + 1):
+            fee = fee_at(rate, final, dur, factors[dur], t)
+            check(final <= fee <= previous)
+            check(fee <= linear_at(rate, final, dur, t))
+            previous = fee
+            digest = hashlib.sha256(digest + fee.to_bytes(8, "big")).digest()
+            export.append([str(rate), str(final), str(dur), str(factors[dur]), str(t), str(fee)])
+        check(fee_at(rate, final, dur, factors[dur], 0) == rate and fee == final)
+        check(digest.hex() == digests[label])
+
+half = curve["half_life_fixture"]
+for r in half["values"]:
+    check(int(r["fee_q64"]) == fee_at(int(half["initial_q64"]), int(half["final_q64"]), half["duration"],
+                                      int(half["factor_q64"]), r["t"]))
+
+for r in curve["integer_chord_exceptions"]["rows"]:
+    initial, terminal = int(r["initial"]), int(r["final"])
+    fee = fee_at(initial, terminal, r["duration"], int(r["factor"]), r["elapsed"])
+    chord = linear_at(initial, terminal, r["duration"], r["elapsed"])
+    check(fee == int(r["exponential"]) and chord == int(r["linear"]))
+    check(fee > chord and fee - chord == int(r["excess_q64"]))
+    check(terminal <= fee <= initial)
+    check(fee_at(initial, terminal, r["duration"], int(r["factor"]), r["elapsed"] + 1) <= fee)
 
 for r in v["create"]:
     ask, upper = Decimal(r["ask"]), Decimal(r["upper"])
@@ -67,5 +137,11 @@ for r in v["start"]["contract"]:
     check((int(r["tradingStart"]) >= r["block_time"]) == r["create"].startswith("ok"))
 late = v["start"]["contract_mined_late"]
 check(late["previewed_at"] <= late["tradingStart"] < late["mined_at"])
+
+if len(sys.argv) == 3 and sys.argv[1] == "--export":
+    out = Path(sys.argv[2])
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "fee-curve-all-seconds.json").write_text(json.dumps(export) + "\n")
+    print(f"exported {len(export)} rows to {out / 'fee-curve-all-seconds.json'}")
 
 print(f"PASS: {checks} independent fee, liquidity, dust, start/expiry checks")

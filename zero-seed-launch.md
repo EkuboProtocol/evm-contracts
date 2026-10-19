@@ -47,8 +47,8 @@ Refusals:
 | the token address for this creator, salt and metadata already has code (same creator and salt again) | `LaunchTokenExists(token)` |
 | `supply == 0` or `supply > int128.max`; `tickSpacing` 0 or above 698,605; `askTick < MIN_TICK`; `upperTick > MAX_TICK`; `askTick >= upperTick` | `InvalidParameters` |
 | misaligned bounds | Core `BoundsTickSpacing` |
-| `initialFee > floor(2**64 / 10)` (10%) | `FeeTooHigh` |
-| `finalFee > initialFee` or `feeDuration == 0` | `InvalidFeeSchedule` |
+| `initialFee > floor(2**64 * 99 / 100)` (99%; exactly 100% is not a `uint64`) | `FeeTooHigh` |
+| `finalFee > initialFee`, `feeDuration == 0` or `decayFactor == 0` | `InvalidFeeSchedule` |
 | `tradingStart < block.timestamp` | `InvalidTradingStart` |
 | liquidity 0 | `ZeroLiquidity` |
 | liquidity above the per-tick cap of the spacing | `LiquidityAboveTickCap(liquidity, cap)` |
@@ -75,7 +75,13 @@ Every swap's price limit is clamped to the position bounds, so the price stays i
 
 ## Creator fee
 
-`feeAt(t)` is `initialFee` until `tradingStart`, then `initialFee - floor((initialFee - finalFee) * elapsed / feeDuration)`, then `finalFee` from `tradingStart + feeDuration` on. It is charged on the calculated side of the actual fill:
+`feeAt(t)` is `initialFee` until `tradingStart`, then an exponential rescaled to its endpoints, then `finalFee` from `tradingStart + feeDuration` on. With `Q = 2**64`, `b = decayFactor` (a per-second Q0.64 multiplier in `(0, Q)`, not a half-life), `E = powQ64(b, feeDuration)` and `0 < elapsed < feeDuration`:
+
+```
+feeAt = finalFee + floor((initialFee - finalFee) * (powQ64(b, elapsed) - E) / (Q - E))
+```
+
+`powQ64` (`src/math/feeDecay.sol`) is square-and-multiply with a floor after every Q64 multiply; its operation order is the reference for every other implementation. The value is `initialFee` at `elapsed == 0`, exactly `finalFee` at `elapsed == feeDuration`, inside `[finalFee, initialFee]` and non-increasing in time for every valid factor. For a nearly flat factor the integer result can sit a few units above the linear chord between the endpoints; the two study factors (about six underlying half-lives over 600 s and 3,600 s) stay under it at every second. The fee is charged on the calculated side of the actual fill:
 
 | Swap | Fee asset | Amount |
 |---|---|---|
@@ -120,6 +126,8 @@ With Core holding only this launch's tokens:
 `test/extensions/ZeroSeedLaunch.t.sol` runs both token orders on the WETH9 fixture (18/18) and a plain 6-decimal quote (18/6) at 18/18 and 18/6 decimals: creation, refusals, bypasses, claims, trading sequences with ledger checks, a fuzzed sequence invariant, the fee schedule at both durations, time-only immutability, the deployed Base Yul router runtime (`test/fixtures/yul-router-0x03c8-base-52449112.hex`) with inclusive deadline, minimum output and partial-fill checks, gas, and frozen canonical vectors. `test/vectors/zero-seed-launch.json` holds the same vectors with an independent integer and real-number reference check.
 
 `test/extensions/ZeroSeedLaunchAdversarial.t.sol` ports the adversarial review tests: unsupported quotes (hostile controller, another plain ERC-20, WETH code at another address, native) refused by create and preview in both orders, integration refusal, the constructor-trust negative control, the nested settlement-snapshot theft failing closed next to a WETH launch, recipient sinks, atomic claim rollback by fault injection, re-entrant claim, metadata and collision refusals, start boundaries, fee signs and conservation from events, bypasses, minter renounce and Permit2, and amount extremes.
+
+`test/extensions/ZeroSeedLaunchFeeCurve.t.sol` is the fee-curve study: schedule properties with Python-pinned digests over every second of both study schedules at six rates, the documented integer-chord counterexamples, fuzzed boundedness and monotonicity over the whole factor and duration domains, executed swaps at 50/75/90/99% and at the highest encodable rate (injected into storage, since `create` refuses it), both exact-output representation limits executed at that rate, the Yul router at the maximum rate, immediate round trips and creator-versus-outsider access against a linear comparator at identical states, and full-swap plus isolated-math gas for both curves.
 
 Every test is a local fixture. None is live evidence.
 

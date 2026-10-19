@@ -23,11 +23,12 @@ import {tickToSqrtRatio} from "../math/ticks.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {maxLiquidity, liquidityDeltaToAmountDelta} from "../math/liquidity.sol";
 import {computeFee, amountBeforeFee} from "../math/fee.sol";
+import {decayedFee} from "../math/feeDecay.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @dev Highest creator fee rate, Q0.64: floor(2**64 / 10) = 10%.
-uint64 constant MAX_CREATOR_FEE = 1844674407370955161;
+/// @dev Highest creator fee rate, Q0.64: floor(2**64 * 99 / 100) = 99%. Exactly 100% (2**64) is not encodable.
+uint64 constant MAX_CREATOR_FEE = 18262276632972456099;
 
 /// @dev Longest token name or symbol in bytes: `MintableERC20` packs each with its length into one word.
 uint256 constant MAX_METADATA_LENGTH = 31;
@@ -48,8 +49,8 @@ function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
 /// @title Zero-seed launch
 /// @notice Mints a fixed supply and installs all of it as one token-only position from the ask price up, with
 /// no quote seed. Buyers fund the only quote reserve. The position, its principal and the pool never change
-/// except through swaps; time only lowers the creator fee, from `initialFee` at `tradingStart` linearly to
-/// `finalFee` after `feeDuration`, and it stays there.
+/// except through swaps; time only lowers the creator fee, from `initialFee` at `tradingStart` along a rescaled
+/// exponential with per-second factor `decayFactor` to `finalFee` after `feeDuration`, and it stays there.
 /// @dev No admin, upgrade, withdrawal, migration or staging path. The pool fee is zero; the creator fee is taken
 /// on the calculated side of each forwarded swap and saved in Core under this extension, salt = pool id.
 /// Every launch of one deployment uses the single quote token fixed in the constructor. The deployer must pass a
@@ -221,7 +222,8 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee, BaseLo
             initialFee: parameters.initialFee,
             finalFee: parameters.finalFee,
             tickLower: installation.positionId.tickLower(),
-            tickUpper: installation.positionId.tickUpper()
+            tickUpper: installation.positionId.tickUpper(),
+            decayFactor: parameters.decayFactor
         });
         CORE.initializePool(poolKey, installation.initialTick);
         PoolBalanceUpdate update = CORE.updatePosition(poolKey, installation.positionId, int128(installation.liquidity));
@@ -308,15 +310,11 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee, BaseLo
         return abi.encode(amount0, amount1);
     }
 
-    function _feeAt(Launch storage launch, uint256 timestamp) private view returns (uint64) {
+    function _feeAt(Launch storage launch, uint256 timestamp) internal view virtual returns (uint64) {
         uint64 initialFee = launch.initialFee;
         uint256 start = launch.tradingStart;
         if (timestamp <= start) return initialFee;
-        uint256 elapsed = timestamp - start;
-        uint256 duration = launch.feeDuration;
-        uint64 finalFee = launch.finalFee;
-        if (elapsed >= duration) return finalFee;
-        return initialFee - uint64(uint256(initialFee - finalFee) * elapsed / duration);
+        return decayedFee(initialFee, launch.finalFee, launch.decayFactor, launch.feeDuration, timestamp - start);
     }
 
     function _validate(LaunchParameters memory parameters) private view {
@@ -332,7 +330,9 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee, BaseLo
                 || parameters.upperTick > MAX_TICK || parameters.askTick >= parameters.upperTick
         ) revert InvalidParameters();
         if (parameters.initialFee > MAX_CREATOR_FEE) revert FeeTooHigh();
-        if (parameters.finalFee > parameters.initialFee || parameters.feeDuration == 0) revert InvalidFeeSchedule();
+        if (parameters.finalFee > parameters.initialFee || parameters.feeDuration == 0 || parameters.decayFactor == 0) {
+            revert InvalidFeeSchedule();
+        }
         if (parameters.tradingStart < block.timestamp) revert InvalidTradingStart();
     }
 

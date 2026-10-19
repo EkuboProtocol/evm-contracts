@@ -8,6 +8,7 @@ import {ICore} from "../src/interfaces/ICore.sol";
 import {Ve33Periphery} from "../src/Ve33Periphery.sol";
 import {Ve33Positions} from "../src/Ve33Positions.sol";
 import {VeToken} from "../src/VeToken.sol";
+import {VeTokenBribes} from "../src/VeTokenBribes.sol";
 import {VeTokenMetadata} from "../src/VeTokenMetadata.sol";
 import {Ve33DataFetcher} from "../src/lens/Ve33DataFetcher.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../src/math/constants.sol";
@@ -32,13 +33,15 @@ struct Ve33DeploymentParams {
     // Optional deterministic-address assertions.
     address expectedVe33;
     address expectedVeToken;
+    address expectedVeTokenBribes;
     address expectedVe33Positions;
     address expectedVe33Periphery;
     address expectedVe33DataFetcher;
 }
 
 /// @title DeployVe33
-/// @notice Deploys the Ve33 extension, VeToken ERC721 wrapper, Ve33Positions, Ve33Periphery, and Ve33DataFetcher.
+/// @notice Deploys the Ve33 extension, VeToken ERC721 wrapper, VeTokenBribes, Ve33Positions, Ve33Periphery, and
+///         Ve33DataFetcher.
 contract DeployVe33 is Script {
     address internal constant DEFAULT_CORE_ADDRESS = 0x00000000000014aA86C5d3c41765bb24e11bd701;
     bytes32 internal constant DEFAULT_DEPLOYMENT_SALT =
@@ -49,6 +52,7 @@ contract DeployVe33 is Script {
         returns (
             Ve33 ve33,
             VeToken veToken,
+            VeTokenBribes bribes,
             Ve33Positions positions,
             Ve33Periphery periphery,
             Ve33DataFetcher dataFetcher
@@ -62,7 +66,7 @@ contract DeployVe33 is Script {
 
         vm.startBroadcast();
 
-        (ve33, veToken, positions, periphery, dataFetcher) = _deployVe33(core, params, salt);
+        (ve33, veToken, bribes, positions, periphery, dataFetcher) = _deployVe33(core, params, salt);
 
         vm.stopBroadcast();
     }
@@ -87,6 +91,7 @@ contract DeployVe33 is Script {
             positionsOwner: positionsOwner,
             expectedVe33: vm.envOr("VE33_ADDRESS", address(0)),
             expectedVeToken: vm.envOr("VE_TOKEN_ADDRESS", address(0)),
+            expectedVeTokenBribes: vm.envOr("VE_TOKEN_BRIBES_ADDRESS", address(0)),
             expectedVe33Positions: vm.envOr("VE33_POSITIONS_ADDRESS", address(0)),
             expectedVe33Periphery: vm.envOr("VE33_PERIPHERY_ADDRESS", address(0)),
             expectedVe33DataFetcher: vm.envOr("VE33_DATA_FETCHER_ADDRESS", address(0))
@@ -98,6 +103,7 @@ contract DeployVe33 is Script {
         returns (
             Ve33 ve33,
             VeToken veToken,
+            VeTokenBribes bribes,
             Ve33Positions positions,
             Ve33Periphery periphery,
             Ve33DataFetcher dataFetcher
@@ -114,6 +120,7 @@ contract DeployVe33 is Script {
         ve33 = Ve33(payable(ve33Address));
 
         veToken = _deployVeToken(core, ve33, params, salt);
+        bribes = _deployVeTokenBribes(veToken, params.expectedVeTokenBribes, salt);
         positions = _deployPositions(core, ve33, params, salt);
         (periphery, dataFetcher) =
             _deployVe33Support(core, ve33, params.expectedVe33Periphery, params.expectedVe33DataFetcher, salt);
@@ -143,6 +150,19 @@ contract DeployVe33 is Script {
             "VeToken"
         );
         veToken = VeToken(payable(veTokenAddress));
+    }
+
+    function _deployVeTokenBribes(VeToken veToken, address expectedAddress, bytes32 salt)
+        internal
+        returns (VeTokenBribes bribes)
+    {
+        (address bribesAddress,) = deployIfNeeded(
+            abi.encodePacked(type(VeTokenBribes).creationCode, abi.encode(veToken)),
+            salt,
+            expectedAddress,
+            "VeTokenBribes"
+        );
+        bribes = VeTokenBribes(bribesAddress);
     }
 
     function _deployPositions(ICore core, Ve33 ve33, Ve33DeploymentParams memory params, bytes32 salt)

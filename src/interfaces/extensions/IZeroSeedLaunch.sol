@@ -5,22 +5,36 @@ import {PoolKey} from "../../types/poolKey.sol";
 import {PoolId} from "../../types/poolId.sol";
 import {PositionId} from "../../types/positionId.sol";
 
+/// @dev Forward action tags. Derived as uint256(keccak256("IZeroSeedLaunch#CREATE")) and
+/// uint256(keccak256("IZeroSeedLaunch#CLAIM_FEES")). Both exceed 2**160, so the first word of a swap payload, which
+/// is `PoolKey.token0` and therefore below 2**160, can never select an action.
+uint256 constant ZERO_SEED_LAUNCH_CREATE = 0x224a5a98239f599168b798c4205db155bfff4332b4931a7fb5bc60c2e2eeee30;
+uint256 constant ZERO_SEED_LAUNCH_CLAIM_FEES = 0xe52d8a05fd0f2d32b280675736d8117fee83069a0eac7ab9279aa52ff05a614c;
+
 /// @title Zero-seed launch extension interface
 /// @notice Fixed-supply launches whose whole supply is one immutable token-only position at the lower price bound.
+/// Every action reaches the extension through `Core.forward`; it has no external mutating entrypoint.
 /// @dev Ticks in `LaunchParameters` are economic: log base 1.000001 of raw quote units per raw launch token unit,
 /// independent of address order. The pool tick is the same for a token0 launch and negated for a token1 launch.
 /// Creator fees are Q0.64 fractions (2**64 = 100%) held by this extension, separate from the pool config fee,
-/// which is always zero. The fee is `initialFee` at `tradingStart` and decays exponentially, rescaled to reach
-/// `finalFee` exactly `feeDuration` seconds later (see `src/math/feeDecay.sol`).
+/// which is always zero. The fee is `initialFee` at `tradingStart` and follows a 600 second half-life exponential
+/// rescaled to reach `finalFee` exactly `feeDuration` seconds later (see `src/math/feeDecay.sol`).
+///
+/// Forward payloads, all settled by the forwarding locker within its lock:
+/// - swap: `abi.encode(PoolKey, SwapParameters)` (128 bytes), returns `abi.encode(PoolBalanceUpdate, PoolState)`;
+///   the fee-inclusive deltas are debt on the lock.
+/// - create: `abi.encode(ZERO_SEED_LAUNCH_CREATE, LaunchParameters)`, returns `abi.encode(Installation)`; the
+///   forwarding locker becomes the launch controller and the lock exits with zero debt.
+/// - claim fees: `abi.encode(ZERO_SEED_LAUNCH_CLAIM_FEES, PoolKey)`, controller only, returns
+///   `abi.encode(uint128 amount0, uint128 amount1)` credited to the lock for the locker to withdraw.
+/// Any other first word at or above 2**160 reverts `UnknownForwardAction`.
 interface IZeroSeedLaunch {
     struct LaunchParameters {
-        /// @dev Must equal `quoteToken()`, the one quote token this deployment accepts.
-        address quoteToken;
         /// @dev At most 31 bytes, as is `symbol`.
         string name;
         string symbol;
         uint8 decimals;
-        /// @dev Minted supply. `create` requires it to equal the token amount Core takes for `liquidity`.
+        /// @dev Minted supply. Creation requires it to equal the token amount Core takes for `liquidity`.
         uint128 supply;
         /// @dev Liquidity of the single position. Ignored by `previewInstallation`, which derives it from `supply`.
         uint128 liquidity;
@@ -31,20 +45,19 @@ interface IZeroSeedLaunch {
         uint32 feeDuration;
         uint64 initialFee;
         uint64 finalFee;
-        /// @dev Per-second Q0.64 multiplier of the unscaled decay, in (0, 2**64). Not a half-life.
-        uint64 decayFactor;
+        /// @dev Namespaced by the controller: the token salt is `keccak256(abi.encode(controller, salt))`.
         bytes32 salt;
     }
 
     struct Launch {
-        address creator;
+        /// @dev The locker that forwarded the creation; the only locker that may claim the fee ledger.
+        address controller;
         uint64 tradingStart;
         uint32 feeDuration;
         uint64 initialFee;
         uint64 finalFee;
         int32 tickLower;
         int32 tickUpper;
-        uint64 decayFactor;
     }
 
     struct Installation {
@@ -68,17 +81,18 @@ interface IZeroSeedLaunch {
     error SupplyNotExactlyInstallable(uint128 requested, uint128 installable);
     error UnknownLaunch();
     error TradingNotStarted();
-    error CreatorOnly();
-    error InvalidRecipient();
+    error ControllerOnly();
+    error UnknownForwardAction();
     error InitializeThroughCreateOnly();
     error SwapsThroughForwardOnly();
     error PositionsThroughCreateOnly();
 
     /// @notice Emitted once per launch. `liquidity` and `supply` are the installed principal, which never changes.
+    /// `controller` is the locker that forwarded the creation, for example the periphery that records the owner.
     event LaunchCreated(
         PoolId indexed poolId,
         address indexed token,
-        address indexed creator,
+        address indexed controller,
         PoolKey poolKey,
         PositionId positionId,
         uint128 liquidity,
@@ -99,29 +113,21 @@ interface IZeroSeedLaunch {
         bool feeIsToken1
     );
 
-    event CreatorFeesClaimed(
-        PoolId indexed poolId, address indexed creator, address indexed recipient, uint128 amount0, uint128 amount1
-    );
+    /// @notice Emitted when the controller moves the whole fee ledger of a launch onto its lock.
+    event CreatorFeesClaimed(PoolId indexed poolId, address indexed controller, uint128 amount0, uint128 amount1);
 
-    /// @notice Creates the launch token, pool and locked position atomically; msg.sender becomes the creator.
-    function create(LaunchParameters calldata parameters) external returns (Installation memory installation);
+    /// @notice The only quote token of this deployment, fixed at construction. `address(0)` is native ETH.
+    function quoteToken() external view returns (address);
 
-    /// @notice For `creator`, the largest liquidity `supply` buys and the exact supply that liquidity takes. Passing
-    /// the returned `liquidity` and `installedSupply` as `liquidity` and `supply` makes `create` install exactly.
-    /// Applies the same parameter, metadata and token-address checks as `create`, so it refuses an unsupported quote,
-    /// an oversized name or symbol and a creator/salt/metadata whose token already exists. It is installation math
-    /// at the current state, not a dry run: `create` can still fail later, for example once `tradingStart` passes.
-    function previewInstallation(address creator, LaunchParameters calldata parameters)
+    /// @notice For `controller`, the largest liquidity `supply` buys and the exact supply that liquidity takes.
+    /// Passing the returned `liquidity` and `installedSupply` as `liquidity` and `supply` makes creation install
+    /// exactly. Applies the same parameter, metadata and token-address checks as creation, so it refuses an oversized
+    /// name or symbol and a controller/salt/metadata whose token already exists. It is installation math at the
+    /// current state, not a dry run: creation can still fail later, for example once `tradingStart` passes.
+    function previewInstallation(address controller, LaunchParameters calldata parameters)
         external
         view
         returns (Installation memory installation);
-
-    /// @notice The only quote token this deployment accepts, fixed at construction.
-    function quoteToken() external view returns (address);
-
-    /// @notice Sends the whole creator fee ledger of a launch to `recipient`, both assets in one transfer pair or
-    /// nothing. Creator only. `recipient` must not be zero, Core, this extension or either pool token.
-    function claimFees(PoolKey calldata poolKey, address recipient) external returns (uint128 amount0, uint128 amount1);
 
     function feeAt(PoolId poolId, uint256 timestamp) external view returns (uint64);
 

@@ -100,7 +100,7 @@ Local reference parameters (not live selections): 5% (`922337203685477580`) to 0
 
 | Event | Topic |
 |---|---|
-| `LaunchCreated(PoolId indexed, address indexed token, address indexed creator, PoolKey, PositionId, uint128 liquidity, LaunchParameters)` | `0xfe2a763a22e674e13e94ee2f603a671afd54b304fd050776ee150e36370e5dc4` |
+| `LaunchCreated(PoolId indexed, address indexed token, address indexed creator, PoolKey, PositionId, uint128 liquidity, LaunchParameters)` | `0x9658a825b186d32fc3d164a53e6387b7f6d5e317e624faeac98a5d5ad84c3301` |
 | `LaunchSwapped(PoolId indexed, address indexed locker, int128 delta0, int128 delta1, uint64 feeRate, uint128 feeAmount, bool feeIsToken1)` | `0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d` |
 | `CreatorFeesClaimed(PoolId indexed, address indexed creator, address indexed recipient, uint128 amount0, uint128 amount1)` | `0xda45e5fa280329970441a582e78cff0b8e25a17a5d56e3809ef3e6a0dcc078f5` |
 

@@ -7,6 +7,10 @@ import {ERC20} from "solady/tokens/ERC20.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {IZeroSeedLaunch} from "../../src/interfaces/extensions/IZeroSeedLaunch.sol";
 import {ZeroSeedLaunch, zeroSeedLaunchCallPoints, MAX_CREATOR_FEE} from "../../src/extensions/ZeroSeedLaunch.sol";
+import {ZeroSeedLaunchPeriphery} from "../../src/ZeroSeedLaunchPeriphery.sol";
+import {IZeroSeedLaunchPeriphery} from "../../src/interfaces/IZeroSeedLaunchPeriphery.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {MintableERC20} from "../../src/MintableERC20.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
@@ -55,6 +59,7 @@ contract DecimalsToken is ERC20 {
 }
 
 /// @dev Test locker: forwarded swaps (what routers do), direct Core swaps and foreign positions (bypass attempts).
+/// Settles native ETH from its own balance (the test funds it) and pays ETH outputs to the account.
 contract LaunchSwapper is BaseLocker {
     using CoreLib for ICore;
     using FlashAccountantLib for *;
@@ -101,9 +106,15 @@ contract LaunchSwapper is BaseLocker {
     }
 
     function _settle(address token, int128 delta, address account) private {
-        if (delta > 0) ACCOUNTANT.payFrom(account, token, uint128(delta));
-        else if (delta < 0) ACCOUNTANT.withdraw(token, account, uint128(-delta));
+        if (delta > 0) {
+            if (token == NATIVE_TOKEN_ADDRESS) SafeTransferLib.safeTransferETH(address(ACCOUNTANT), uint128(delta));
+            else ACCOUNTANT.payFrom(account, token, uint128(delta));
+        } else if (delta < 0) {
+            ACCOUNTANT.withdraw(token, account, uint128(-delta));
+        }
     }
+
+    receive() external payable {}
 }
 
 abstract contract ZeroSeedLaunchBase is Test {
@@ -116,10 +127,6 @@ abstract contract ZeroSeedLaunchBase is Test {
     uint64 constant FEE_03 = 55340232221128654;
     uint32 constant DURATION = 3600;
     uint32 constant DURATION_SHORT = 600;
-    /// @dev Study decay factors, literal Q0.64 per-second multipliers: about six underlying half-lives over 3,600 s
-    /// and over 600 s. Study constants, not selected parameters.
-    uint64 constant FACTOR_3600 = 18425445863997925462;
-    uint64 constant FACTOR_600 = 18319323104848571946;
     uint64 constant START = 1000;
     uint32 constant SPACING = 100;
     /// @dev ln(100)/ln(1.000001) = 4605172.4, rounded up to the spacing: upper/ask = 1.000001**4605200 = 100.0028x.
@@ -143,7 +150,10 @@ abstract contract ZeroSeedLaunchBase is Test {
     bytes32 constant WETH9_CODEHASH = 0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c;
 
     ZeroSeedLaunch launch;
+    ZeroSeedLaunchPeriphery periphery;
     LaunchSwapper swapper;
+    /// @dev The quote the current extension deployment is bound to; `address(0)` is native ETH.
+    address activeQuote;
     address creator = makeAddr("creator");
     address feeRecipient = makeAddr("feeRecipient");
 
@@ -151,8 +161,23 @@ abstract contract ZeroSeedLaunchBase is Test {
         vm.warp(1);
         deployCodeTo("Core.sol:Core", CORE);
         swapper = new LaunchSwapper(ICore(CORE));
+        // The swapper is the test's native purse: it pays ETH debts from this balance and receives ETH outputs.
+        vm.deal(address(swapper), type(uint128).max);
         _quote(true, 18);
     }
+
+    /// @dev Balance in `token` units. The test's native purse is this contract plus the swapper, which pays the
+    /// test's ETH debts from its own balance while ETH outputs are withdrawn to this contract.
+    function _balance(address token, address who) internal view returns (uint256) {
+        if (token != NATIVE_TOKEN_ADDRESS) return ERC20(token).balanceOf(who);
+        return who == address(this) ? address(this).balance + address(swapper).balance : who.balance;
+    }
+
+    function _approveQuote(address quote, address spender) internal {
+        if (quote != NATIVE_TOKEN_ADDRESS) ERC20(quote).approve(spender, type(uint256).max);
+    }
+
+    receive() external payable {}
 
     /// @dev Real WETH9 runtime and metadata slots at `at`, funded with 2**128 - 1 wei deposited by this test.
     function _etchWeth(address at) internal {
@@ -174,37 +199,45 @@ abstract contract ZeroSeedLaunchBase is Test {
         return "ZeroSeedLaunch.sol:ZeroSeedLaunch";
     }
 
-    /// @dev Deploys the extension at its callpoint address with `quote` as the constructor quote token. A test that
-    /// switches quote redeploys at the same address, so the Core registration flag is cleared first; launch storage
-    /// and token addresses stay where they were.
+    /// @dev Deploys the extension at its callpoint address with `quote` as the constructor quote token and a fresh
+    /// periphery for it. A test that switches quote redeploys at the same address, so the Core registration flag is
+    /// cleared first; launch storage and token addresses stay where they were.
     function _deployLaunch(address quote) internal {
         address target = _launchTarget();
         vm.store(CORE, StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(target)), bytes32(0));
         deployCodeTo(_launchArtifact(), abi.encode(CORE, quote), target);
         launch = ZeroSeedLaunch(target);
+        periphery = new ZeroSeedLaunchPeriphery(ICore(CORE), launch);
+        activeQuote = quote;
         assertEq(launch.quoteToken(), quote, "constructor quote");
+        assertEq(address(periphery.LAUNCH()), target, "periphery extension");
     }
 
-    /// @dev Quote for the requested order: WETH9 for 18 decimals, the plain 6-decimal token otherwise. Redeploys the
-    /// extension bound to it.
+    /// @dev Quote for the requested order: a token0 launch needs a quote above every token address (WETH9 for 18
+    /// decimals, the plain 6-decimal token otherwise); a token1 launch uses native ETH (`address(0)`) for 18
+    /// decimals, the reference Base configuration, and the 6-decimal token at a low address otherwise. Redeploys
+    /// the extension bound to it.
     function _quote(bool tokenIs0, uint8 quoteDecimals) internal returns (address quote) {
-        quote = tokenIs0 ? QUOTE_HIGH : QUOTE_LOW;
-        if (quoteDecimals == 18) {
-            _etchWeth(quote);
+        if (!tokenIs0 && quoteDecimals == 18) {
+            quote = NATIVE_TOKEN_ADDRESS;
         } else {
-            deployCodeTo("ZeroSeedLaunch.t.sol:DecimalsToken", abi.encode(address(this), quoteDecimals), quote);
+            quote = tokenIs0 ? QUOTE_HIGH : QUOTE_LOW;
+            if (quoteDecimals == 18) {
+                _etchWeth(quote);
+            } else {
+                deployCodeTo("ZeroSeedLaunch.t.sol:DecimalsToken", abi.encode(address(this), quoteDecimals), quote);
+            }
+            ERC20(quote).approve(address(swapper), type(uint256).max);
         }
-        ERC20(quote).approve(address(swapper), type(uint256).max);
         _deployLaunch(quote);
     }
 
-    function _parameters(address quote, int32 ask, uint128 supply, uint32 duration)
+    function _parameters(int32 ask, uint128 supply, uint32 duration)
         internal
         pure
         returns (IZeroSeedLaunch.LaunchParameters memory)
     {
         return IZeroSeedLaunch.LaunchParameters({
-            quoteToken: quote,
             name: "Zero Seed",
             symbol: "ZERO",
             decimals: 18,
@@ -217,14 +250,13 @@ abstract contract ZeroSeedLaunchBase is Test {
             feeDuration: duration,
             initialFee: FEE_5,
             finalFee: FEE_03,
-            decayFactor: duration == DURATION_SHORT ? FACTOR_600 : FACTOR_3600,
             salt: bytes32(uint256(1))
         });
     }
 
     /// @dev Binds the plan: the liquidity the requested supply buys and the exact supply that liquidity takes.
     function _bind(IZeroSeedLaunch.LaunchParameters memory p, address who) internal view {
-        IZeroSeedLaunch.Installation memory preview = launch.previewInstallation(who, p);
+        IZeroSeedLaunch.Installation memory preview = periphery.previewInstallation(who, p);
         p.liquidity = preview.liquidity;
         p.supply = preview.installedSupply;
     }
@@ -233,11 +265,11 @@ abstract contract ZeroSeedLaunchBase is Test {
         internal
         returns (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p)
     {
-        address quote = _quote(tokenIs0, quoteDecimals);
-        p = _parameters(quote, quoteDecimals == 18 ? ASK_18_18 : ASK_18_6, REQUESTED_SUPPLY, duration);
+        _quote(tokenIs0, quoteDecimals);
+        p = _parameters(quoteDecimals == 18 ? ASK_18_18 : ASK_18_6, REQUESTED_SUPPLY, duration);
         _bind(p, creator);
         vm.prank(creator);
-        inst = launch.create(p);
+        inst = periphery.create(p);
         MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
     }
 
@@ -310,7 +342,7 @@ abstract contract ZeroSeedLaunchBase is Test {
         (uint128 p0, uint128 p1) = _principal(inst);
         (uint128 f0, uint128 f1) = launch.creatorFees(key);
         uint256 coreToken = ERC20(inst.token).balanceOf(CORE);
-        uint256 coreQuote = ERC20(quote).balanceOf(CORE);
+        uint256 coreQuote = _balance(quote, CORE);
         assertEq(ERC20(inst.token).totalSupply(), inst.installedSupply, "fixed supply");
         uint256 outside = ERC20(inst.token).balanceOf(address(this)) + ERC20(inst.token).balanceOf(feeRecipient)
             + ERC20(inst.token).balanceOf(creator);
@@ -325,23 +357,23 @@ abstract contract ZeroSeedLaunchBase is Test {
         assertLe(tokenDust, maxDust, "token dust");
         assertLe(quoteDust, maxDust, "quote dust");
         assertLe(uint256(tokenIs0 ? p0 : p1), inst.installedSupply, "x <= S");
-        for (uint256 i; i < 3; i++) {
-            address h = [address(launch), address(swapper), address(this)][i];
-            if (h == address(this)) continue;
-            assertEq(ERC20(inst.token).balanceOf(h), 0, "no custody token");
-            assertEq(ERC20(quote).balanceOf(h), 0, "no custody quote");
-        }
+        assertEq(ERC20(inst.token).balanceOf(address(launch)), 0, "no custody token: extension");
+        assertEq(ERC20(inst.token).balanceOf(address(periphery)), 0, "no custody token: periphery");
+        assertEq(ERC20(inst.token).balanceOf(address(swapper)), 0, "no custody token: swapper");
+        assertEq(_balance(quote, address(launch)), 0, "no custody quote: extension");
+        assertEq(_balance(quote, address(periphery)), 0, "no custody quote: periphery");
+        if (quote != NATIVE_TOKEN_ADDRESS) assertEq(_balance(quote, address(swapper)), 0, "no custody quote: swapper");
     }
 
     /// @dev Timestamp clamp plus the shared decay math; exact values are pinned by the vectors tests and the Python
     /// reference, which recomputes the floor chain independently.
-    function _referenceFee(uint64 initialFee, uint64 finalFee, uint64 factor, uint256 start, uint32 duration, uint256 t)
+    function _referenceFee(uint64 initialFee, uint64 finalFee, uint256 start, uint32 duration, uint256 t)
         internal
         pure
         returns (uint64)
     {
         if (t <= start) return initialFee;
-        return decayedFee(initialFee, finalFee, factor, duration, t - start);
+        return decayedFee(initialFee, finalFee, duration, t - start);
     }
 
     function _str(int256 v) internal pure returns (string memory) {
@@ -371,7 +403,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         assertEq(MintableERC20(inst.token).owner(), address(0), "mint authority renounced");
         assertEq(MintableERC20(inst.token).decimals(), 18, "decimals");
         assertEq(ERC20(inst.token).balanceOf(CORE), p.supply, "whole supply in Core");
-        assertEq(ERC20(p.quoteToken).balanceOf(CORE), 0, "actual quote = 0");
+        assertEq(_balance(activeQuote, CORE), 0, "actual quote = 0");
         PoolState state = ICore(CORE).poolState(id);
         int32 economicAsk = tokenIs0 ? state.tick() : -state.tick();
         assertEq(economicAsk, p.askTick, "starts at ask");
@@ -386,7 +418,8 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         (uint128 f0, uint128 f1) = launch.creatorFees(key);
         assertEq(f0 + f1, 0, "no fees");
         IZeroSeedLaunch.Launch memory l = launch.getLaunch(id);
-        assertEq(l.creator, creator, "creator");
+        assertEq(l.controller, address(periphery), "controller is the periphery");
+        assertEq(periphery.launchOwner(id), creator, "owner is the creator");
         console2.log(
             string.concat(
                 "VEC|create|order=",
@@ -434,9 +467,9 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
     function test_create_refusesNonInstallableSupplyAtomically() public {
         for (uint256 i; i < 2; i++) {
             bool tokenIs0 = i == 0;
-            address quote = _quote(tokenIs0, 18);
-            IZeroSeedLaunch.LaunchParameters memory p = _parameters(quote, ASK_18_18, REQUESTED_SUPPLY, DURATION);
-            IZeroSeedLaunch.Installation memory preview = launch.previewInstallation(creator, p);
+            _quote(tokenIs0, 18);
+            IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+            IZeroSeedLaunch.Installation memory preview = periphery.previewInstallation(creator, p);
             assertTrue(preview.installedSupply != p.supply, "requested is not exact");
             p.liquidity = preview.liquidity;
             vm.prank(creator);
@@ -445,34 +478,24 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
                     IZeroSeedLaunch.SupplyNotExactlyInstallable.selector, p.supply, preview.installedSupply
                 )
             );
-            launch.create(p);
+            periphery.create(p);
             assertEq(preview.token.code.length, 0, "no token left behind");
             // A supply bound to a different liquidity is refused too.
             p.supply = preview.installedSupply;
             p.liquidity = preview.liquidity + 1;
             vm.prank(creator);
             vm.expectPartialRevert(IZeroSeedLaunch.SupplyNotExactlyInstallable.selector);
-            launch.create(p);
+            periphery.create(p);
             assertFalse(ICore(CORE).poolState(preview.poolKey.toPoolId()).isInitialized(), "no pool left behind");
         }
     }
 
     function test_create_refusesInvalidParameters() public {
-        address quote = _quote(true, 18);
-        IZeroSeedLaunch.LaunchParameters memory base = _parameters(quote, ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        _quote(true, 18);
+        IZeroSeedLaunch.LaunchParameters memory base = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
         _bind(base, creator);
         IZeroSeedLaunch.LaunchParameters memory p;
 
-        p = _copy(base);
-        p.quoteToken = address(0);
-        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.UnsupportedQuoteToken.selector));
-        p = _copy(base);
-        p.quoteToken = address(0xdead);
-        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.UnsupportedQuoteToken.selector));
-        // A plain ERC-20 with code that is not the constructor quote is refused too.
-        p = _copy(base);
-        p.quoteToken = address(new DecimalsToken(address(this), 18));
-        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.UnsupportedQuoteToken.selector));
         p = _copy(base);
         p.name = "abcdefghijklmnopqrstuvwxyz012345"; // 32 bytes
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.MetadataTooLong.selector));
@@ -508,11 +531,8 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         p = _copy(base);
         p.feeDuration = 0;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
-        p = _copy(base);
-        p.decayFactor = 0;
-        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
         vm.expectRevert(IZeroSeedLaunch.InvalidFeeSchedule.selector);
-        launch.previewInstallation(creator, p);
+        periphery.previewInstallation(creator, p);
         vm.warp(START + 1);
         _expectCreateRevert(base, abi.encodeWithSelector(IZeroSeedLaunch.InvalidTradingStart.selector));
         vm.warp(1);
@@ -521,33 +541,31 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         p.upperTick += 1;
         vm.prank(creator);
         vm.expectRevert();
-        launch.create(p);
-        // MAX_CREATOR_FEE itself is accepted, as are the smallest and largest nonzero factors.
+        periphery.create(p);
+        // MAX_CREATOR_FEE itself is accepted, as are the shortest and the longest fee windows.
         p = _copy(base);
         p.initialFee = MAX_CREATOR_FEE;
-        p.decayFactor = 1;
+        p.feeDuration = 1;
         vm.prank(creator);
-        launch.create(p);
+        periphery.create(p);
         p = _copy(base);
         p.salt = bytes32(uint256(2));
-        p.decayFactor = type(uint64).max;
         p.feeDuration = type(uint32).max;
         vm.prank(creator);
-        launch.create(p);
+        periphery.create(p);
     }
 
     function test_create_refusesLiquidityAboveTickCapBothOrders() public {
         for (uint256 i; i < 2; i++) {
-            address quote = _quote(i == 0, 18);
-            IZeroSeedLaunch.LaunchParameters memory p =
-                _parameters(quote, 80_000_000, uint128(type(int128).max), DURATION);
+            _quote(i == 0, 18);
+            IZeroSeedLaunch.LaunchParameters memory p = _parameters(80_000_000, uint128(type(int128).max), DURATION);
             vm.expectRevert();
-            launch.previewInstallation(creator, p);
+            periphery.previewInstallation(creator, p);
             p.liquidity = type(uint128).max;
             vm.prank(creator);
             vm.expectPartialRevert(IZeroSeedLaunch.LiquidityAboveTickCap.selector);
-            launch.create(p);
-            try launch.previewInstallation(creator, p) {}
+            periphery.create(p);
+            try periphery.previewInstallation(creator, p) {}
             catch (bytes memory reason) {
                 assertEq(bytes4(reason), IZeroSeedLaunch.LiquidityAboveTickCap.selector, "tick cap");
             }
@@ -555,14 +573,14 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
     }
 
     function test_create_refusesZeroLiquidity() public {
-        address quote = _quote(true, 18);
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(quote, -80_000_000, 1, DURATION);
+        _quote(true, 18);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(-80_000_000, 1, DURATION);
         vm.expectRevert(IZeroSeedLaunch.ZeroLiquidity.selector);
-        launch.previewInstallation(creator, p);
-        IZeroSeedLaunch.LaunchParameters memory q = _parameters(quote, ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        periphery.previewInstallation(creator, p);
+        IZeroSeedLaunch.LaunchParameters memory q = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
         vm.prank(creator);
         vm.expectRevert(IZeroSeedLaunch.ZeroLiquidity.selector);
-        launch.create(q);
+        periphery.create(q);
     }
 
     function test_create_sameSaltSameCreatorRefused_otherCreatorIndependent() public {
@@ -570,17 +588,18 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
             _create(true, 18, DURATION);
         bytes memory exists = abi.encodeWithSelector(IZeroSeedLaunch.LaunchTokenExists.selector, first.token);
         vm.expectRevert(exists);
-        launch.previewInstallation(creator, p);
+        periphery.previewInstallation(creator, p);
         vm.prank(creator);
         vm.expectRevert(exists);
-        launch.create(p);
+        periphery.create(p);
         // Another creator with the same parameters gets a different token address and its own pool.
         address other = makeAddr("other");
         p.supply = REQUESTED_SUPPLY;
         _bind(p, other);
         vm.prank(other);
-        IZeroSeedLaunch.Installation memory inst = launch.create(p);
-        assertEq(launch.getLaunch(inst.poolKey.toPoolId()).creator, other, "other creator");
+        IZeroSeedLaunch.Installation memory inst = periphery.create(p);
+        assertEq(periphery.launchOwner(inst.poolKey.toPoolId()), other, "other owner");
+        assertEq(launch.getLaunch(inst.poolKey.toPoolId()).controller, address(periphery), "same controller");
     }
 
     function _copy(IZeroSeedLaunch.LaunchParameters memory p)
@@ -594,7 +613,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
     function _expectCreateRevert(IZeroSeedLaunch.LaunchParameters memory p, bytes memory reason) internal {
         vm.prank(creator);
         vm.expectRevert(reason);
-        launch.create(p);
+        periphery.create(p);
     }
 }
 
@@ -656,18 +675,19 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
         (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
         vm.warp(START);
         _buy(inst.poolKey, inst.token, 1e18, false);
-        vm.expectRevert(IZeroSeedLaunch.CreatorOnly.selector);
-        launch.claimFees(inst.poolKey, address(this));
-        address[5] memory sinks = [address(0), CORE, address(launch), inst.poolKey.token0, inst.poolKey.token1];
+        vm.expectRevert(IZeroSeedLaunchPeriphery.OwnerOnly.selector);
+        periphery.claimFees(inst.poolKey, address(this));
+        address[6] memory sinks =
+            [address(0), CORE, address(launch), address(periphery), inst.poolKey.token0, inst.poolKey.token1];
         for (uint256 i; i < sinks.length; i++) {
             vm.prank(creator);
-            vm.expectRevert(IZeroSeedLaunch.InvalidRecipient.selector);
-            launch.claimFees(inst.poolKey, sinks[i]);
+            vm.expectRevert(IZeroSeedLaunchPeriphery.InvalidRecipient.selector);
+            periphery.claimFees(inst.poolKey, sinks[i]);
         }
         PoolKey memory unknown = PoolKey(address(0x1234), inst.poolKey.token1, inst.poolKey.config);
         vm.prank(creator);
-        vm.expectRevert(IZeroSeedLaunch.CreatorOnly.selector);
-        launch.claimFees(unknown, feeRecipient);
+        vm.expectRevert(IZeroSeedLaunchPeriphery.OwnerOnly.selector);
+        periphery.claimFees(unknown, feeRecipient);
     }
 
     function test_claim_cannotTouchPrincipal() public {
@@ -686,11 +706,11 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
         assertGt(f0, 0, "fee0");
         assertGt(f1, 0, "fee1");
         vm.prank(creator);
-        (uint128 c0, uint128 c1) = launch.claimFees(inst.poolKey, feeRecipient);
+        (uint128 c0, uint128 c1) = periphery.claimFees(inst.poolKey, feeRecipient);
         assertEq(c0, f0, "claimed0");
         assertEq(c1, f1, "claimed1");
-        assertEq(ERC20(inst.poolKey.token0).balanceOf(feeRecipient), f0, "recipient0");
-        assertEq(ERC20(inst.poolKey.token1).balanceOf(feeRecipient), f1, "recipient1");
+        assertEq(_balance(inst.poolKey.token0, feeRecipient), f0, "recipient0");
+        assertEq(_balance(inst.poolKey.token1, feeRecipient), f1, "recipient1");
         (uint128 q0, uint128 q1) = _principal(inst);
         assertEq(q0, p0, "principal0 unchanged");
         assertEq(q1, p1, "principal1 unchanged");
@@ -698,11 +718,11 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
         assertEq(PoolState.unwrap(ICore(CORE).poolState(id)), PoolState.unwrap(stateBefore), "pool state");
         (f0, f1) = launch.creatorFees(inst.poolKey);
         assertEq(f0 + f1, 0, "ledger emptied");
-        uint256 claimedQuote = inst.poolKey.token0 == p.quoteToken ? c0 : c1;
+        uint256 claimedQuote = inst.poolKey.token0 == activeQuote ? c0 : c1;
         vm.prank(creator);
-        (c0, c1) = launch.claimFees(inst.poolKey, feeRecipient);
+        (c0, c1) = periphery.claimFees(inst.poolKey, feeRecipient);
         assertEq(c0 + c1, 0, "second claim empty");
-        _assertLedger(inst, p.quoteToken, quoteIn, quoteOut + claimedQuote, MAX_DUST);
+        _assertLedger(inst, activeQuote, quoteIn, quoteOut + claimedQuote, MAX_DUST);
     }
 
     /// @dev The creator buys first and is refunded its own fee through the claim: the fee is no protection
@@ -710,13 +730,13 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
     function test_creatorRecaptureDemonstration() public {
         (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
             _create(true, 18, DURATION);
-        ERC20(p.quoteToken).transfer(creator, 10e18);
+        ERC20(activeQuote).transfer(creator, 10e18);
         vm.startPrank(creator);
-        ERC20(p.quoteToken).approve(address(swapper), type(uint256).max);
+        ERC20(activeQuote).approve(address(swapper), type(uint256).max);
         vm.warp(START);
         PoolBalanceUpdate u = swapper.forwardSwap(inst.poolKey, createSwapParameters(SqrtRatio.wrap(0), 10e18, true, 0));
         uint256 bought = uint128(-u.delta0());
-        launch.claimFees(inst.poolKey, creator);
+        periphery.claimFees(inst.poolKey, creator);
         vm.stopPrank();
         uint256 held = ERC20(inst.token).balanceOf(creator);
         assertGt(held, bought, "creator recovers its own fee");
@@ -745,7 +765,7 @@ contract ZeroSeedLaunchTradingTest is ZeroSeedLaunchBase {
             _create(tokenIs0, quoteDecimals, DURATION);
         PoolKey memory key = inst.poolKey;
         address token = inst.token;
-        address quote = p.quoteToken;
+        address quote = activeQuote;
         Flow memory f;
         string memory tag = string.concat("VEC|trade|order=", tokenIs0 ? "t0" : "t1", "|dec=18/", _ustr(quoteDecimals));
         int128 unit = int128(uint128(10 ** quoteDecimals));
@@ -926,7 +946,7 @@ contract ZeroSeedLaunchTradingTest is ZeroSeedLaunchBase {
         assertEq(p1, 0, "quote reserve zero");
         assertLe(p.supply - p0, 1, "inventory installed");
         assertEq(launch.feeAt(inst.poolKey.toPoolId(), block.timestamp), FEE_03, "final fee");
-        _assertLedger(inst, p.quoteToken, 0, 0, 1);
+        _assertLedger(inst, activeQuote, 0, 0, 1);
     }
 
     function test_dust_exactInputOneUnit() public {
@@ -982,7 +1002,7 @@ contract ZeroSeedLaunchTradingTest is ZeroSeedLaunchBase {
                 inst.liquidity,
                 "L constant"
             );
-            _assertLedger(inst, p.quoteToken, f.quoteIn, f.quoteOut, MAX_DUST);
+            _assertLedger(inst, activeQuote, f.quoteIn, f.quoteOut, MAX_DUST);
         }
     }
 }
@@ -1005,10 +1025,9 @@ contract ZeroSeedLaunchTimeTest is ZeroSeedLaunchBase {
             uint256(type(uint64).max)
         ];
         PoolState state = ICore(CORE).poolState(id);
-        uint64 factor = duration == DURATION_SHORT ? FACTOR_600 : FACTOR_3600;
         for (uint256 i; i < ts.length; i++) {
             uint64 fee = launch.feeAt(id, ts[i]);
-            assertEq(fee, _referenceFee(FEE_5, FEE_03, factor, START, duration, ts[i]), "reference schedule");
+            assertEq(fee, _referenceFee(FEE_5, FEE_03, START, duration, ts[i]), "reference schedule");
             console2.log(
                 string.concat(
                     "VEC|fee|duration=",
@@ -1026,12 +1045,12 @@ contract ZeroSeedLaunchTimeTest is ZeroSeedLaunchBase {
                 assertEq(ICore(CORE).poolPositions(id, address(launch), inst.positionId).liquidity, inst.liquidity, "L");
             }
         }
-        // Midpoint exact value (Python reference) and a live swap at each boundary that is open for trading. Both
-        // study factors give about six underlying half-lives, so the normalized midpoint is close to 1/64 of the
-        // excess rather than half of it.
+        // Midpoint exact value (Python reference) and a live swap at each boundary that is open for trading. The
+        // 600 s half-life is fixed, so the 3,600 s window spans six half-lives and its normalized midpoint is close
+        // to 1/64 of the excess, while the 600 s window spans one and its midpoint is near 1/2 of the excess.
         assertEq(
             launch.feeAt(id, START + duration / 2),
-            duration == DURATION_SHORT ? 151673229050500755 : 151673229050500749,
+            duration == DURATION_SHORT ? 414462136338061256 : 151673229050500756,
             "midpoint"
         );
         vm.warp(START + duration);
@@ -1105,8 +1124,17 @@ contract ZeroSeedLaunchYulRouterTest is ZeroSeedLaunchBase {
     }
 
     function _call(bytes memory route) internal returns (bool ok, int256 specified, int256 calculated) {
+        return _callWithValue(route, 0);
+    }
+
+    /// @dev Native input is attached as `value`: the exact input, or the maximum input of an exact-output route. The
+    /// router refunds whatever the route does not spend.
+    function _callWithValue(bytes memory route, uint256 value)
+        internal
+        returns (bool ok, int256 specified, int256 calculated)
+    {
         bytes memory result;
-        (ok, result) = ROUTER.call(route);
+        (ok, result) = ROUTER.call{value: value}(route);
         if (ok) (,, specified, calculated) = abi.decode(result, (address, address, int256, int256));
     }
 
@@ -1116,56 +1144,85 @@ contract ZeroSeedLaunchYulRouterTest is ZeroSeedLaunchBase {
         (,,, calculated) = abi.decode(result, (address, address, int256, int256));
     }
 
+    /// @dev Both orders through the production router: a WETH quote above the token (t0) and native ETH (t1). For
+    /// the native order every buy attaches `value`, the router refunds the unspent part, and sells pay ETH out.
     function test_router_bothOrders_deadline_minOut_partial() public {
         for (uint256 i; i < 2; i++) {
             uint256 snap = vm.snapshotState();
             bool tokenIs0 = i == 0;
-            (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
-                _create(tokenIs0, 18, DURATION);
-            ERC20(p.quoteToken).approve(ROUTER, type(uint256).max);
+            (IZeroSeedLaunch.Installation memory inst,) = _create(tokenIs0, 18, DURATION);
+            bool native = activeQuote == NATIVE_TOKEN_ADDRESS;
+            assertEq(native, !tokenIs0, "t1 order is the native quote");
+            _approveQuote(activeQuote, ROUTER);
             ERC20(inst.token).approve(ROUTER, type(uint256).max);
+            vm.deal(address(this), 1e30 + 10e18);
             PoolKey memory key = inst.poolKey;
             vm.warp(START);
             uint32 nowTs = uint32(block.timestamp);
+            uint256 value = native ? 1e18 : 0;
 
-            int256 quoted = _routerQuote(_route(key, p.quoteToken, inst.token, 1e18, 1, false, nowTs));
-            (bool ok,,) = _call(_route(key, p.quoteToken, inst.token, 1e18, int128(quoted + 1), false, nowTs));
+            int256 quoted = _routerQuote(_route(key, activeQuote, inst.token, 1e18, 1, false, nowTs));
+            (bool ok,,) =
+                _callWithValue(_route(key, activeQuote, inst.token, 1e18, int128(quoted + 1), false, nowTs), value);
             assertFalse(ok, "minOut above quote refused");
-            (ok,,) = _call(_route(key, p.quoteToken, inst.token, 1e18, 1, false, nowTs - 1));
+            (ok,,) = _callWithValue(_route(key, activeQuote, inst.token, 1e18, 1, false, nowTs - 1), value);
             assertFalse(ok, "expired deadline refused");
+            uint256 quoteBefore = _balance(activeQuote, address(this));
+            if (native) quoteBefore = address(this).balance;
             (bool ok2, int256 paid, int256 got) =
-                _call(_route(key, p.quoteToken, inst.token, 1e18, int128(quoted), false, nowTs));
+                _callWithValue(_route(key, activeQuote, inst.token, 1e18, int128(quoted), false, nowTs), value);
             assertTrue(ok2, "inclusive deadline, minOut == quote");
             assertEq(got, quoted, "quote == execution");
+            assertEq(paid, 1e18, "exact input");
             assertEq(ERC20(inst.token).balanceOf(address(this)), uint256(got), "received");
+            if (native) assertEq(quoteBefore - address(this).balance, 1e18, "paid exactly the input in ETH");
             console2.log(
                 string.concat("VEC|router|order=", tokenIs0 ? "t0" : "t1", "|paid=", _str(paid), "|got=", _str(got))
             );
 
+            // Exact-output buy: a native route attaches a maximum input and gets the difference back.
+            int256 qOut = _routerQuote(_route(key, inst.token, activeQuote, -1e20, type(int128).min, false, nowTs));
+            uint256 ethBefore = address(this).balance;
+            (bool okOut, int256 specOut, int256 calcOut) = _callWithValue(
+                _route(key, inst.token, activeQuote, -1e20, type(int128).min, false, nowTs), native ? 10e18 : 0
+            );
+            assertTrue(okOut, "exact output");
+            assertEq(specOut, -1e20, "exact output filled");
+            assertEq(calcOut, qOut, "exact-out quote == execution");
+            if (native) assertEq(ethBefore - address(this).balance, uint256(-calcOut), "unspent ETH refunded");
+
             // Sell-before-other-buyers path is a real sell now; exact sell to the router quote.
-            int256 q2 = _routerQuote(_route(key, inst.token, p.quoteToken, int128(got / 2), 1, false, nowTs));
+            int256 q2 = _routerQuote(_route(key, inst.token, activeQuote, int128(got / 2), 1, false, nowTs));
+            ethBefore = address(this).balance;
             (bool ok3,, int256 got3) =
-                _call(_route(key, inst.token, p.quoteToken, int128(got / 2), int128(q2), false, nowTs));
+                _call(_route(key, inst.token, activeQuote, int128(got / 2), int128(q2), false, nowTs));
             assertTrue(ok3, "sell");
             assertEq(got3, q2, "sell quote == execution");
+            if (native) assertEq(address(this).balance - ethBefore, uint256(got3), "ETH paid out to the recipient");
 
             // Full-fill route beyond the upper bound is refused; the partial route fills to the bound.
-            (bool ok4,,) = _call(_route(key, p.quoteToken, inst.token, 1e30, 1, false, nowTs));
+            (bool ok4,,) =
+                _callWithValue(_route(key, activeQuote, inst.token, 1e30, 1, false, nowTs), native ? 1e30 : 0);
             assertFalse(ok4, "full fill beyond inventory refused");
-            (bool ok5, int256 paid5,) = _call(_route(key, p.quoteToken, inst.token, 1e30, 1, true, nowTs));
+            ethBefore = address(this).balance;
+            (bool ok5, int256 paid5,) =
+                _callWithValue(_route(key, activeQuote, inst.token, 1e30, 1, true, nowTs), native ? 1e30 : 0);
             assertTrue(ok5, "partial fill");
             assertLt(paid5, 1e30, "refund of unused input");
+            if (native) assertEq(ethBefore - address(this).balance, uint256(paid5), "only the fill is paid in ETH");
+            assertEq(address(launch).balance, 0, "extension holds no ETH");
+            assertEq(address(periphery).balance, 0, "periphery holds no ETH");
+            assertEq(ROUTER.balance, 0, "router holds no ETH");
             vm.revertToState(snap);
         }
     }
 
     function test_router_zeroMinOutNotNeededAndPositiveMinRequired() public {
-        (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
         ERC20(inst.token).approve(ROUTER, type(uint256).max);
         vm.warp(START);
         // Sell before any buy: nothing to sell into; a positive minimum output refuses the no-bid fill.
-        (bool ok,,) = _call(_route(inst.poolKey, inst.token, p.quoteToken, 1, 1, false, uint32(block.timestamp)));
+        (bool ok,,) = _call(_route(inst.poolKey, inst.token, activeQuote, 1, 1, false, uint32(block.timestamp)));
         assertFalse(ok, "no bid refused with positive minOut");
     }
 }
@@ -1175,12 +1232,12 @@ contract ZeroSeedLaunchGasTest is ZeroSeedLaunchBase {
         for (uint256 i; i < 2; i++) {
             uint256 snap = vm.snapshotState();
             bool tokenIs0 = i == 0;
-            address quote = _quote(tokenIs0, 18);
-            IZeroSeedLaunch.LaunchParameters memory p = _parameters(quote, ASK_18_18, REQUESTED_SUPPLY, DURATION);
+            _quote(tokenIs0, 18);
+            IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
             _bind(p, creator);
             vm.prank(creator);
             uint256 g = gasleft();
-            IZeroSeedLaunch.Installation memory inst = launch.create(p);
+            IZeroSeedLaunch.Installation memory inst = periphery.create(p);
             uint256 gCreate = g - gasleft();
             MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
             vm.warp(START);
@@ -1195,7 +1252,7 @@ contract ZeroSeedLaunchGasTest is ZeroSeedLaunchBase {
             uint256 gSell = g - gasleft();
             vm.prank(creator);
             g = gasleft();
-            launch.claimFees(inst.poolKey, feeRecipient);
+            periphery.claimFees(inst.poolKey, feeRecipient);
             uint256 gClaim = g - gasleft();
             console2.log(
                 string.concat(
@@ -1307,10 +1364,10 @@ contract ZeroSeedLaunchVectorsTest is ZeroSeedLaunchBase {
         assertEq(launch.feeAt(id, START - 1), 922337203685477580);
         assertEq(launch.feeAt(id, START), 922337203685477580);
         assertEq(launch.feeAt(id, START + 1), 921320298688452636);
-        assertEq(launch.feeAt(id, START + 10), 912220825711290707);
-        assertEq(launch.feeAt(id, START + 60), 863355419786439717);
-        assertEq(launch.feeAt(id, START + 600), 481957789608347955);
-        assertEq(launch.feeAt(id, START + 1800), 151673229050500749);
+        assertEq(launch.feeAt(id, START + 10), 912220825711290708);
+        assertEq(launch.feeAt(id, START + 60), 863355419786439719);
+        assertEq(launch.feeAt(id, START + 600), 481957789608347966);
+        assertEq(launch.feeAt(id, START + 1800), 151673229050500756);
         assertEq(launch.feeAt(id, START + 3599), 55356139728168999);
         assertEq(launch.feeAt(id, START + 3600), 55340232221128654);
         assertEq(launch.feeAt(id, type(uint64).max), 55340232221128654);
@@ -1321,11 +1378,11 @@ contract ZeroSeedLaunchVectorsTest is ZeroSeedLaunchBase {
         (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION_SHORT);
         PoolId id = inst.poolKey.toPoolId();
         assertEq(launch.feeAt(id, START), 922337203685477580);
-        assertEq(launch.feeAt(id, START + 1), 916253358061131122);
-        assertEq(launch.feeAt(id, START + 10), 863355419786439719);
-        assertEq(launch.feeAt(id, START + 60), 622662496147522948);
-        assertEq(launch.feeAt(id, START + 300), 151673229050500755);
-        assertEq(launch.feeAt(id, START + 599), 55435953504208715);
+        assertEq(launch.feeAt(id, START + 1), 920335171972584721);
+        assertEq(launch.feeAt(id, START + 10), 902420584548797176);
+        assertEq(launch.feeAt(id, START + 60), 806216816634246792);
+        assertEq(launch.feeAt(id, START + 300), 414462136338061256);
+        assertEq(launch.feeAt(id, START + 599), 56342405164670430);
         assertEq(launch.feeAt(id, START + 600), 55340232221128654);
     }
 }

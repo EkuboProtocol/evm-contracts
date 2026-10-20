@@ -7,8 +7,15 @@ import {ERC20} from "solady/tokens/ERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {IFlashAccountant} from "../../src/interfaces/IFlashAccountant.sol";
-import {IZeroSeedLaunch} from "../../src/interfaces/extensions/IZeroSeedLaunch.sol";
+import {
+    IZeroSeedLaunch,
+    ZERO_SEED_LAUNCH_CREATE,
+    ZERO_SEED_LAUNCH_CLAIM_FEES
+} from "../../src/interfaces/extensions/IZeroSeedLaunch.sol";
 import {ZeroSeedLaunch, zeroSeedLaunchCallPoints} from "../../src/extensions/ZeroSeedLaunch.sol";
+import {ZeroSeedLaunchPeriphery} from "../../src/ZeroSeedLaunchPeriphery.sol";
+import {IZeroSeedLaunchPeriphery} from "../../src/interfaces/IZeroSeedLaunchPeriphery.sol";
+import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {MintableERC20} from "../../src/MintableERC20.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
@@ -193,22 +200,39 @@ abstract contract AdversarialBase is ZeroSeedLaunchBase {
         evil.approve(address(swapper), type(uint256).max);
     }
 
-    function _createWith(address quote, address who)
+    function _createWith(address who)
         internal
         returns (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p)
     {
-        p = _parameters(quote, ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
         _bind(p, who);
         vm.prank(who);
-        inst = launch.create(p);
+        inst = periphery.create(p);
         MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
     }
 
-    /// @dev Second extension instance at another callpoint-valid address bound to `quote`.
-    function _secondLaunch(address quote) internal returns (ZeroSeedLaunch second) {
+    /// @dev Second extension instance at another callpoint-valid address bound to `quote`, with its own periphery.
+    function _secondLaunch(address quote)
+        internal
+        returns (ZeroSeedLaunch second, ZeroSeedLaunchPeriphery secondPeriphery)
+    {
         address target = address(uint160(_launchTarget()) | 0xbad);
         deployCodeTo("ZeroSeedLaunch.sol:ZeroSeedLaunch", abi.encode(CORE, quote), target);
         second = ZeroSeedLaunch(target);
+        secondPeriphery = new ZeroSeedLaunchPeriphery(ICore(CORE), second);
+    }
+
+    /// @dev Creates on a second (hostile-quote) instance through its periphery.
+    function _createOn(ZeroSeedLaunchPeriphery via, address who)
+        internal
+        returns (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p)
+    {
+        p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.Installation memory preview = via.previewInstallation(who, p);
+        p.liquidity = preview.liquidity;
+        p.supply = preview.installedSupply;
+        vm.prank(who);
+        inst = via.create(p);
     }
 
     function _ledgerAndPrincipal(IZeroSeedLaunch.Installation memory inst) internal view returns (bytes32 h) {
@@ -220,91 +244,58 @@ abstract contract AdversarialBase is ZeroSeedLaunchBase {
                 f1,
                 p0,
                 p1,
-                ERC20(inst.poolKey.token0).balanceOf(CORE),
-                ERC20(inst.poolKey.token1).balanceOf(CORE),
+                _balance(inst.poolKey.token0, CORE),
+                _balance(inst.poolKey.token1, CORE),
                 PoolState.unwrap(ICore(CORE).poolState(inst.poolKey.toPoolId()))
             )
         );
     }
 }
 
-/// M-1: one constructor-bound quote. Every other quote is refused by create and preview in both orders.
+/// M-1: one constructor-bound quote, native ETH or a plain ERC-20. There is no per-launch quote field: every pool of
+/// an instance pairs its launch token with the constructor quote, so a pool key with any other quote is unknown.
 contract ZeroSeedLaunchQuoteTest is AdversarialBase {
     using CoreLib for ICore;
 
-    function test_constructor_refusesNativeAndCodeless() public {
+    function test_constructor_acceptsNative_refusesCodeless() public {
         address target = address(uint160(_launchTarget()) | 0xbad);
-        address[2] memory bad = [address(0), address(0xdead)];
-        for (uint256 i; i < 2; i++) {
-            vm.etch(target, abi.encodePacked(vm.getCode("ZeroSeedLaunch.sol:ZeroSeedLaunch"), abi.encode(CORE, bad[i])));
-            (bool ok, bytes memory reason) = target.call("");
-            assertFalse(ok, "constructor refuses");
-            assertEq(bytes4(reason), IZeroSeedLaunch.UnsupportedQuoteToken.selector, "reason");
-        }
+        vm.etch(
+            target, abi.encodePacked(vm.getCode("ZeroSeedLaunch.sol:ZeroSeedLaunch"), abi.encode(CORE, address(0xdead)))
+        );
+        (bool ok, bytes memory reason) = target.call("");
+        assertFalse(ok, "constructor refuses an ERC-20 address without code");
+        assertEq(bytes4(reason), IZeroSeedLaunch.UnsupportedQuoteToken.selector, "reason");
         // Registration rolled back with the constructor: a valid deployment at the same address still works.
         assertEq(
             vm.load(CORE, StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(target))),
             bytes32(0),
             "not registered"
         );
-        ZeroSeedLaunch ok_ = _secondLaunch(QUOTE_HIGH);
-        assertEq(ok_.quoteToken(), QUOTE_HIGH);
+        (ZeroSeedLaunch nativeLaunch,) = _secondLaunch(NATIVE_TOKEN_ADDRESS);
+        assertEq(nativeLaunch.quoteToken(), NATIVE_TOKEN_ADDRESS, "native quote accepted: no code, no decimals()");
+        assertTrue(ICore(CORE).isExtensionRegistered(address(nativeLaunch)), "registered");
     }
 
-    function test_quoteToken_isWethFixture() public {
+    function test_quoteToken_wethFixtureAndNative_distinctRuntimes() public {
         assertEq(launch.quoteToken(), QUOTE_HIGH, "bound quote");
         assertEq(QUOTE_HIGH.codehash, WETH9_CODEHASH, "real WETH9 runtime");
         assertEq(ERC20(QUOTE_HIGH).decimals(), 18);
         assertEq(ERC20(QUOTE_HIGH).symbol(), "WETH");
         assertEq(ERC20(QUOTE_HIGH).name(), "Wrapped Ether");
         bytes32 highHash = address(launch).codehash;
-        console2.log("PIN|runtime|quoteHigh");
+        console2.log("PIN|runtime|quoteWeth");
         console2.logBytes32(highHash);
         _quote(false, 18);
-        assertEq(launch.quoteToken(), QUOTE_LOW);
-        assertEq(QUOTE_LOW.codehash, WETH9_CODEHASH);
+        assertEq(launch.quoteToken(), NATIVE_TOKEN_ADDRESS, "native instance");
         assertTrue(highHash != address(launch).codehash, "quote immutable changes runtime");
-        console2.log("PIN|runtime|quoteLow");
+        console2.log("PIN|runtime|quoteNative");
         console2.logBytes32(address(launch).codehash);
     }
 
-    /// @dev Extension bound to WETH at one end of the address space, the unsupported quote at the other, so both
-    /// launch-token orders are attempted with each unsupported quote.
-    function test_unsupportedQuotes_refusedByCreateAndPreview_bothOrders() public {
-        for (uint256 order; order < 2; order++) {
-            uint256 snap = vm.snapshotState();
-            bool wethHigh = order == 0;
-            address weth = _quote(wethHigh, 18);
-            address other = wethHigh ? QUOTE_LOW : QUOTE_HIGH;
-            for (uint256 kind; kind < 4; kind++) {
-                if (kind == 0) {
-                    _evilAt(other); // hostile controller (tax / lie / block / hook)
-                } else if (kind == 1) {
-                    deployCodeTo("ZeroSeedLaunch.t.sol:DecimalsToken", abi.encode(address(this), 18), other);
-                } else if (kind == 2) {
-                    vm.etch(other, vm.parseBytes(vm.trim(vm.readFile(WETH9_FIXTURE)))); // same code, other address
-                } else {
-                    other = address(0); // native
-                }
-                IZeroSeedLaunch.LaunchParameters memory p = _parameters(other, ASK_18_18, REQUESTED_SUPPLY, DURATION);
-                vm.expectRevert(IZeroSeedLaunch.UnsupportedQuoteToken.selector);
-                launch.previewInstallation(creator, p);
-                p.liquidity = 1e24;
-                vm.prank(creator);
-                vm.expectRevert(IZeroSeedLaunch.UnsupportedQuoteToken.selector);
-                launch.create(p);
-            }
-            // The bound quote still works in the same state.
-            (IZeroSeedLaunch.Installation memory inst,) = _createWith(weth, creator);
-            assertEq(inst.poolKey.token0 == inst.token, wethHigh, "order");
-            vm.revertToState(snap);
-        }
-    }
-
-    /// @dev Integration refusal: no pool for an unsupported quote can exist under this extension, so routing,
-    /// lying settlement and forwarded swaps all fail with no state change.
+    /// @dev Integration refusal: no pool for another quote can exist under this extension, so routing, lying
+    /// settlement and forwarded swaps all fail with no state change.
     function test_unsupportedQuote_integrationRefusal() public {
-        (IZeroSeedLaunch.Installation memory wethLaunch,) = _createWith(QUOTE_HIGH, creator);
+        (IZeroSeedLaunch.Installation memory wethLaunch,) = _createWith(creator);
         bytes32 before = _ledgerAndPrincipal(wethLaunch);
         EvilQuote evil = _evilAt(QUOTE_LOW);
         PoolKey memory key = PoolKey({token0: QUOTE_LOW, token1: wethLaunch.token, config: wethLaunch.poolKey.config});
@@ -323,16 +314,11 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
     /// quote is exactly as unsafe as 39ca191 was for that quote. The restriction is only as good as the constructor
     /// input; it is not a screen of the token. The WETH-bound instance on the same Core is unaffected.
     function test_constructorTrust_hostileInstanceStillDrainable() public {
-        (IZeroSeedLaunch.Installation memory wethLaunch,) = _createWith(QUOTE_HIGH, creator);
+        (IZeroSeedLaunch.Installation memory wethLaunch,) = _createWith(creator);
         bytes32 before = _ledgerAndPrincipal(wethLaunch);
         EvilQuote evil = _evilAt(QUOTE_LOW);
-        ZeroSeedLaunch hostile = _secondLaunch(address(evil));
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(address(evil), ASK_18_18, REQUESTED_SUPPLY, DURATION);
-        IZeroSeedLaunch.Installation memory preview = hostile.previewInstallation(creator, p);
-        p.liquidity = preview.liquidity;
-        p.supply = preview.installedSupply;
-        vm.prank(creator);
-        IZeroSeedLaunch.Installation memory inst = hostile.create(p);
+        (, ZeroSeedLaunchPeriphery hostilePeriphery) = _secondLaunch(address(evil));
+        (IZeroSeedLaunch.Installation memory inst,) = _createOn(hostilePeriphery, creator);
         vm.warp(START);
         LyingPayer attacker = new LyingPayer(ICore(CORE));
         bool tokenIs1 = inst.poolKey.token1 == inst.token;
@@ -351,15 +337,10 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
     /// @dev I-4 rerun next to the WETH deployment: a hostile-callback quote steals the in-flight payment snapshot in
     /// a nested lock, the outer settlement reverts, nothing is taken, and the WETH launch is unaffected.
     function test_settlementSnapshotTheft_failsClosed_wethLaunchUnaffected() public {
-        (IZeroSeedLaunch.Installation memory wethLaunch,) = _createWith(QUOTE_HIGH, creator);
+        (IZeroSeedLaunch.Installation memory wethLaunch,) = _createWith(creator);
         EvilQuote evil = _evilAt(QUOTE_LOW);
-        ZeroSeedLaunch hostile = _secondLaunch(address(evil));
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(address(evil), ASK_18_18, REQUESTED_SUPPLY, DURATION);
-        IZeroSeedLaunch.Installation memory preview = hostile.previewInstallation(creator, p);
-        p.liquidity = preview.liquidity;
-        p.supply = preview.installedSupply;
-        vm.prank(creator);
-        IZeroSeedLaunch.Installation memory inst = hostile.create(p);
+        (, ZeroSeedLaunchPeriphery hostilePeriphery) = _secondLaunch(address(evil));
+        (IZeroSeedLaunch.Installation memory inst,) = _createOn(hostilePeriphery, creator);
         SnapshotThief thief = new SnapshotThief(ICore(CORE), address(evil));
         evil.setHook(address(thief));
         vm.warp(START);
@@ -376,7 +357,8 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
     }
 }
 
-/// L-1 / L-2: recipient sinks refused, claim is atomic over both assets.
+/// L-1 / L-2: recipient sinks refused, claim is atomic over both assets, native payout to EOA and contract
+/// recipients, reverting and reentering recipients.
 contract ZeroSeedLaunchClaimTest is AdversarialBase {
     using CoreLib for ICore;
 
@@ -395,34 +377,47 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
             uint256 snap = vm.snapshotState();
             IZeroSeedLaunch.Installation memory inst = _withFees(i == 0);
             bytes32 before = _ledgerAndPrincipal(inst);
-            address[5] memory sinks = [address(0), CORE, address(launch), inst.poolKey.token0, inst.poolKey.token1];
+            address[6] memory sinks =
+                [address(0), CORE, address(launch), address(periphery), inst.poolKey.token0, inst.poolKey.token1];
             for (uint256 k; k < sinks.length; k++) {
                 vm.prank(creator);
-                vm.expectRevert(IZeroSeedLaunch.InvalidRecipient.selector);
-                launch.claimFees(inst.poolKey, sinks[k]);
+                vm.expectRevert(IZeroSeedLaunchPeriphery.InvalidRecipient.selector);
+                periphery.claimFees(inst.poolKey, sinks[k]);
                 assertEq(_ledgerAndPrincipal(inst), before, "ledger, principal and Core balances unchanged");
             }
-            // Valid alternatives: the creator itself, an EOA and a contract that is not a sink.
+            // Valid alternatives: the owner itself, an EOA and a contract that is not a sink (the swapper accepts
+            // ETH).
             address[3] memory ok = [creator, feeRecipient, address(swapper)];
             (uint128 f0, uint128 f1) = launch.creatorFees(inst.poolKey);
             vm.prank(creator);
-            (uint128 c0, uint128 c1) = launch.claimFees(inst.poolKey, ok[0]);
+            (uint128 c0, uint128 c1) = periphery.claimFees(inst.poolKey, ok[0]);
             assertEq(c0, f0);
             assertEq(c1, f1);
+            assertEq(_balance(inst.poolKey.token0, creator), f0, "owner paid 0");
+            assertEq(_balance(inst.poolKey.token1, creator), f1, "owner paid 1");
             _buy(inst.poolKey, inst.token, 1e18, false);
             vm.prank(creator);
-            (c0, c1) = launch.claimFees(inst.poolKey, ok[1]);
+            (c0, c1) = periphery.claimFees(inst.poolKey, ok[1]);
             assertGt(uint256(c0) + c1, 0);
             assertEq(ERC20(inst.token).balanceOf(ok[1]), inst.poolKey.token0 == inst.token ? c0 : c1);
             _buy(inst.poolKey, inst.token, 1e18, false);
+            uint256 swapperQuote = _balance(activeQuote, address(swapper));
             vm.prank(creator);
-            launch.claimFees(inst.poolKey, ok[2]);
+            (c0, c1) = periphery.claimFees(inst.poolKey, ok[2]);
+            assertEq(
+                _balance(activeQuote, address(swapper)) - swapperQuote,
+                inst.poolKey.token0 == activeQuote ? c0 : c1,
+                "contract recipient paid"
+            );
+            assertEq(address(launch).balance, 0, "extension holds no ETH");
+            assertEq(address(periphery).balance, 0, "periphery holds no ETH");
             vm.revertToState(snap);
         }
     }
 
-    /// @dev Fault injection: the quote transfer to the recipient fails. Both ledgers, principal and Core balances
-    /// roll back; a retry to another recipient pays both assets in full.
+    /// @dev Fault injection: the quote payment to the recipient fails (a refused ERC-20 transfer for the WETH order,
+    /// a reverting receiver for the native order). Both ledgers, principal and Core balances roll back; a retry to
+    /// another recipient pays both assets in full.
     function test_claim_atomicRollback_bothOrders() public {
         for (uint256 i; i < 2; i++) {
             uint256 snap = vm.snapshotState();
@@ -432,32 +427,69 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
             address quote = tokenIs0 ? inst.poolKey.token1 : inst.poolKey.token0;
             uint128 quoteFee = tokenIs0 ? f1 : f0;
             bytes32 before = _ledgerAndPrincipal(inst);
-            vm.mockCallRevert(quote, abi.encodeCall(ERC20.transfer, (feeRecipient, quoteFee)), "refused");
-            vm.prank(creator);
-            vm.expectRevert();
-            launch.claimFees(inst.poolKey, feeRecipient);
+            address target = feeRecipient;
+            if (quote == NATIVE_TOKEN_ADDRESS) {
+                target = address(new RevertingReceiver());
+                vm.prank(creator);
+                vm.expectRevert(bytes4(0xb12d13eb)); // Core: ETHTransferFailed()
+            } else {
+                vm.mockCallRevert(quote, abi.encodeCall(ERC20.transfer, (feeRecipient, quoteFee)), "refused");
+                vm.prank(creator);
+                vm.expectRevert();
+            }
+            periphery.claimFees(inst.poolKey, target);
             assertEq(_ledgerAndPrincipal(inst), before, "both ledgers rolled back");
-            assertEq(ERC20(inst.token).balanceOf(feeRecipient), 0, "no token side paid");
+            assertEq(ERC20(inst.token).balanceOf(target), 0, "no token side paid");
             vm.clearMockedCalls();
             address retry = makeAddr("retry");
             vm.prank(creator);
-            (uint128 c0, uint128 c1) = launch.claimFees(inst.poolKey, retry);
+            (uint128 c0, uint128 c1) = periphery.claimFees(inst.poolKey, retry);
             assertEq(c0, f0);
             assertEq(c1, f1);
-            assertEq(ERC20(inst.poolKey.token0).balanceOf(retry), f0);
-            assertEq(ERC20(inst.poolKey.token1).balanceOf(retry), f1);
+            assertEq(_balance(inst.poolKey.token0, retry), f0);
+            assertEq(_balance(inst.poolKey.token1, retry), f1);
             vm.revertToState(snap);
         }
     }
 
-    /// @dev WETH9 has no transfer hook, so a creator contract cannot re-enter during the claim. The ledger is still
-    /// cleared before the transfers (checked through a hostile-callback instance).
+    /// @dev Native order: an owner contract that re-enters `claimFees` while receiving its ETH finds the ledger
+    /// already moved onto the lock; the second claim pays nothing and the ETH is paid exactly once.
+    function test_reentrantClaim_native_noDoubleSpend() public {
+        _quote(false, 18);
+        assertEq(activeQuote, NATIVE_TOKEN_ADDRESS);
+        ReentrantOwner owner = new ReentrantOwner(periphery, launch);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        _bind(p, address(owner));
+        IZeroSeedLaunch.Installation memory inst = owner.createLaunch(p);
+        MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
+        vm.warp(START);
+        _buy(inst.poolKey, inst.token, 10e18, true); // quote (ETH) fee
+        _buy(inst.poolKey, inst.token, 10e18, false); // token fee
+        (uint128 f0, uint128 f1) = launch.creatorFees(inst.poolKey);
+        assertGt(f0, 0, "ETH fee");
+        assertGt(f1, 0, "token fee");
+        (uint128 c0, uint128 c1) = owner.claim();
+        assertEq(c0, f0);
+        assertEq(c1, f1);
+        assertTrue(owner.reentered(), "re-entered during the ETH payment");
+        assertEq(owner.second0() + owner.second1(), 0, "re-entrant claim gets nothing");
+        assertEq(owner.viewDuring0() + owner.viewDuring1(), 0, "ledger cleared before the payment");
+        assertEq(address(owner).balance, f0, "ETH paid once");
+        assertEq(ERC20(inst.token).balanceOf(address(owner)), f1, "token paid once");
+        assertEq(address(launch).balance, 0, "extension holds no ETH");
+        assertEq(address(periphery).balance, 0, "periphery holds no ETH");
+        (f0, f1) = launch.creatorFees(inst.poolKey);
+        assertEq(f0 + f1, 0, "ledger empty");
+    }
+
+    /// @dev A hostile-callback ERC-20 quote on a second instance: the owner contract re-enters through the quote's
+    /// transfer hook. Same outcome as the native case.
     function test_reentrantClaim_noDoubleSpend_hostileInstance() public {
         EvilQuote evil = _evilAt(QUOTE_LOW);
-        ZeroSeedLaunch hostile = _secondLaunch(address(evil));
-        ReentrantCreator rc = new ReentrantCreator(hostile);
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(address(evil), ASK_18_18, REQUESTED_SUPPLY, DURATION);
-        IZeroSeedLaunch.Installation memory preview = hostile.previewInstallation(address(rc), p);
+        (ZeroSeedLaunch hostile, ZeroSeedLaunchPeriphery hostilePeriphery) = _secondLaunch(address(evil));
+        ReentrantOwner rc = new ReentrantOwner(hostilePeriphery, hostile);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.Installation memory preview = hostilePeriphery.previewInstallation(address(rc), p);
         p.liquidity = preview.liquidity;
         p.supply = preview.installedSupply;
         IZeroSeedLaunch.Installation memory inst = rc.createLaunch(p);
@@ -470,23 +502,61 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
         (uint128 c0, uint128 c1) = rc.claim();
         assertEq(c0, f0);
         assertEq(c1, f1);
+        assertTrue(rc.reentered());
         assertEq(rc.second0() + rc.second1(), 0, "re-entrant claim gets nothing");
         assertEq(rc.viewDuring0() + rc.viewDuring1(), 0, "ledger cleared before transfer");
         assertEq(evil.balanceOf(address(rc)), inst.poolKey.token0 == address(evil) ? f0 : f1, "quote paid once");
     }
+
+    /// @dev Ownership is the periphery's: a transfer moves the claim right, including unclaimed fees; the extension
+    /// still sees the periphery as controller.
+    function test_transferLaunch_movesFeeRights() public {
+        IZeroSeedLaunch.Installation memory inst = _withFees(false);
+        PoolId id = inst.poolKey.toPoolId();
+        address next = makeAddr("next");
+        vm.expectRevert(IZeroSeedLaunchPeriphery.OwnerOnly.selector);
+        periphery.transferLaunch(id, next);
+        vm.prank(creator);
+        vm.expectRevert(IZeroSeedLaunchPeriphery.InvalidOwner.selector);
+        periphery.transferLaunch(id, address(0));
+        vm.prank(creator);
+        vm.expectEmit(address(periphery));
+        emit IZeroSeedLaunchPeriphery.LaunchOwnerChanged(id, creator, next);
+        periphery.transferLaunch(id, next);
+        assertEq(periphery.launchOwner(id), next);
+        assertEq(launch.getLaunch(id).controller, address(periphery), "controller unchanged");
+        vm.prank(creator);
+        vm.expectRevert(IZeroSeedLaunchPeriphery.OwnerOnly.selector);
+        periphery.claimFees(inst.poolKey, creator);
+        (uint128 f0, uint128 f1) = launch.creatorFees(inst.poolKey);
+        vm.prank(next);
+        (uint128 c0, uint128 c1) = periphery.claimFees(inst.poolKey, next);
+        assertEq(c0, f0);
+        assertEq(c1, f1);
+        assertEq(next.balance, f0, "ETH to the new owner");
+    }
 }
 
-/// @dev Creator contract whose quote-receipt hook re-enters claimFees.
-contract ReentrantCreator is IQuoteHook {
-    ZeroSeedLaunch immutable launch;
+/// @dev Refuses ETH: a recipient that cannot be paid.
+contract RevertingReceiver {
+    receive() external payable {
+        revert("no");
+    }
+}
+
+/// @dev Owner contract whose ETH receipt (or hostile-quote hook) re-enters `claimFees`.
+contract ReentrantOwner is IQuoteHook {
+    ZeroSeedLaunchPeriphery immutable periphery;
+    IZeroSeedLaunch immutable launch;
     PoolKey key;
-    bool reentered;
+    bool public reentered;
     uint128 public second0;
     uint128 public second1;
     uint128 public viewDuring0;
     uint128 public viewDuring1;
 
-    constructor(ZeroSeedLaunch l) {
+    constructor(ZeroSeedLaunchPeriphery p, IZeroSeedLaunch l) {
+        periphery = p;
         launch = l;
     }
 
@@ -494,19 +564,28 @@ contract ReentrantCreator is IQuoteHook {
         external
         returns (IZeroSeedLaunch.Installation memory inst)
     {
-        inst = launch.create(p);
+        inst = periphery.create(p);
         key = inst.poolKey;
     }
 
     function claim() external returns (uint128, uint128) {
-        return launch.claimFees(key, address(this));
+        return periphery.claimFees(key, address(this));
+    }
+
+    function _reenter() private {
+        if (reentered) return;
+        reentered = true;
+        (viewDuring0, viewDuring1) = launch.creatorFees(key);
+        (second0, second1) = periphery.claimFees(key, address(this));
+    }
+
+    receive() external payable {
+        _reenter();
     }
 
     function onQuoteTransfer(address, address to, uint256) external {
-        if (to != address(this) || reentered) return;
-        reentered = true;
-        (viewDuring0, viewDuring1) = launch.creatorFees(key);
-        (second0, second1) = launch.claimFees(key, address(this));
+        if (to != address(this)) return;
+        _reenter();
     }
 }
 
@@ -515,7 +594,7 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
     using CoreLib for ICore;
 
     function test_metadataBounds_sharedByPreviewAndCreate() public {
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(QUOTE_HIGH, ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
         string memory len31 = "abcdefghijklmnopqrstuvwxyz01234";
         string memory len32 = "abcdefghijklmnopqrstuvwxyz012345";
         for (uint256 field; field < 2; field++) {
@@ -523,24 +602,24 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
             if (field == 0) q.name = len32;
             else q.symbol = len32;
             vm.expectRevert(IZeroSeedLaunch.MetadataTooLong.selector);
-            launch.previewInstallation(creator, q);
+            periphery.previewInstallation(creator, q);
             q.liquidity = 1e24;
             vm.prank(creator);
             vm.expectRevert(IZeroSeedLaunch.MetadataTooLong.selector);
-            launch.create(q);
+            periphery.create(q);
         }
         p.name = len31;
         p.symbol = len31;
         _bind(p, creator);
         vm.prank(creator);
-        IZeroSeedLaunch.Installation memory inst = launch.create(p);
+        IZeroSeedLaunch.Installation memory inst = periphery.create(p);
         assertEq(MintableERC20(inst.token).name(), len31);
         assertEq(MintableERC20(inst.token).symbol(), len31);
         // The bound is in bytes, not characters: 11 three-byte characters (33 bytes) are refused.
         p.salt = bytes32(uint256(2));
         p.name = unicode"€€€€€€€€€€€";
         vm.expectRevert(IZeroSeedLaunch.MetadataTooLong.selector);
-        launch.previewInstallation(creator, p);
+        periphery.previewInstallation(creator, p);
     }
 
     function test_collision_refusedPredictably_otherSaltOrMetadataIndependent() public {
@@ -548,17 +627,17 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
             _create(true, 18, DURATION);
         bytes memory exists = abi.encodeWithSelector(IZeroSeedLaunch.LaunchTokenExists.selector, first.token);
         vm.expectRevert(exists);
-        launch.previewInstallation(creator, p);
+        periphery.previewInstallation(creator, p);
         vm.prank(creator);
         vm.expectRevert(exists);
-        launch.create(p);
+        periphery.create(p);
         // Same salt, different metadata: different token address, accepted.
         IZeroSeedLaunch.LaunchParameters memory q = abi.decode(abi.encode(p), (IZeroSeedLaunch.LaunchParameters));
         q.symbol = "ZERO2";
         q.supply = REQUESTED_SUPPLY;
         _bind(q, creator);
         vm.prank(creator);
-        IZeroSeedLaunch.Installation memory second = launch.create(q);
+        IZeroSeedLaunch.Installation memory second = periphery.create(q);
         assertTrue(second.token != first.token, "distinct token");
         // Different salt, same metadata: accepted.
         q = abi.decode(abi.encode(p), (IZeroSeedLaunch.LaunchParameters));
@@ -566,7 +645,7 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
         q.supply = REQUESTED_SUPPLY;
         _bind(q, creator);
         vm.prank(creator);
-        launch.create(q);
+        periphery.create(q);
     }
 
     /// @dev Contract-side start boundaries at block time T. These are the only rules the contract enforces; it has
@@ -574,7 +653,7 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
     function test_startBoundaries() public {
         uint64 t = 5000;
         vm.warp(t);
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(QUOTE_HIGH, ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
         uint64[5] memory starts = [t - 1, t, t + 1, t + 86_400, type(uint64).max];
         for (uint256 i; i < starts.length; i++) {
             uint256 snap = vm.snapshotState();
@@ -582,18 +661,18 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
             p.supply = REQUESTED_SUPPLY;
             if (starts[i] < t) {
                 vm.expectRevert(IZeroSeedLaunch.InvalidTradingStart.selector);
-                launch.previewInstallation(creator, p);
+                periphery.previewInstallation(creator, p);
                 p.liquidity = 1e24;
                 vm.prank(creator);
                 vm.expectRevert(IZeroSeedLaunch.InvalidTradingStart.selector);
-                launch.create(p);
+                periphery.create(p);
                 console2.log(string.concat("VEC|start|T=5000|start=", _ustr(starts[i]), "|create=InvalidTradingStart"));
                 vm.revertToState(snap);
                 continue;
             }
             _bind(p, creator);
             vm.prank(creator);
-            IZeroSeedLaunch.Installation memory inst = launch.create(p);
+            IZeroSeedLaunch.Installation memory inst = periphery.create(p);
             MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
             if (starts[i] > t) {
                 vm.expectRevert(IZeroSeedLaunch.TradingNotStarted.selector);
@@ -623,11 +702,11 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
         p.tradingStart = t;
         p.supply = REQUESTED_SUPPLY;
         _bind(p, creator);
-        IZeroSeedLaunch.Installation memory planned = launch.previewInstallation(creator, p);
+        IZeroSeedLaunch.Installation memory planned = periphery.previewInstallation(creator, p);
         vm.warp(t + 1);
         vm.prank(creator);
         vm.expectRevert(IZeroSeedLaunch.InvalidTradingStart.selector);
-        launch.create(p);
+        periphery.create(p);
         assertEq(planned.token.code.length, 0, "no token");
         assertFalse(ICore(CORE).poolState(planned.poolKey.toPoolId()).isInitialized(), "no pool");
     }
@@ -678,8 +757,8 @@ contract ZeroSeedLaunchFeeEventTest is AdversarialBase {
                 mag = mag % 1e22 + 1;
             }
             (uint128 s0, uint128 s1) = launch.creatorFees(key);
-            uint256 t0 = ERC20(key.token0).balanceOf(address(this));
-            uint256 t1 = ERC20(key.token1).balanceOf(address(this));
+            uint256 t0 = _balance(key.token0, address(this));
+            uint256 t1 = _balance(key.token1, address(this));
             vm.recordLogs();
             PoolBalanceUpdate u = isBuy
                 ? _buy(key, inst.token, int128(uint128(mag)), exactOut)
@@ -690,8 +769,8 @@ contract ZeroSeedLaunchFeeEventTest is AdversarialBase {
             assertEq(o.rate, launch.feeAt(key.toPoolId(), block.timestamp), "rate");
             assertLe(o.rate, FEE_5, "rate<=initial");
             assertGe(o.rate, FEE_03, "rate>=final");
-            assertEq(int256(t0) - int256(ERC20(key.token0).balanceOf(address(this))), int256(u.delta0()), "user0");
-            assertEq(int256(t1) - int256(ERC20(key.token1).balanceOf(address(this))), int256(u.delta1()), "user1");
+            assertEq(int256(t0) - int256(_balance(key.token0, address(this))), int256(u.delta0()), "user0");
+            assertEq(int256(t1) - int256(_balance(key.token1, address(this))), int256(u.delta1()), "user1");
             (uint128 n0, uint128 n1) = launch.creatorFees(key);
             assertEq(uint256(n0) - s0, o.feeIs1 ? 0 : o.fee, "ledger0");
             assertEq(uint256(n1) - s1, o.feeIs1 ? o.fee : 0, "ledger1");
@@ -706,8 +785,8 @@ contract ZeroSeedLaunchFeeEventTest is AdversarialBase {
                 assertLe(withFee, 0, "user never pays on output side");
             }
             (uint128 p0, uint128 p1) = _principal(inst);
-            assertLe(uint256(p0) + n0, ERC20(key.token0).balanceOf(CORE), "Core0 >= principal+fee");
-            assertLe(uint256(p1) + n1, ERC20(key.token1).balanceOf(CORE), "Core1 >= principal+fee");
+            assertLe(uint256(p0) + n0, _balance(key.token0, CORE), "Core0 >= principal+fee");
+            assertLe(uint256(p1) + n1, _balance(key.token1, CORE), "Core1 >= principal+fee");
         }
     }
 
@@ -800,5 +879,168 @@ contract ZeroSeedLaunchBypassTest is AdversarialBase {
         sr = SqrtRatio.unwrap(ICore(CORE).poolState(inst.poolKey.toPoolId()).sqrtRatio());
         assertLe(sr, SqrtRatio.unwrap(tickToSqrtRatio(inst.positionId.tickUpper())), "sell clamped at upper");
         assertGe(sr, SqrtRatio.unwrap(tickToSqrtRatio(inst.positionId.tickLower())), "sell clamped at lower");
+    }
+}
+
+/// @dev Any locker that reaches the extension through Core.forward; used to attack dispatch and identity.
+contract MaliciousLocker is BaseLocker {
+    using FlashAccountantLib for *;
+
+    constructor(ICore core) BaseLocker(core) {}
+
+    /// @dev Forwards `data` to `to` and returns whatever comes back; leaves any resulting debt on the lock.
+    function forwardRaw(address to, bytes memory data) external returns (bytes memory) {
+        return lock(abi.encode(to, data, false));
+    }
+
+    /// @dev Forwards a claim and withdraws the credited amounts to itself so the lock settles.
+    function forwardClaimAndWithdraw(address to, PoolKey memory key) external returns (uint128, uint128) {
+        return abi.decode(lock(abi.encode(to, abi.encode(ZERO_SEED_LAUNCH_CLAIM_FEES, key), true)), (uint128, uint128));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (address to, bytes memory payload, bool withdrawClaim) = abi.decode(data, (address, bytes, bool));
+        bytes memory result = ACCOUNTANT.forward(to, payload);
+        if (withdrawClaim) {
+            (, PoolKey memory key) = abi.decode(payload, (uint256, PoolKey));
+            (uint128 a0, uint128 a1) = abi.decode(result, (uint128, uint128));
+            ACCOUNTANT.withdrawTwo(key.token0, key.token1, address(this), a0, a1);
+        }
+        return result;
+    }
+
+    receive() external payable {}
+}
+
+/// Forward dispatch and identity: action tags cannot alias a swap, unknown payloads are refused before any
+/// privileged branch, and the controller of a launch is the authenticated forwarding locker, never a payload field.
+contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
+    using CoreLib for ICore;
+
+    function test_actionTags_derivedAndAboveAddressRange() public pure {
+        assertEq(ZERO_SEED_LAUNCH_CREATE, uint256(keccak256("IZeroSeedLaunch#CREATE")), "create tag");
+        assertEq(ZERO_SEED_LAUNCH_CLAIM_FEES, uint256(keccak256("IZeroSeedLaunch#CLAIM_FEES")), "claim tag");
+        assertTrue(ZERO_SEED_LAUNCH_CREATE >> 160 != 0, "create tag is not an address");
+        assertTrue(ZERO_SEED_LAUNCH_CLAIM_FEES >> 160 != 0, "claim tag is not an address");
+    }
+
+    function test_forward_unknownOrMalformedPayloadsRefused() public {
+        (IZeroSeedLaunch.Installation memory inst,) = _create(false, 18, DURATION);
+        vm.warp(START);
+        bytes32 before = _ledgerAndPrincipal(inst);
+        MaliciousLocker m = new MaliciousLocker(ICore(CORE));
+        bytes[6] memory unknown = [
+            bytes(""),
+            new bytes(31),
+            abi.encode(uint256(keccak256("IZeroSeedLaunch#WITHDRAW")), inst.poolKey),
+            abi.encode(uint256(1) << 160, inst.poolKey),
+            abi.encode(type(uint256).max),
+            // A 128-byte "swap" whose first word is above the address range is not a swap.
+            abi.encode(uint256(1) << 160, inst.poolKey.token1, inst.poolKey.config, bytes32(0))
+        ];
+        for (uint256 i; i < unknown.length; i++) {
+            vm.expectRevert(IZeroSeedLaunch.UnknownForwardAction.selector);
+            m.forwardRaw(address(launch), unknown[i]);
+        }
+        // A first word in the address range selects the swap decoder, which refuses a short payload.
+        vm.expectRevert();
+        m.forwardRaw(address(launch), abi.encode(inst.poolKey.token0, inst.poolKey.token1));
+        // A create payload whose tag is right but whose body is not a LaunchParameters fails to decode.
+        vm.expectRevert();
+        m.forwardRaw(address(launch), abi.encode(ZERO_SEED_LAUNCH_CREATE, uint256(1)));
+        assertEq(_ledgerAndPrincipal(inst), before, "nothing changed");
+    }
+
+    /// @dev Create forwarded by an arbitrary locker makes that locker the controller: it gets its own token address
+    /// (namespaced by the controller), its own pool and its own fee rights. It cannot claim the periphery's launch,
+    /// and nothing it sends can name another controller.
+    function test_impersonation_controllerIsTheLocker() public {
+        (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
+            _create(false, 18, DURATION);
+        vm.warp(START);
+        _buy(inst.poolKey, inst.token, 10e18, false);
+        (uint128 f0, uint128 f1) = launch.creatorFees(inst.poolKey);
+        assertGt(f1, 0, "fees to steal");
+        MaliciousLocker m = new MaliciousLocker(ICore(CORE));
+        vm.deal(address(m), 100e18);
+
+        // Claim on a launch controlled by the periphery: refused.
+        vm.expectRevert(IZeroSeedLaunch.ControllerOnly.selector);
+        m.forwardRaw(address(launch), abi.encode(ZERO_SEED_LAUNCH_CLAIM_FEES, inst.poolKey));
+        // Claim on a pool that does not exist: unknown.
+        PoolKey memory unknown = PoolKey(inst.poolKey.token0, address(0x1234), inst.poolKey.config);
+        vm.expectRevert(IZeroSeedLaunch.UnknownLaunch.selector);
+        m.forwardRaw(address(launch), abi.encode(ZERO_SEED_LAUNCH_CLAIM_FEES, unknown));
+
+        // Create with the very same parameters the periphery used (its namespaced salt included): a different
+        // token, because the controller is part of the CREATE2 salt, so the periphery's launch is untouched.
+        IZeroSeedLaunch.LaunchParameters memory q = abi.decode(abi.encode(p), (IZeroSeedLaunch.LaunchParameters));
+        q.salt = keccak256(abi.encode(creator, p.salt));
+        IZeroSeedLaunch.Installation memory preview = launch.previewInstallation(address(m), q);
+        assertTrue(preview.token != inst.token, "controller namespaces the token address");
+        q.liquidity = preview.liquidity;
+        q.supply = preview.installedSupply;
+        q.tradingStart = uint64(block.timestamp);
+        vm.recordLogs();
+        IZeroSeedLaunch.Installation memory theirs = abi.decode(
+            m.forwardRaw(address(launch), abi.encode(ZERO_SEED_LAUNCH_CREATE, q)), (IZeroSeedLaunch.Installation)
+        );
+        assertEq(theirs.token, preview.token, "preview binding");
+        assertEq(launch.getLaunch(theirs.poolKey.toPoolId()).controller, address(m), "controller is the locker");
+        assertEq(periphery.launchOwner(theirs.poolKey.toPoolId()), address(0), "periphery knows no owner for it");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool seen;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].topics[0] == IZeroSeedLaunch.LaunchCreated.selector) {
+                assertEq(address(uint160(uint256(logs[i].topics[3]))), address(m), "event controller");
+                seen = true;
+            }
+        }
+        assertTrue(seen, "LaunchCreated");
+        assertEq(MintableERC20(theirs.token).owner(), address(0), "minter renounced");
+        assertEq(ERC20(theirs.token).balanceOf(CORE), theirs.installedSupply, "supply in Core");
+
+        // Its own fee rights work, as the controller, and only touch its own ledger.
+        MintableERC20(theirs.token).approve(address(swapper), type(uint256).max);
+        _buy(theirs.poolKey, theirs.token, 1e18, false);
+        (uint128 t0, uint128 t1) = launch.creatorFees(theirs.poolKey);
+        (uint128 c0, uint128 c1) = m.forwardClaimAndWithdraw(address(launch), theirs.poolKey);
+        assertEq(c0, t0);
+        assertEq(c1, t1);
+        assertEq(ERC20(theirs.token).balanceOf(address(m)), t1, "its own token fee");
+        (uint128 g0, uint128 g1) = launch.creatorFees(inst.poolKey);
+        assertEq(g0, f0, "periphery ledger 0 untouched");
+        assertEq(g1, f1, "periphery ledger 1 untouched");
+        // The periphery's owner still claims its own launch.
+        vm.prank(creator);
+        (c0, c1) = periphery.claimFees(inst.poolKey, creator);
+        assertEq(c0, f0);
+        assertEq(c1, f1);
+    }
+
+    /// @dev The extension exposes no user-callable mutation: no lock callback, no create, no claim, no ETH receipt.
+    function test_extension_noDirectEntrypoints() public {
+        (IZeroSeedLaunch.Installation memory inst,) = _create(false, 18, DURATION);
+        bytes[4] memory calls = [
+            abi.encodeWithSignature("locked_6416899205(uint256)", uint256(0)),
+            abi.encodeWithSignature(
+                "create((string,string,uint8,uint128,uint128,int32,int32,uint32,uint64,uint32,uint64,uint64,bytes32))"
+            ),
+            abi.encodeWithSignature("claimFees((address,address,bytes32),address)", inst.poolKey, creator),
+            abi.encodeWithSignature("withdraw()")
+        ];
+        for (uint256 i; i < calls.length; i++) {
+            (bool ok,) = address(launch).call(calls[i]);
+            assertFalse(ok, "no such entrypoint");
+        }
+        (bool sent,) = address(launch).call{value: 1}("");
+        assertFalse(sent, "extension refuses ETH");
+        (sent,) = address(periphery).call{value: 1}("");
+        assertFalse(sent, "periphery refuses ETH");
+        (bool okLock,) = address(periphery).call(abi.encodeWithSignature("locked_6416899205(uint256)", uint256(0)));
+        assertFalse(okLock, "periphery lock callback only from Core");
+        // The forward callback only from Core.
+        (bool okFwd,) = address(launch).call(abi.encodeWithSelector(bytes4(uint32(1)), bytes32(0)));
+        assertFalse(okFwd, "forwarded() only from Core");
     }
 }

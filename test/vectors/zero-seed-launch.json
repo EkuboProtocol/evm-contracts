@@ -1,5 +1,5 @@
 {
- "version": 3,
+ "version": 4,
  "fixture": {
   "core": "evm-contracts main 98d1be1 Core runtime keccak c5f90c9d..., equal to Base 0x00000000000014aA86C5d3c41765bb24e11bd701 at block 52449112",
   "router": "Base 0x03c8B90854b90AA22448b11e885F692972DA441C runtime keccak 32ba8475... at block 52449112",
@@ -15,15 +15,33 @@
    3600,
    600
   ],
-  "fee_decay_factors_q64": {
-   "3600": "18425445863997925462",
-   "600": "18319323104848571946"
-  },
-  "fee_schedule": "finalFee + floor((initialFee - finalFee) * (powQ64(b, t) - powQ64(b, D)) / (2**64 - powQ64(b, D))) for 0 < t < D; initialFee at t <= 0; finalFee at t >= D. powQ64 is square-and-multiply with floor after every Q64 multiply (src/math/feeDecay.sol). Study factors, not selected parameters.",
+  "fee_schedule": "finalFee + floor((initialFee - finalFee) * (decay(t) - decay(D)) / (2**128 - decay(D))) for 0 < t < D; initialFee at t <= 0; finalFee at t >= D. decay(t) = 0 for t >= fee_decay_zero_from_s, else the product over the set bits i of t of fee_decay_table_q128[i], starting at 2**128 and flooring to Q128 after every multiply (src/math/feeDecay.sol decayQ128). The table is round(2**128 * 2**(-2**i/600)); the operation order is normative.",
   "max_creator_fee_q64": "18262276632972456099",
   "label": "LOCAL FIXTURE VECTORS - not live evidence; numeric start margin/cap are a local-reference proposal, not live parameters",
-  "quote_18": "WETH9 runtime from Base 0x4200000000000000000000000000000000000006 at block 52449112 (test/fixtures/weth9-0x4200-base-52449112.hex, 2041 bytes, keccak 0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c), slots 0-2 as read at that block; bound as the extension constructor quote",
-  "quote_6": "plain 6-decimal solady ERC-20 (DecimalsToken), bound as the constructor quote for math vectors only"
+  "quote_18": "t0 order: WETH9 runtime from Base 0x4200000000000000000000000000000000000006 at block 52449112 (test/fixtures/weth9-0x4200-base-52449112.hex, keccak 0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c) bound as the constructor quote at the top of the address space. t1 order: native ETH, address(0), the reference Base configuration; always token0, no code, no decimals(), no approvals.",
+  "quote_6": "plain 6-decimal solady ERC-20 (DecimalsToken), bound as the constructor quote for math vectors only",
+  "fee_half_life_s": 600,
+  "fee_decay_table_q128": [
+   "339889484297159900493648602831395569057",
+   "339497055287118257930533248299650400736",
+   "338713556013920184336129943844147573651",
+   "337151977828609613753562640265082287810",
+   "334050386396171404885545237344599070716",
+   "327932539264834336949184815807600758235",
+   "316030922441737935988095136387330274498",
+   "293507844215098455952964317090465751204",
+   "253162852354938356992240649094357060196",
+   "188347784201757897225807540435664088841",
+   "104251325552682051605813724741512712010",
+   "31939177389160626453527783486618815759",
+   "2997836947964109484105344435429137776",
+   "26410496811510722015611852309540293",
+   "2049810421099131403277778219901",
+   "12347753427443481862030",
+   "448060"
+  ],
+  "fee_decay_zero_from_s": 131072,
+  "fee_decay_first_zero_s": 76800
  },
  "create": [
   {
@@ -317,109 +335,91 @@
   {
    "duration": 3600,
    "t_minus_start": 0,
-   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "922337203685477580"
   },
   {
    "duration": 3600,
    "t_minus_start": 1800,
-   "decay_factor_q64": "18425445863997925462",
-   "fee_q64": "151673229050500749"
+   "fee_q64": "151673229050500756"
   },
   {
    "duration": 3600,
    "t_minus_start": 18446744073709550615,
-   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 3600,
    "t_minus_start": 1,
-   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "921320298688452636"
   },
   {
    "duration": 3600,
    "t_minus_start": -1,
-   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "922337203685477580"
   },
   {
    "duration": 3600,
    "t_minus_start": 315360000,
-   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 3600,
    "t_minus_start": 3599,
-   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "55356139728168999"
   },
   {
    "duration": 3600,
    "t_minus_start": 3600,
-   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 3600,
    "t_minus_start": 3601,
-   "decay_factor_q64": "18425445863997925462",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 600,
    "t_minus_start": 0,
-   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "922337203685477580"
   },
   {
    "duration": 600,
    "t_minus_start": 18446744073709550615,
-   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 600,
    "t_minus_start": 1,
-   "decay_factor_q64": "18319323104848571946",
-   "fee_q64": "916253358061131122"
+   "fee_q64": "920335171972584721"
   },
   {
    "duration": 600,
    "t_minus_start": -1,
-   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "922337203685477580"
   },
   {
    "duration": 600,
    "t_minus_start": 300,
-   "decay_factor_q64": "18319323104848571946",
-   "fee_q64": "151673229050500755"
+   "fee_q64": "414462136338061256"
   },
   {
    "duration": 600,
    "t_minus_start": 315360000,
-   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 600,
    "t_minus_start": 599,
-   "decay_factor_q64": "18319323104848571946",
-   "fee_q64": "55435953504208715"
+   "fee_q64": "56342405164670430"
   },
   {
    "duration": 600,
    "t_minus_start": 600,
-   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "55340232221128654"
   },
   {
    "duration": 600,
    "t_minus_start": 601,
-   "decay_factor_q64": "18319323104848571946",
    "fee_q64": "55340232221128654"
   }
  ],
@@ -438,19 +438,19 @@
  "gas": [
   {
    "order": "t0",
-   "create": "1311122",
-   "firstBuy": "102513",
-   "secondBuy": "34283",
-   "sell": "34267",
-   "claim": "66472"
+   "create": "1338516",
+   "firstBuy": "102731",
+   "secondBuy": "34513",
+   "sell": "34506",
+   "claim": "70461"
   },
   {
    "order": "t1",
-   "create": "1270477",
-   "firstBuy": "105819",
-   "secondBuy": "34407",
-   "sell": "34616",
-   "claim": "66472"
+   "create": "1297835",
+   "firstBuy": "84647",
+   "secondBuy": "35147",
+   "sell": "38593",
+   "claim": "79732"
   }
  ],
  "other": [
@@ -469,7 +469,7 @@
    "raw": "VEC|recapture|t0|quoteIn=10e18|netOfFee=9415099531871718329641155|afterClaim=9910631086180756136011948"
   }
  ],
- "gas_note": "In-test warm gas on the WETH9 fixture quote. Same-WETH-fixture comparison against 39ca191 protocol source is in the EKU-1528 packet; old plain synthetic ERC-20 measurements are not a comparable baseline.",
+ "gas_note": "In-test warm gas, t0 on the WETH9 fixture quote and t1 on native ETH, through the periphery (create, claim) and the forwarding test locker (swaps). Not comparable with earlier plain-ERC-20 measurements.",
  "residue_metrics": {
   "definitions": {
    "core_unbooked_dust": "Per token: Core balance - position amount (rounded down) - creator fee ledger, accumulated over all swaps; raw units of that token. Unowned: not creator principal, not creator fees, unreachable by claims.",
@@ -653,20 +653,22 @@
   }
  },
  "claim_recipient_refusals": {
-  "error": "InvalidRecipient()",
+  "error": "InvalidRecipient() (periphery)",
   "refused": [
    "address(0)",
    "Core",
-   "extension (address(this))",
+   "extension",
+   "periphery",
    "poolKey.token0",
    "poolKey.token1"
   ],
   "accepted_examples": [
-   "creator",
+   "owner",
    "EOA",
-   "other contract"
+   "other contract (ETH-receiving for a native quote)"
   ],
-  "atomicity": "both assets or neither; ledgers, principal and Core balances unchanged on revert; retry to another recipient pays both in full"
+  "atomicity": "both assets or neither; a reverting native recipient or a refused ERC-20 transfer rolls the ledger, principal and Core balances back; retry to another recipient pays both in full",
+  "reentrancy": "the ledger is moved onto the lock before Core pays; an owner contract re-entering claimFees during the payment claims zero"
  },
  "metadata": {
   "max_bytes": 31,
@@ -706,10 +708,10 @@
    "create",
    "previewInstallation"
   ],
-  "rule": "token address = CREATE2(extension, keccak256(abi.encode(creator, salt)), MintableERC20 init code with name/symbol/decimals); refused when it already has code. Same salt with other metadata, or other salt, is independent."
+  "rule": "token address = CREATE2(extension, keccak256(abi.encode(controller, salt)), MintableERC20 init code with name/symbol/decimals). The controller is the locker that forwards the creation; the periphery passes salt = keccak256(abi.encode(owner, userSalt)). Refused when the address already has code. Same salt with other metadata, another salt, another owner or another controller is independent."
  },
  "fee_curve": {
-  "note": "Exponential schedule study on the fixture. Digests: SHA-256 chain h = sha256(h || fee as 8-byte big-endian) over t = 0..D inclusive, h0 = 32 zero bytes; asserted in Solidity (ZeroSeedLaunchFeeCurve.t.sol) and recomputed by the Python reference.",
+  "note": "Fixed-base schedule on the fixture. Digests: SHA-256 chain h = sha256(h || fee as 8-byte big-endian) over t = 0..D inclusive, h0 = 32 zero bytes; asserted in Solidity (ZeroSeedLaunchFeeCurve.t.sol) and recomputed by gen-fee-decay-table.py and this reference. The 600 s window spans one half-life and the 3,600 s window six.",
   "rates_q64": {
    "5": "922337203685477580",
    "50": "9223372036854775808",
@@ -721,125 +723,89 @@
   "final_fee_q64": "55340232221128654",
   "all_second_digests_sha256": {
    "600": {
-    "5": "6346e95d7a66797ce3270ff25d5fc19e64c2e9ccabf1c2dbc03a946276fe64b5",
-    "50": "73b08ebf1a8d045805ec42c84200bbd841e25e515a1aef7f7fb6d246c6b6027a",
-    "75": "ac34495b80e94c660319b488c697f7ecf05af9eeb3f4a03c27c1b7bc79d4e5f4",
-    "90": "87c5e5119e29faddc71e59753cca77fea297b4d76419fd0b66a78a340c4b7cef",
-    "99": "af32943cbe63a0991532e385ad42960e1ce4040d59981ca6d4a4d4b86dc20cb0",
-    "max": "dce005ce818ddc4248d259c7a6e2b9c0652cb4b4705b70cf9f4f04f1270023af"
+    "5": "636937adfdd71123c726c4d2a596d079a63726428a2fe4646571b28f8400a3b7",
+    "50": "a5d0666688ef4a2dd7153351cf2871a5b84a4fbf7023bbb876bc2de8c740cf23",
+    "75": "8acacd858306553f71f73f15197ccf8915d3473a6a1d3ced8876ff355fd2a865",
+    "90": "d29e09a6613fbd52bccbcc0e49ba74ea7469bcea65904887c67b3115603b7109",
+    "99": "47a588db69ac7fe12529c7cb9b15fe91b41494195360caa9bccb939ae8133cc4",
+    "max": "7c849a9c92021aa28ed2e4a32f7c33b15c2ff8513157f822229f53e85c0f9612"
    },
    "3600": {
-    "5": "306aaf4b3acfabe5ba98a1ee86cf91ba6564e010f806d1f592f3a403620bfd77",
-    "50": "ac4fa207bb2beec03e9a122e5839482d14abb55c72a4b65c155da02ea15baf51",
-    "75": "c7eaeb00462cc16f7ce3684309604d97a9a22a1eaec15a1b8862bbfd68705771",
-    "90": "fb0df6da40ddcacfe08f4a599b3078a1e6dbe0017b97e73b6b4e384563247354",
-    "99": "ee35ebedb9d7c09c69675d9517cdc1dc26e177eb61e0aa76fd13eb63dee8cba8",
-    "max": "82e00f48c0d5dc03d757e417a60a410a8ee9cfd0d41c12cfb72547bfc73ac4f7"
+    "5": "41cb8af04c65adc7513c3a9741665eb332011f25b3b46d2b2f06ddad318409c8",
+    "50": "9d60494802e0ebc9136779b23c27cd4a18f13b9c68102aa343908cf6d422b3f6",
+    "75": "700df4fd9f07ce4eedc4ad337d17836c478b0a2b1e752ae3cbfdf72940aae60f",
+    "90": "4cfbc14801fe33bef5a1c0201d2cc03a992d446efd4bacdd3883469e8dc7d5d1",
+    "99": "7988ddeb4a28991a8b29a05eb9ce25763fc27d41a25a370d19f5b1364f285bfc",
+    "max": "56a3f80709937290c4323f106110af97b27ec87e019266c65bd91eb3aa316e02"
    }
   },
-  "half_life_fixture": {
-   "factor_q64": "18439641936446208053",
-   "duration": 4294967295,
-   "initial_q64": "922337203685477580",
-   "final_q64": "55340232221128654",
-   "values": [
-    {
-     "t": 0,
-     "fee_q64": "922337203685477580"
-    },
-    {
-     "t": 1,
-     "fee_q64": "922003403234100432"
-    },
-    {
-     "t": 10,
-     "fee_q64": "919004976445628917"
-    },
-    {
-     "t": 60,
-     "fee_q64": "902534965489818689"
-    },
-    {
-     "t": 600,
-     "fee_q64": "743476184499003893"
-    },
-    {
-     "t": 1800,
-     "fee_q64": "488838717953303091"
-    },
-    {
-     "t": 3600,
-     "fee_q64": "272089475087215860"
-    },
-    {
-     "t": 107173,
-     "fee_q64": "55340232221128655"
-    },
-    {
-     "t": 107174,
-     "fee_q64": "55340232221128654"
-    },
-    {
-     "t": 115200,
-     "fee_q64": "55340232221128654"
-    }
-   ],
-   "note": "Equal underlying 1,800 s half-life, not equal duration: the fee reaches the final value at t = 107,174 when the scaled power term floors to zero; the power chain itself floors to zero at t = 115,200."
-  },
-  "integer_chord_exceptions": {
-   "note": "Nearly flat factors where floor-rpow normalization lies above the integer linear chord. exp <= linear is asserted only for the two study factors; boundedness, endpoints and monotonicity hold everywhere.",
-   "rows": [
-    {
-     "factor": "18446744073692774400",
-     "duration": 600,
-     "elapsed": 561,
-     "initial": "6145946118234823704",
-     "final": "3773859608321006899",
-     "exponential": "3928045231480721956",
-     "linear": "3928045231465404992",
-     "excess_q64": "15316964"
-    },
-    {
-     "factor": "18446744073675997184",
-     "duration": 600,
-     "elapsed": 596,
-     "initial": "18262276632972456099",
-     "final": "16093730704593406921",
-     "exponential": "16108187677454293848",
-     "linear": "16108187677449267249",
-     "excess_q64": "5026599"
-    },
-    {
-     "factor": "18446744073709551608",
-     "duration": 4294967295,
-     "elapsed": 4197406844,
-     "initial": "18446744073709551615",
-     "final": "18012629042273719369",
-     "exponential": "18022489992398216608",
-     "linear": "18022489992391328815",
-     "excess_q64": "6887793"
-    },
-    {
-     "factor": "18446744073709551608",
-     "duration": 4294967295,
-     "elapsed": 4028198074,
-     "initial": "18446744073709551615",
-     "final": "14193599660735192734",
-     "exponential": "14457771176879541746",
-     "linear": "14457771176818802869",
-     "excess_q64": "60738877"
-    },
-    {
-     "factor": "18446744073709551608",
-     "duration": 4294967295,
-     "elapsed": 4074259523,
-     "initial": "18446744073709551615",
-     "final": "11939927239388337278",
-     "exponential": "12274296501798491214",
-     "linear": "12274296501754310277",
-     "excess_q64": "44180937"
-    }
-   ]
+  "legacy_comparison": {
+   "legacy_factor_q64": "18425445863997925462",
+   "note": "Previous variable-base implementation (powQ64 square-and-multiply, floor after every Q64 multiply) at floor(2**64 * 2**(-1/600)), the same 600 s half-life. 50% -> 0.3% over 3,600 s: max |table - legacy| = 120 Q64 units (about 6.5e-18 absolute) at t = 756; endpoints identical.",
+   "max_abs_diff_q64_by_duration": {
+    "600": 32,
+    "1800": 82,
+    "3600": 120,
+    "7200": 133,
+    "86400": 133
+   }
   }
+ },
+ "forward_schema": {
+  "swap": {
+   "payload": "abi.encode(PoolKey, SwapParameters)",
+   "length": 128,
+   "returns": "abi.encode(PoolBalanceUpdate, PoolState)",
+   "first_word": "PoolKey.token0 < 2**160"
+  },
+  "create": {
+   "tag": "0x224a5a98239f599168b798c4205db155bfff4332b4931a7fb5bc60c2e2eeee30",
+   "tag_source": "keccak256(\"IZeroSeedLaunch#CREATE\")",
+   "payload": "abi.encode(tag, LaunchParameters)",
+   "returns": "abi.encode(Installation)",
+   "controller": "Locker.addr() of the forwarding locker",
+   "lock_debt_after": "zero"
+  },
+  "claim_fees": {
+   "tag": "0xe52d8a05fd0f2d32b280675736d8117fee83069a0eac7ab9279aa52ff05a614c",
+   "tag_source": "keccak256(\"IZeroSeedLaunch#CLAIM_FEES\")",
+   "payload": "abi.encode(tag, PoolKey)",
+   "returns": "abi.encode(uint128 amount0, uint128 amount1)",
+   "authorization": "launch.controller == Locker.addr()",
+   "lock_debt_after": "credit of (amount0, amount1) for the locker to withdraw"
+  },
+  "unknown": "any first word >= 2**160 that is not a tag, or fewer than 32 bytes, reverts UnknownForwardAction(); a first word < 2**160 is decoded as a swap"
+ },
+ "abi": {
+  "ZeroSeedLaunch": {
+   "selectors": {
+    "quoteToken()": "0x217a4b70",
+    "previewInstallation(address,LaunchParameters)": "0x42b9fe08",
+    "feeAt(bytes32,uint256)": "0xe81084ec",
+    "getLaunch(bytes32)": "0x7d1d589c",
+    "creatorFees((address,address,bytes32))": "0xb4ce9a2e",
+    "forwarded_2374103877(bytes32)": "0x00000001"
+   },
+   "topics": {
+    "LaunchCreated": "0x085ada2e6f98dc43ec420caff7f39c25cbc16c81595684b19c4fca014dae5f2d",
+    "LaunchSwapped": "0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d",
+    "CreatorFeesClaimed": "0xf0ffdfa84530baef2e9f8bbb160545a59bfef8da319fa27aa69e4f3c8f05a41d"
+   }
+  },
+  "ZeroSeedLaunchPeriphery": {
+   "selectors": {
+    "create(LaunchParameters)": "0x687ba810",
+    "previewInstallation(address,LaunchParameters)": "0x42b9fe08",
+    "claimFees((address,address,bytes32),address)": "0x6906b4c0",
+    "transferLaunch(bytes32,address)": "0x8b1cb36f",
+    "launchOwner(bytes32)": "0x60ac0b66",
+    "LAUNCH()": "0x096e3c3e"
+   },
+   "topics": {
+    "LaunchOwnerChanged": "0x478004cf03e8c3b648608ce0259ce479c813aa671a383230ee7763fe5da22391",
+    "LaunchFeesClaimed": "0x908c6b2c19765fe47aef218b4f71ea1a10a9e156d9d5c3500c3a298e01428805"
+   }
+  },
+  "LaunchParameters": "(string name,string symbol,uint8 decimals,uint128 supply,uint128 liquidity,int32 askTick,int32 upperTick,uint32 tickSpacing,uint64 tradingStart,uint32 feeDuration,uint64 initialFee,uint64 finalFee,bytes32 salt)"
  }
 }

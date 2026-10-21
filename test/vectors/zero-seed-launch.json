@@ -18,7 +18,7 @@
   "fee_schedule": "finalFee + floor((initialFee - finalFee) * (decay(t) - decay(D)) / (2**128 - decay(D))) for 0 < t < D; initialFee at t <= 0; finalFee at t >= D. decay(t) = 0 for t >= fee_decay_zero_from_s, else the product over the set bits i of t of fee_decay_table_q128[i], starting at 2**128 and flooring to Q128 after every multiply (src/math/feeDecay.sol decayQ128). The table is round(2**128 * 2**(-2**i/600)); the operation order is normative.",
   "max_creator_fee_q64": "18262276632972456099",
   "label": "LOCAL FIXTURE VECTORS - not live evidence; numeric start margin/cap are a local-reference proposal, not live parameters",
-  "quote_18": "t0 order: WETH9 runtime from Base 0x4200000000000000000000000000000000000006 at block 52449112 (test/fixtures/weth9-0x4200-base-52449112.hex, keccak 0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c) bound as the constructor quote at the top of the address space. t1 order: native ETH, address(0), the reference Base configuration; always token0, no code, no decimals(), no approvals.",
+  "quote_18": "t0 order: plain 18-decimal test ERC-20 bound as the constructor quote at the top of the address space. t1 order: native ETH, address(0), the reference Base configuration; always token0, no code, no decimals(), no approvals.",
   "quote_6": "plain 6-decimal solady ERC-20 (DecimalsToken), bound as the constructor quote for math vectors only",
   "fee_half_life_s": 600,
   "fee_decay_table_q128": [
@@ -439,10 +439,10 @@
   {
    "order": "t0",
    "create": "1338516",
-   "firstBuy": "102731",
-   "secondBuy": "34513",
-   "sell": "34506",
-   "claim": "70461"
+    "firstBuy": "102469",
+    "secondBuy": "34251",
+    "sell": "34255",
+    "claim": "70210"
   },
   {
    "order": "t1",
@@ -469,7 +469,7 @@
    "raw": "VEC|recapture|t0|quoteIn=10e18|netOfFee=9415099531871718329641155|afterClaim=9910631086180756136011948"
   }
  ],
- "gas_note": "In-test warm gas, t0 on the WETH9 fixture quote and t1 on native ETH, through the periphery (create, claim) and the forwarding test locker (swaps). Not comparable with earlier plain-ERC-20 measurements.",
+ "gas_note": "In-test warm gas, t0 on the plain 18-decimal test ERC-20 quote and t1 on native ETH, through the periphery (create, claim) and the forwarding test locker (swaps).",
  "residue_metrics": {
   "definitions": {
    "core_unbooked_dust": "Per token: Core balance - position amount (rounded down) - creator fee ledger, accumulated over all swaps; raw units of that token. Unowned: not creator principal, not creator fees, unreachable by claims.",

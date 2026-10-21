@@ -86,7 +86,7 @@ contract FreeLPMetadataTest is Test {
 
     function test_concentratedSnapshot() public {
         vm.chainId(1);
-        _metadata(address(0x1111), "WETH", "Wrapped Ether", 18);
+        _metadata(address(0x1111), "Q", "Quote", 18);
         _metadata(address(0x2222), "USDC", "USD Coin", 6);
         _case(
             "Concentrated",
@@ -99,7 +99,7 @@ contract FreeLPMetadataTest is Test {
 
     function test_nativeStableswapSnapshot() public {
         vm.chainId(8453);
-        _metadata(address(0x3333), "WETH", "Wrapped Ether", 18);
+        _metadata(address(0x3333), "Q", "Quote", 18);
         PoolKey memory key = PoolKey(address(0), address(0x3333), createStableswapPoolConfig(0, 10, 0, address(0)));
         (int32 lower, int32 upper) = key.config.stableswapActiveLiquidityTickRange();
         _case("NativeStableswap", 42, key, lower, upper);
@@ -123,21 +123,21 @@ contract FreeLPMetadataTest is Test {
     }
 
     function test_metadataAndPriceFormatting() public {
-        MetadataToken weth = new MetadataToken("WETH", "Wrapped Ether", 18);
+        MetadataToken quote = new MetadataToken("Q", "Quote", 18);
         MetadataToken usdc = new MetadataToken("USDC", "USD Coin", 6);
         PoolKey memory key =
-            PoolKey(address(weth), address(usdc), createConcentratedPoolConfig(1 << 60, 10, address(0)));
+            PoolKey(address(quote), address(usdc), createConcentratedPoolConfig(1 << 60, 10, address(0)));
         string memory svg = FreeLPMetadata.tokenSvg(7, key, -20000000, -19800000);
-        assertTrue(LibString.contains(svg, "USDC / WETH"));
-        assertTrue(LibString.contains(svg, "Wrapped Ether"));
+        assertTrue(LibString.contains(svg, "USDC / Q"));
+        assertTrue(LibString.contains(svg, "Quote"));
         assertTrue(LibString.contains(svg, "USD Coin"));
         assertTrue(LibString.contains(svg, "6 / 18 decimals"));
-        assertTrue(LibString.contains(svg, "USDC per WETH"));
+        assertTrue(LibString.contains(svg, "USDC per Q"));
         assertTrue(LibString.contains(svg, "2061.17"));
         assertTrue(LibString.contains(svg, "2517.52"));
         string memory json =
             string(Base64.decode(LibString.slice(FreeLPMetadata.tokenURI(7, address(0x1234), key, 0, 1), 29)));
-        assertEq(vm.parseJsonString(json, ".properties.token0_symbol"), "WETH");
+        assertEq(vm.parseJsonString(json, ".properties.token0_symbol"), "Q");
         assertEq(vm.parseJsonUint(json, ".properties.token1_decimals"), 6);
     }
 

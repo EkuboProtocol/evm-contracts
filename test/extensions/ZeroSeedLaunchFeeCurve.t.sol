@@ -353,7 +353,7 @@ contract FeeCurveMathTest is FeeCurveBase {
 }
 
 /// @dev High initial rates on the pinned fixture: executed swaps at 50/75/90/99% and at the injected maximum, in
-/// both orders (WETH quote above the token, native ETH below it) and at 18/6 decimals.
+/// both orders (plain ERC-20 quote above the token, native ETH below it) and at 18/6 decimals.
 contract FeeCurveHighRateTest is FeeCurveBase {
     using CoreLib for ICore;
 
@@ -591,7 +591,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         _assertLedger(inst, activeQuote, 0, 0, 1);
     }
 
-    /// @dev The deployed Base Yul router runtime against the injected maximum rate (WETH order; the native order
+    /// @dev The deployed Base Yul router runtime against the injected maximum rate (token0 order; the native order
     /// through the same router is covered by the main suite).
     function test_router_maxRate_minOut_deadline_partial_balance() public {
         vm.etch(ROUTER, vm.parseBytes(vm.trim(vm.readFile("test/fixtures/yul-router-0x03c8-base-52449112.hex"))));

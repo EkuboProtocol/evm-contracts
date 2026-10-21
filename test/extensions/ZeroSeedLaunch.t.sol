@@ -30,13 +30,7 @@ import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
 import {decayedFee} from "../../src/math/feeDecay.sol";
 
-interface IWETH9 {
-    function deposit() external payable;
-    function withdraw(uint256) external;
-}
-
-/// @dev Plain 6-decimal ERC-20, used only as the constructor quote for the 18/6 math vectors. The reference
-/// deployment quote is WETH (`WETH9_FIXTURE`).
+/// @dev Plain ERC-20 for alternate token-order and decimal math coverage. The deployment quote is native ETH.
 contract DecimalsToken is ERC20 {
     uint8 private immutable _DECIMALS;
 
@@ -144,11 +138,6 @@ abstract contract ZeroSeedLaunchBase is Test {
     address constant QUOTE_HIGH = address(type(uint160).max);
     address constant QUOTE_LOW = address(0x10000);
 
-    /// @dev Runtime of WETH9 at Base 0x4200000000000000000000000000000000000006, read at Base block 52,449,112 (solc
-    /// 0.5.17 build), with its three metadata slots as read at the same block. Local fixture only.
-    string constant WETH9_FIXTURE = "test/fixtures/weth9-0x4200-base-52449112.hex";
-    bytes32 constant WETH9_CODEHASH = 0x8a3a1f6a9f9dce633117adee5b458245835a8645a8c8726a26382a4622508b1c;
-
     ZeroSeedLaunch launch;
     ZeroSeedLaunchPeriphery periphery;
     LaunchSwapper swapper;
@@ -179,17 +168,6 @@ abstract contract ZeroSeedLaunchBase is Test {
 
     receive() external payable {}
 
-    /// @dev Real WETH9 runtime and metadata slots at `at`, funded with 2**128 - 1 wei deposited by this test.
-    function _etchWeth(address at) internal {
-        vm.etch(at, vm.parseBytes(vm.trim(vm.readFile(WETH9_FIXTURE))));
-        assertEq(at.codehash, WETH9_CODEHASH, "WETH9 fixture");
-        vm.store(at, bytes32(0), 0x577261707065642045746865720000000000000000000000000000000000001a);
-        vm.store(at, bytes32(uint256(1)), 0x5745544800000000000000000000000000000000000000000000000000000008);
-        vm.store(at, bytes32(uint256(2)), bytes32(uint256(18)));
-        vm.deal(address(this), type(uint128).max);
-        IWETH9(at).deposit{value: type(uint128).max}();
-    }
-
     function _launchTarget() internal pure returns (address) {
         return address(uint160(zeroSeedLaunchCallPoints().toUint8()) << 152);
     }
@@ -213,8 +191,8 @@ abstract contract ZeroSeedLaunchBase is Test {
         assertEq(address(periphery.LAUNCH()), target, "periphery extension");
     }
 
-    /// @dev Quote for the requested order: a token0 launch needs a quote above every token address (WETH9 for 18
-    /// decimals, the plain 6-decimal token otherwise); a token1 launch uses native ETH (`address(0)`) for 18
+    /// @dev Quote for the requested order: a token0 launch needs a plain ERC-20 above every token address;
+    /// a token1 launch uses native ETH (`address(0)`) for 18
     /// decimals, the reference Base configuration, and the 6-decimal token at a low address otherwise. Redeploys
     /// the extension bound to it.
     function _quote(bool tokenIs0, uint8 quoteDecimals) internal returns (address quote) {
@@ -222,11 +200,7 @@ abstract contract ZeroSeedLaunchBase is Test {
             quote = NATIVE_TOKEN_ADDRESS;
         } else {
             quote = tokenIs0 ? QUOTE_HIGH : QUOTE_LOW;
-            if (quoteDecimals == 18) {
-                _etchWeth(quote);
-            } else {
-                deployCodeTo("ZeroSeedLaunch.t.sol:DecimalsToken", abi.encode(address(this), quoteDecimals), quote);
-            }
+            deployCodeTo("ZeroSeedLaunch.t.sol:DecimalsToken", abi.encode(address(this), quoteDecimals), quote);
             ERC20(quote).approve(address(swapper), type(uint256).max);
         }
         _deployLaunch(quote);
@@ -1144,7 +1118,7 @@ contract ZeroSeedLaunchYulRouterTest is ZeroSeedLaunchBase {
         (,,, calculated) = abi.decode(result, (address, address, int256, int256));
     }
 
-    /// @dev Both orders through the production router: a WETH quote above the token (t0) and native ETH (t1). For
+    /// @dev Both orders through the production router: a plain ERC-20 quote above the token (t0) and native ETH (t1). For
     /// the native order every buy attaches `value`, the router refunds the unspent part, and sells pay ETH out.
     function test_router_bothOrders_deadline_minOut_partial() public {
         for (uint256 i; i < 2; i++) {

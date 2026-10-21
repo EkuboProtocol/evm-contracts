@@ -276,14 +276,14 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
         assertTrue(ICore(CORE).isExtensionRegistered(address(nativeLaunch)), "registered");
     }
 
-    function test_quoteToken_wethFixtureAndNative_distinctRuntimes() public {
+    function test_quoteToken_erc20AndNative_distinctRuntimes() public {
         assertEq(launch.quoteToken(), QUOTE_HIGH, "bound quote");
-        assertEq(QUOTE_HIGH.codehash, WETH9_CODEHASH, "real WETH9 runtime");
+        assertGt(QUOTE_HIGH.code.length, 0, "plain ERC-20 fixture");
         assertEq(ERC20(QUOTE_HIGH).decimals(), 18);
-        assertEq(ERC20(QUOTE_HIGH).symbol(), "WETH");
-        assertEq(ERC20(QUOTE_HIGH).name(), "Wrapped Ether");
+        assertEq(ERC20(QUOTE_HIGH).symbol(), "Q");
+        assertEq(ERC20(QUOTE_HIGH).name(), "Quote");
         bytes32 highHash = address(launch).codehash;
-        console2.log("PIN|runtime|quoteWeth");
+        console2.log("PIN|runtime|quoteERC20");
         console2.logBytes32(highHash);
         _quote(false, 18);
         assertEq(launch.quoteToken(), NATIVE_TOKEN_ADDRESS, "native instance");
@@ -295,10 +295,10 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
     /// @dev Integration refusal: no pool for another quote can exist under this extension, so routing, lying
     /// settlement and forwarded swaps all fail with no state change.
     function test_unsupportedQuote_integrationRefusal() public {
-        (IZeroSeedLaunch.Installation memory wethLaunch,) = _createWith(creator);
-        bytes32 before = _ledgerAndPrincipal(wethLaunch);
+        (IZeroSeedLaunch.Installation memory erc20Launch,) = _createWith(creator);
+        bytes32 before = _ledgerAndPrincipal(erc20Launch);
         EvilQuote evil = _evilAt(QUOTE_LOW);
-        PoolKey memory key = PoolKey({token0: QUOTE_LOW, token1: wethLaunch.token, config: wethLaunch.poolKey.config});
+        PoolKey memory key = PoolKey({token0: QUOTE_LOW, token1: erc20Launch.token, config: erc20Launch.poolKey.config});
         vm.expectRevert(IZeroSeedLaunch.InitializeThroughCreateOnly.selector);
         ICore(CORE).initializePool(key, 0);
         vm.warp(START);
@@ -306,16 +306,16 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
         swapper.forwardSwap(key, createSwapParameters(SqrtRatio.wrap(0), 1e18, false, 0));
         LyingPayer attacker = new LyingPayer(ICore(CORE));
         vm.expectRevert(IZeroSeedLaunch.UnknownLaunch.selector);
-        attacker.drain(key, createSwapParameters(SqrtRatio.wrap(0), -1e24, true, 0), address(evil), wethLaunch.token);
-        assertEq(_ledgerAndPrincipal(wethLaunch), before, "WETH launch untouched");
+        attacker.drain(key, createSwapParameters(SqrtRatio.wrap(0), -1e24, true, 0), address(evil), erc20Launch.token);
+        assertEq(_ledgerAndPrincipal(erc20Launch), before, "ERC-20 launch untouched");
     }
 
     /// @dev Negative control for the constructor trust boundary: an instance deliberately deployed with a hostile
     /// quote is exactly as unsafe as 39ca191 was for that quote. The restriction is only as good as the constructor
-    /// input; it is not a screen of the token. The WETH-bound instance on the same Core is unaffected.
+    /// input; it is not a screen of the token. The plain ERC-20-bound instance on the same Core is unaffected.
     function test_constructorTrust_hostileInstanceStillDrainable() public {
-        (IZeroSeedLaunch.Installation memory wethLaunch,) = _createWith(creator);
-        bytes32 before = _ledgerAndPrincipal(wethLaunch);
+        (IZeroSeedLaunch.Installation memory erc20Launch,) = _createWith(creator);
+        bytes32 before = _ledgerAndPrincipal(erc20Launch);
         EvilQuote evil = _evilAt(QUOTE_LOW);
         (, ZeroSeedLaunchPeriphery hostilePeriphery) = _secondLaunch(address(evil));
         (IZeroSeedLaunch.Installation memory inst,) = _createOn(hostilePeriphery, creator);
@@ -331,13 +331,13 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
         assertEq(evil.balanceOf(address(attacker)), 0, "attacker paid no real quote");
         assertGt(got * 1e6, uint256(inst.installedSupply) * 999_999, "~all supply taken");
         console2.log("VEC|adversarial|hostileConstructorDrain|got=", got, "fakePaid=", owed);
-        assertEq(_ledgerAndPrincipal(wethLaunch), before, "WETH launch untouched");
+        assertEq(_ledgerAndPrincipal(erc20Launch), before, "ERC-20 launch untouched");
     }
 
-    /// @dev I-4 rerun next to the WETH deployment: a hostile-callback quote steals the in-flight payment snapshot in
-    /// a nested lock, the outer settlement reverts, nothing is taken, and the WETH launch is unaffected.
-    function test_settlementSnapshotTheft_failsClosed_wethLaunchUnaffected() public {
-        (IZeroSeedLaunch.Installation memory wethLaunch,) = _createWith(creator);
+    /// @dev I-4 rerun next to the plain ERC-20 deployment: a hostile-callback quote steals the in-flight payment snapshot in
+    /// a nested lock, the outer settlement reverts, nothing is taken, and the plain ERC-20 launch is unaffected.
+    function test_settlementSnapshotTheft_failsClosed_erc20LaunchUnaffected() public {
+        (IZeroSeedLaunch.Installation memory erc20Launch,) = _createWith(creator);
         EvilQuote evil = _evilAt(QUOTE_LOW);
         (, ZeroSeedLaunchPeriphery hostilePeriphery) = _secondLaunch(address(evil));
         (IZeroSeedLaunch.Installation memory inst,) = _createOn(hostilePeriphery, creator);
@@ -350,10 +350,10 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
         _buy(inst.poolKey, inst.token, 10e18, false);
         assertEq(evil.balanceOf(address(thief)), 0, "nothing stolen");
         assertEq(PoolState.unwrap(ICore(CORE).poolState(inst.poolKey.toPoolId())), hostileBefore);
-        // The WETH launch trades normally afterwards and keeps its ledger.
-        PoolBalanceUpdate u = _buy(wethLaunch.poolKey, wethLaunch.token, 1e18, false);
-        assertGt(uint128(-u.delta0()), 0, "WETH launch trades");
-        _assertLedger(wethLaunch, QUOTE_HIGH, 1e18, 0, MAX_DUST);
+        // The plain ERC-20 launch trades normally afterwards and keeps its ledger.
+        PoolBalanceUpdate u = _buy(erc20Launch.poolKey, erc20Launch.token, 1e18, false);
+        assertGt(uint128(-u.delta0()), 0, "ERC-20 launch trades");
+        _assertLedger(erc20Launch, QUOTE_HIGH, 1e18, 0, MAX_DUST);
     }
 }
 
@@ -415,7 +415,7 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
         }
     }
 
-    /// @dev Fault injection: the quote payment to the recipient fails (a refused ERC-20 transfer for the WETH order,
+    /// @dev Fault injection: the quote payment to the recipient fails (a refused ERC-20 transfer for the token0 order,
     /// a reverting receiver for the native order). Both ledgers, principal and Core balances roll back; a retry to
     /// another recipient pays both assets in full.
     function test_claim_atomicRollback_bothOrders() public {
@@ -712,7 +712,7 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
     }
 }
 
-/// Fee sign/conservation per forwarded swap on the WETH fixture, from the emitted event and the Core ledger.
+/// Fee sign/conservation per forwarded swap on the plain ERC-20 fixture, from the emitted event and the Core ledger.
 contract ZeroSeedLaunchFeeEventTest is AdversarialBase {
     using CoreLib for ICore;
 
@@ -805,7 +805,7 @@ contract ZeroSeedLaunchFeeEventTest is AdversarialBase {
     }
 }
 
-/// Bypass, authority, minter and amount-extreme checks on the WETH fixture.
+/// Bypass, authority, minter and amount-extreme checks on the plain ERC-20 fixture.
 contract ZeroSeedLaunchBypassTest is AdversarialBase {
     using CoreLib for ICore;
 

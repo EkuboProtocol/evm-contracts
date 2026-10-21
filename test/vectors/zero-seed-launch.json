@@ -1,8 +1,8 @@
 {
  "version": 4,
  "fixture": {
-  "core": "evm-contracts main 98d1be1 Core runtime keccak c5f90c9d..., equal to Base 0x00000000000014aA86C5d3c41765bb24e11bd701 at block 52449112",
-  "router": "Base 0x03c8B90854b90AA22448b11e885F692972DA441C runtime keccak 32ba8475... at block 52449112",
+  "core": "Locally compiled src/Core.sol deployed at the test's canonical Core address; no fork or live-chain validation",
+  "router": "Locally compiled test/LaunchTestRouter.sol; standard-ABI single-hop forwarding and settlement, with snapshot/revert quotes in the test harness; no deployed-router bytecode fixture",
   "supply_requested": "1000000000000000000000000000",
   "tick_spacing": 100,
   "width_ticks": 4605200,

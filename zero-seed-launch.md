@@ -69,6 +69,10 @@ Ticks in `LaunchParameters` are economic: log base 1.000001 of raw quote units p
 
 The preview is installation math at the state it reads, not a dry run. Creation can still fail after it, for example when the transaction is mined after `tradingStart`, or when the same owner creates the same salt and metadata first. Wallets still simulate the `create` call itself.
 
+`maxLiquidity` is the existing conservative Core math helper, not a promise of a globally exact mathematical maximum: its token0 double-floor can leave one additional liquidity unit affordable in some geometries. No iterative dust correction is performed. The sink preserves supply conservation regardless; consumers must reproduce the helper's operation order rather than optimize the result independently.
+
+The sink mint emits `Transfer(address(0), address(0), remainder)`. Event-only trackers that subtract every transfer to zero as a burn may report `installedSupply` instead of the requested `totalSupply()`. Integrations should use the requested amount in `LaunchCreated` or read `totalSupply()`, and report the inaccessible sink separately. The zero-address allocation is intentional and is not a reduction of ERC-20 total supply.
+
 Refusals:
 
 | Condition | Error |

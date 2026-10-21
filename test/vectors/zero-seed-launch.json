@@ -18,8 +18,8 @@
   "fee_schedule": "finalFee + floor((initialFee - finalFee) * (decay(t) - decay(D)) / (2**128 - decay(D))) for 0 < t < D; initialFee at t <= 0; finalFee at t >= D. decay(t) = 0 for t >= fee_decay_zero_from_s, else the product over the set bits i of t of fee_decay_table_q128[i], starting at 2**128 and flooring to Q128 after every multiply (src/math/feeDecay.sol decayQ128). The table is round(2**128 * 2**(-2**i/600)); the operation order is normative.",
   "max_creator_fee_q64": "18262276632972456099",
   "label": "LOCAL FIXTURE VECTORS - not live evidence; numeric start margin/cap are a local-reference proposal, not live parameters",
-  "quote_18": "t0 order: plain 18-decimal test ERC-20 bound as the constructor quote at the top of the address space. t1 order: native ETH, address(0), the reference Base configuration; always token0, no code, no decimals(), no approvals.",
-  "quote_6": "plain 6-decimal solady ERC-20 (DecimalsToken), bound as the constructor quote for math vectors only",
+  "quote_18": "t0 order: plain 18-decimal test ERC-20 selected per launch at the top of the address space. t1 order: native ETH, address(0), the reference Base configuration; always token0, no code, no decimals(), no approvals.",
+  "quote_6": "plain 6-decimal solady ERC-20 (DecimalsToken), selected per launch for math vectors only",
   "fee_half_life_s": 600,
   "fee_decay_table_q128": [
    "339889484297159900493648602831395569057",
@@ -438,19 +438,19 @@
  "gas": [
   {
    "order": "t0",
-   "create": "1338516",
+    "create": "1367815",
     "firstBuy": "102469",
     "secondBuy": "34251",
     "sell": "34255",
-    "claim": "70210"
+    "claim": "70172"
   },
   {
    "order": "t1",
-   "create": "1297835",
+    "create": "1327004",
    "firstBuy": "84647",
    "secondBuy": "35147",
    "sell": "38593",
-   "claim": "79732"
+    "claim": "79694"
   }
  ],
  "other": [
@@ -779,23 +779,22 @@
  "abi": {
   "ZeroSeedLaunch": {
    "selectors": {
-    "quoteToken()": "0x217a4b70",
-    "previewInstallation(address,LaunchParameters)": "0x42b9fe08",
+    "previewInstallation(address,LaunchParameters)": "0x917c1163",
     "feeAt(bytes32,uint256)": "0xe81084ec",
     "getLaunch(bytes32)": "0x7d1d589c",
     "creatorFees((address,address,bytes32))": "0xb4ce9a2e",
     "forwarded_2374103877(bytes32)": "0x00000001"
    },
    "topics": {
-    "LaunchCreated": "0x085ada2e6f98dc43ec420caff7f39c25cbc16c81595684b19c4fca014dae5f2d",
+    "LaunchCreated": "0x3a4e811187f4a8c0b72396e9d7ca13aeed62eb97a599a24af1ed99066041098f",
     "LaunchSwapped": "0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d",
     "CreatorFeesClaimed": "0xf0ffdfa84530baef2e9f8bbb160545a59bfef8da319fa27aa69e4f3c8f05a41d"
    }
   },
   "ZeroSeedLaunchPeriphery": {
    "selectors": {
-    "create(LaunchParameters)": "0x687ba810",
-    "previewInstallation(address,LaunchParameters)": "0x42b9fe08",
+    "create(LaunchParameters)": "0x662af306",
+    "previewInstallation(address,LaunchParameters)": "0x917c1163",
     "claimFees((address,address,bytes32),address)": "0x6906b4c0",
     "transferLaunch(bytes32,address)": "0x8b1cb36f",
     "launchOwner(bytes32)": "0x60ac0b66",
@@ -806,6 +805,6 @@
     "LaunchFeesClaimed": "0x908c6b2c19765fe47aef218b4f71ea1a10a9e156d9d5c3500c3a298e01428805"
    }
   },
-  "LaunchParameters": "(string name,string symbol,uint8 decimals,uint128 supply,uint128 liquidity,int32 askTick,int32 upperTick,uint32 tickSpacing,uint64 tradingStart,uint32 feeDuration,uint64 initialFee,uint64 finalFee,bytes32 salt)"
+  "LaunchParameters": "(string name,string symbol,uint8 decimals,uint128 supply,address quoteToken,int32 askTick,int32 upperTick,uint32 tickSpacing,uint64 tradingStart,uint32 feeDuration,uint64 initialFee,uint64 finalFee,bytes32 salt)"
  }
 }

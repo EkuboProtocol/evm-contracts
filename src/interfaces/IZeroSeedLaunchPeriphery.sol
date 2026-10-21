@@ -8,7 +8,7 @@ import {PoolId} from "../types/poolId.sol";
 /// @title Zero-seed launch periphery interface
 /// @notice Owner-of-record for launches created through it: creates launches by forwarding to the extension, keeps
 /// the transferable owner of each, and claims and pays out creator fees. Swaps do not go through this contract; any
-/// locker (such as the Yul router's forwarded hop) swaps by forwarding to the extension directly.
+/// locker swaps by forwarding to the extension directly.
 /// @dev From the extension's view this contract is the controller of every launch it creates. The extension salt is
 /// `keccak256(abi.encode(owner, salt))`, so two owners never share a token address, and the launch token is
 /// `CREATE2(extension, keccak256(abi.encode(periphery, keccak256(abi.encode(owner, salt)))), initCodeHash)`.

@@ -29,6 +29,7 @@ import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
 import {decayedFee} from "../../src/math/feeDecay.sol";
+import {LaunchTestRouter} from "../LaunchTestRouter.sol";
 
 /// @dev Plain ERC-20 for alternate token-order and decimal math coverage. The deployment quote is native ETH.
 contract DecimalsToken is ERC20 {
@@ -141,7 +142,7 @@ abstract contract ZeroSeedLaunchBase is Test {
     ZeroSeedLaunch launch;
     ZeroSeedLaunchPeriphery periphery;
     LaunchSwapper swapper;
-    /// @dev The quote the current extension deployment is bound to; `address(0)` is native ETH.
+    /// @dev Quote selected for the next launch in this test; `address(0)` is native ETH.
     address activeQuote;
     address creator = makeAddr("creator");
     address feeRecipient = makeAddr("feeRecipient");
@@ -177,24 +178,23 @@ abstract contract ZeroSeedLaunchBase is Test {
         return "ZeroSeedLaunch.sol:ZeroSeedLaunch";
     }
 
-    /// @dev Deploys the extension at its callpoint address with `quote` as the constructor quote token and a fresh
+    /// @dev Deploys the extension at its callpoint address with `quote` selected for subsequent launches and a fresh
     /// periphery for it. A test that switches quote redeploys at the same address, so the Core registration flag is
     /// cleared first; launch storage and token addresses stay where they were.
     function _deployLaunch(address quote) internal {
         address target = _launchTarget();
         vm.store(CORE, StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(target)), bytes32(0));
-        deployCodeTo(_launchArtifact(), abi.encode(CORE, quote), target);
+        deployCodeTo(_launchArtifact(), abi.encode(CORE), target);
         launch = ZeroSeedLaunch(target);
         periphery = new ZeroSeedLaunchPeriphery(ICore(CORE), launch);
         activeQuote = quote;
-        assertEq(launch.quoteToken(), quote, "constructor quote");
         assertEq(address(periphery.LAUNCH()), target, "periphery extension");
     }
 
     /// @dev Quote for the requested order: a token0 launch needs a plain ERC-20 above every token address;
     /// a token1 launch uses native ETH (`address(0)`) for 18
     /// decimals, the reference Base configuration, and the 6-decimal token at a low address otherwise. Redeploys
-    /// the extension bound to it.
+    /// the extension to reset the test state.
     function _quote(bool tokenIs0, uint8 quoteDecimals) internal returns (address quote) {
         if (!tokenIs0 && quoteDecimals == 18) {
             quote = NATIVE_TOKEN_ADDRESS;
@@ -208,7 +208,7 @@ abstract contract ZeroSeedLaunchBase is Test {
 
     function _parameters(int32 ask, uint128 supply, uint32 duration)
         internal
-        pure
+        view
         returns (IZeroSeedLaunch.LaunchParameters memory)
     {
         return IZeroSeedLaunch.LaunchParameters({
@@ -216,7 +216,7 @@ abstract contract ZeroSeedLaunchBase is Test {
             symbol: "ZERO",
             decimals: 18,
             supply: supply,
-            liquidity: 0,
+            quoteToken: activeQuote,
             askTick: ask,
             upperTick: ask + WIDTH,
             tickSpacing: SPACING,
@@ -228,11 +228,10 @@ abstract contract ZeroSeedLaunchBase is Test {
         });
     }
 
-    /// @dev Binds the plan: the liquidity the requested supply buys and the exact supply that liquidity takes.
+    /// @dev Checks preview feasibility without rewriting the requested supply.
     function _bind(IZeroSeedLaunch.LaunchParameters memory p, address who) internal view {
         IZeroSeedLaunch.Installation memory preview = periphery.previewInstallation(who, p);
-        p.liquidity = preview.liquidity;
-        p.supply = preview.installedSupply;
+        assertLe(preview.installedSupply, p.supply, "installation fits supply");
     }
 
     function _create(bool tokenIs0, uint8 quoteDecimals, uint32 duration)
@@ -317,7 +316,11 @@ abstract contract ZeroSeedLaunchBase is Test {
         (uint128 f0, uint128 f1) = launch.creatorFees(key);
         uint256 coreToken = ERC20(inst.token).balanceOf(CORE);
         uint256 coreQuote = _balance(quote, CORE);
-        assertEq(ERC20(inst.token).totalSupply(), inst.installedSupply, "fixed supply");
+        assertEq(
+            ERC20(inst.token).totalSupply(),
+            inst.installedSupply + ERC20(inst.token).balanceOf(address(0)),
+            "fixed supply"
+        );
         uint256 outside = ERC20(inst.token).balanceOf(address(this)) + ERC20(inst.token).balanceOf(feeRecipient)
             + ERC20(inst.token).balanceOf(creator);
         assertEq(coreToken + outside, inst.installedSupply, "token conservation");
@@ -370,13 +373,15 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         assertEq(key.token0 == inst.token, tokenIs0, "order");
         assertEq(key.config.fee(), 0, "core fee zero");
         assertEq(key.config.extension(), address(launch), "extension");
-        assertEq(inst.installedSupply, p.supply, "requested == installed");
+        assertEq(
+            inst.installedSupply + ERC20(inst.token).balanceOf(address(0)), p.supply, "requested == installed + sunk"
+        );
         assertLe(p.supply, REQUESTED_SUPPLY, "installable <= requested");
-        assertEq(inst.liquidity, p.liquidity, "bound liquidity");
-        assertEq(MintableERC20(inst.token).totalSupply(), p.supply, "minted == installed");
+        assertGt(inst.liquidity, 0, "computed liquidity");
+        assertEq(MintableERC20(inst.token).totalSupply(), p.supply, "minted == requested");
         assertEq(MintableERC20(inst.token).owner(), address(0), "mint authority renounced");
         assertEq(MintableERC20(inst.token).decimals(), 18, "decimals");
-        assertEq(ERC20(inst.token).balanceOf(CORE), p.supply, "whole supply in Core");
+        assertEq(ERC20(inst.token).balanceOf(CORE), inst.installedSupply, "installed supply in Core");
         assertEq(_balance(activeQuote, CORE), 0, "actual quote = 0");
         PoolState state = ICore(CORE).poolState(id);
         int32 economicAsk = tokenIs0 ? state.tick() : -state.tick();
@@ -388,7 +393,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         (uint128 p0, uint128 p1) = _principal(inst);
         assertEq(tokenIs0 ? p1 : p0, 0, "principal quote = 0");
         // Withdrawable principal rounds down: at most the installation rounding below S.
-        assertLe(p.supply - (tokenIs0 ? p0 : p1), 1, "principal token ~ S");
+        assertLe(inst.installedSupply - (tokenIs0 ? p0 : p1), 1, "principal token ~ installed");
         (uint128 f0, uint128 f1) = launch.creatorFees(key);
         assertEq(f0 + f1, 0, "no fees");
         IZeroSeedLaunch.Launch memory l = launch.getLaunch(id);
@@ -407,7 +412,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
                 "|requested=",
                 _ustr(REQUESTED_SUPPLY),
                 "|installed=",
-                _ustr(p.supply),
+                _ustr(inst.installedSupply),
                 "|liquidity=",
                 _ustr(inst.liquidity),
                 "|tickLower=",
@@ -438,29 +443,21 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         _checkCreation(false, 6);
     }
 
-    function test_create_refusesNonInstallableSupplyAtomically() public {
+    function test_create_roundSupplySinksRemainderBothOrders() public {
         for (uint256 i; i < 2; i++) {
             bool tokenIs0 = i == 0;
             _quote(tokenIs0, 18);
             IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
             IZeroSeedLaunch.Installation memory preview = periphery.previewInstallation(creator, p);
             assertTrue(preview.installedSupply != p.supply, "requested is not exact");
-            p.liquidity = preview.liquidity;
             vm.prank(creator);
-            vm.expectRevert(
-                abi.encodeWithSelector(
-                    IZeroSeedLaunch.SupplyNotExactlyInstallable.selector, p.supply, preview.installedSupply
-                )
-            );
-            periphery.create(p);
-            assertEq(preview.token.code.length, 0, "no token left behind");
-            // A supply bound to a different liquidity is refused too.
-            p.supply = preview.installedSupply;
-            p.liquidity = preview.liquidity + 1;
-            vm.prank(creator);
-            vm.expectPartialRevert(IZeroSeedLaunch.SupplyNotExactlyInstallable.selector);
-            periphery.create(p);
-            assertFalse(ICore(CORE).poolState(preview.poolKey.toPoolId()).isInitialized(), "no pool left behind");
+            IZeroSeedLaunch.Installation memory installed = periphery.create(p);
+            assertEq(installed.liquidity, preview.liquidity);
+            assertEq(ERC20(installed.token).totalSupply(), REQUESTED_SUPPLY);
+            assertEq(ERC20(installed.token).balanceOf(CORE), preview.installedSupply);
+            assertEq(ERC20(installed.token).balanceOf(address(0)), p.supply - preview.installedSupply);
+            assertEq(ERC20(installed.token).balanceOf(address(launch)), 0);
+            assertEq(MintableERC20(installed.token).owner(), address(0));
         }
     }
 
@@ -529,13 +526,41 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         periphery.create(p);
     }
 
+    function testFuzz_roundSupplyConservation(uint128 supply, bool tokenIs0) public {
+        supply = uint128(bound(supply, 1e18, 1_000_000_000_000e18));
+        _quote(tokenIs0, 18);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, supply, DURATION);
+        IZeroSeedLaunch.Installation memory preview = periphery.previewInstallation(creator, p);
+        vm.prank(creator);
+        IZeroSeedLaunch.Installation memory inst = periphery.create(p);
+        assertEq(inst.liquidity, preview.liquidity);
+        assertEq(inst.installedSupply, preview.installedSupply);
+        assertEq(ERC20(inst.token).totalSupply(), supply);
+        assertEq(ERC20(inst.token).balanceOf(CORE) + ERC20(inst.token).balanceOf(address(0)), supply);
+        assertEq(ERC20(inst.token).balanceOf(CORE), inst.installedSupply);
+        (SqrtRatio initial, SqrtRatio lower, SqrtRatio upper) = (
+            tickToSqrtRatio(inst.initialTick),
+            tickToSqrtRatio(inst.positionId.tickLower()),
+            tickToSqrtRatio(inst.positionId.tickUpper())
+        );
+        (int128 next0, int128 next1) = liquidityDeltaToAmountDelta(initial, int128(inst.liquidity + 1), lower, upper);
+        assertGt(uint128(tokenIs0 ? next0 : next1), supply, "next liquidity unit exceeds budget");
+    }
+
+    function test_create_maxSupportedSupply() public {
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(-80_000_000, uint128(type(int128).max), DURATION);
+        vm.prank(creator);
+        IZeroSeedLaunch.Installation memory inst = periphery.create(p);
+        assertEq(ERC20(inst.token).totalSupply(), p.supply);
+        assertEq(inst.installedSupply + ERC20(inst.token).balanceOf(address(0)), p.supply);
+    }
+
     function test_create_refusesLiquidityAboveTickCapBothOrders() public {
         for (uint256 i; i < 2; i++) {
             _quote(i == 0, 18);
             IZeroSeedLaunch.LaunchParameters memory p = _parameters(80_000_000, uint128(type(int128).max), DURATION);
             vm.expectRevert();
             periphery.previewInstallation(creator, p);
-            p.liquidity = type(uint128).max;
             vm.prank(creator);
             vm.expectPartialRevert(IZeroSeedLaunch.LiquidityAboveTickCap.selector);
             periphery.create(p);
@@ -551,10 +576,9 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         IZeroSeedLaunch.LaunchParameters memory p = _parameters(-80_000_000, 1, DURATION);
         vm.expectRevert(IZeroSeedLaunch.ZeroLiquidity.selector);
         periphery.previewInstallation(creator, p);
-        IZeroSeedLaunch.LaunchParameters memory q = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
         vm.prank(creator);
         vm.expectRevert(IZeroSeedLaunch.ZeroLiquidity.selector);
-        periphery.create(q);
+        periphery.create(p);
     }
 
     function test_create_sameSaltSameCreatorRefused_otherCreatorIndependent() public {
@@ -918,7 +942,7 @@ contract ZeroSeedLaunchTradingTest is ZeroSeedLaunchBase {
         vm.warp(START + DURATION + 365 days);
         (uint128 p0, uint128 p1) = _principal(inst);
         assertEq(p1, 0, "quote reserve zero");
-        assertLe(p.supply - p0, 1, "inventory installed");
+        assertLe(inst.installedSupply - p0, 1, "inventory installed");
         assertEq(launch.feeAt(inst.poolKey.toPoolId(), block.timestamp), FEE_03, "final fee");
         _assertLedger(inst, activeQuote, 0, 0, 1);
     }
@@ -1046,28 +1070,16 @@ contract ZeroSeedLaunchTimeTest is ZeroSeedLaunchBase {
     }
 }
 
-/// @dev The production Base Yul router runtime (0x03c8…, read at Base block 52,449,112, keccak 0x32ba8475…) etched
-/// at its address over a locally built Core at the canonical address. Core runtime built from this commit matches
-/// Base at the same block. Local fixture only: not live evidence.
-contract ZeroSeedLaunchYulRouterTest is ZeroSeedLaunchBase {
-    address constant ROUTER = 0x03c8B90854b90AA22448b11e885F692972DA441C;
-    bytes32 constant ROUTER_CODEHASH = 0x32ba8475c95ee5d9f7807f4ad9dce849929c992df9c68e9030e986d1854e726f;
-    bytes32 constant CORE_CODEHASH = 0xc5f90c9d0dbc5037f8f9e248f4bb292e7c1824f584eb6550cb4cad525b38c71a;
+/// @dev Locally compiled test locker exercises forwarding, native settlement and route constraints.
+contract ZeroSeedLaunchRouterTest is ZeroSeedLaunchBase {
+    address ROUTER;
 
     function setUp() public override {
         super.setUp();
-        vm.etch(ROUTER, vm.parseBytes(vm.trim(vm.readFile("test/fixtures/yul-router-0x03c8-base-52449112.hex"))));
-        assertEq(ROUTER.codehash, ROUTER_CODEHASH, "router fixture");
-        assertEq(CORE.codehash, CORE_CODEHASH, "local Core == Base Core runtime");
+        ROUTER = address(new LaunchTestRouter(ICore(CORE)));
     }
 
-    function _int128(int128 value) private pure returns (uint128 encoded) {
-        assembly ("memory-safe") {
-            encoded := value
-        }
-    }
-
-    /// @dev yul-router v0.8 route: flags bit0 recipient, bit1 inclusive uint32 deadline; one forwarded hop.
+    /// @dev Standard ABI for the test-only single-hop locker.
     function _route(
         PoolKey memory key,
         address specified,
@@ -1077,23 +1089,8 @@ contract ZeroSeedLaunchYulRouterTest is ZeroSeedLaunchBase {
         bool allowPartial,
         uint32 deadline
     ) internal view returns (bytes memory) {
-        return bytes.concat(
-            bytes1(uint8(3)),
-            bytes1(uint8(0)),
-            bytes20(specified),
-            bytes20(calculated),
-            bytes16(_int128(minOut)),
-            bytes20(address(this)),
-            bytes4(deadline),
-            bytes16(_int128(amount)),
-            bytes1(uint8(0)),
-            bytes1(uint8(1)),
-            bytes20(key.config.extension()),
-            bytes20(key.token0),
-            bytes20(key.token1),
-            bytes32(PoolConfig.unwrap(key.config)),
-            bytes12(uint96(0)),
-            bytes4(allowPartial ? uint32(1 << 31) : uint32(0))
+        return abi.encodeCall(
+            LaunchTestRouter.swap, (key, specified, calculated, amount, minOut, allowPartial, deadline)
         );
     }
 
@@ -1113,12 +1110,15 @@ contract ZeroSeedLaunchYulRouterTest is ZeroSeedLaunchBase {
     }
 
     function _routerQuote(bytes memory route) internal returns (int256 calculated) {
-        (bool ok, bytes memory result) = ROUTER.call(abi.encodeWithSignature("quote(bytes)", route));
+        uint256 snapshot = vm.snapshotState();
+        vm.deal(ROUTER, 1e35);
+        (bool ok, bytes memory result) = ROUTER.call(route);
         assertTrue(ok, "quote");
         (,,, calculated) = abi.decode(result, (address, address, int256, int256));
+        vm.revertToState(snapshot);
     }
 
-    /// @dev Both orders through the production router: a plain ERC-20 quote above the token (t0) and native ETH (t1). For
+    /// @dev Both orders through the test router: a plain ERC-20 quote above the token (t0) and native ETH (t1). For
     /// the native order every buy attaches `value`, the router refunds the unspent part, and sells pay ETH out.
     function test_router_bothOrders_deadline_minOut_partial() public {
         for (uint256 i; i < 2; i++) {

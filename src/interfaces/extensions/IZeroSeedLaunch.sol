@@ -12,7 +12,7 @@ uint256 constant ZERO_SEED_LAUNCH_CREATE = 0x224a5a98239f599168b798c4205db155bff
 uint256 constant ZERO_SEED_LAUNCH_CLAIM_FEES = 0xe52d8a05fd0f2d32b280675736d8117fee83069a0eac7ab9279aa52ff05a614c;
 
 /// @title Zero-seed launch extension interface
-/// @notice Fixed-supply launches whose whole supply is one immutable token-only position at the lower price bound.
+/// @notice Fixed-supply launches with one immutable token-only position and an inaccessible rounding remainder.
 /// Every action reaches the extension through `Core.forward`; it has no external mutating entrypoint.
 /// @dev Ticks in `LaunchParameters` are economic: log base 1.000001 of raw quote units per raw launch token unit,
 /// independent of address order. The pool tick is the same for a token0 launch and negated for a token1 launch.
@@ -34,10 +34,11 @@ interface IZeroSeedLaunch {
         string name;
         string symbol;
         uint8 decimals;
-        /// @dev Minted supply. Creation requires it to equal the token amount Core takes for `liquidity`.
+        /// @dev Exact minted supply. Maximum installable liquidity is derived from this amount;
+        /// any rounding remainder is minted to address(0), preserving the round totalSupply.
         uint128 supply;
-        /// @dev Liquidity of the single position. Ignored by `previewInstallation`, which derives it from `supply`.
-        uint128 liquidity;
+        /// @dev Native ETH is address(0). ERC-20 quotes are untrusted; their risks belong to this pair only.
+        address quoteToken;
         int32 askTick;
         int32 upperTick;
         uint32 tickSpacing;
@@ -78,7 +79,6 @@ interface IZeroSeedLaunch {
     error InvalidTradingStart();
     error ZeroLiquidity();
     error LiquidityAboveTickCap(uint128 liquidity, uint128 cap);
-    error SupplyNotExactlyInstallable(uint128 requested, uint128 installable);
     error UnknownLaunch();
     error TradingNotStarted();
     error ControllerOnly();
@@ -87,7 +87,8 @@ interface IZeroSeedLaunch {
     error SwapsThroughForwardOnly();
     error PositionsThroughCreateOnly();
 
-    /// @notice Emitted once per launch. `liquidity` and `supply` are the installed principal, which never changes.
+    /// @notice Emitted once per launch. `liquidity` is installed principal; `parameters.supply` includes the
+    /// inaccessible rounding remainder at address(0).
     /// `controller` is the locker that forwarded the creation, for example the periphery that records the owner.
     event LaunchCreated(
         PoolId indexed poolId,
@@ -116,12 +117,9 @@ interface IZeroSeedLaunch {
     /// @notice Emitted when the controller moves the whole fee ledger of a launch onto its lock.
     event CreatorFeesClaimed(PoolId indexed poolId, address indexed controller, uint128 amount0, uint128 amount1);
 
-    /// @notice The only quote token of this deployment, fixed at construction. `address(0)` is native ETH.
-    function quoteToken() external view returns (address);
-
     /// @notice For `controller`, the largest liquidity `supply` buys and the exact supply that liquidity takes.
-    /// Passing the returned `liquidity` and `installedSupply` as `liquidity` and `supply` makes creation install
-    /// exactly. Applies the same parameter, metadata and token-address checks as creation, so it refuses an oversized
+    /// Creation uses the same calculation and sends `supply - installedSupply` to address(0).
+    /// Applies the same parameter, metadata and token-address checks as creation, so it refuses an oversized
     /// name or symbol and a controller/salt/metadata whose token already exists. It is installation math at the
     /// current state, not a dry run: creation can still fail later, for example once `tradingStart` passes.
     function previewInstallation(address controller, LaunchParameters calldata parameters)

@@ -49,7 +49,8 @@ function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
 }
 
 /// @title Zero-seed launch
-/// @notice Mints a fixed supply and installs all of it as one token-only position from the ask price up, with
+/// @notice Mints the requested fixed supply and installs its maximum liquidity as one token-only position, with
+/// the rounding remainder sent directly to address(0), from the ask price up, with
 /// no quote seed. Buyers fund the only quote reserve. The position, its principal and the pool never change
 /// except through swaps; time only lowers the creator fee, from `initialFee` at `tradingStart` along the 600 second
 /// half-life exponential rescaled to reach `finalFee` after `feeDuration`, where it stays.
@@ -60,21 +61,16 @@ function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
 /// controller: the only locker that may claim its fee ledger, and the namespace of its token address. A periphery
 /// that forwards for users records who owns each launch itself.
 /// No admin, upgrade, withdrawal, migration or staging path. The pool fee is zero; the creator fee is taken on the
-/// calculated side of each swap and saved in Core under this extension, salt = pool id. Every launch of one
-/// deployment uses the single quote fixed in the constructor: native ETH (`address(0)`, always token0) or a plain
+/// calculated side of each swap and saved in Core under this extension, salt = pool id. Each launch chooses
+/// its quote: native ETH (`address(0)`, always token0) or a plain
 /// ERC-20 (no transfer fee, rebase, callback, pause, blocklist, upgrade or misreported balance); nothing here can
 /// detect a token that only behaves later.
 contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
     using CoreLib for ICore;
 
-    address private immutable QUOTE_TOKEN;
-
     mapping(PoolId => Launch) private _launches;
 
-    constructor(ICore core, address quote) BaseExtension(core) BaseForwardee(core) {
-        if (quote != NATIVE_TOKEN_ADDRESS && quote.code.length == 0) revert UnsupportedQuoteToken();
-        QUOTE_TOKEN = quote;
-    }
+    constructor(ICore core) BaseExtension(core) BaseForwardee(core) {}
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
         return zeroSeedLaunchCallPoints();
@@ -93,11 +89,6 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
     /// @dev Core skips this hook for this extension's own position; no other position may exist in a launch pool.
     function beforeUpdatePosition(Locker, PoolKey memory, PositionId, int128) external pure override {
         revert PositionsThroughCreateOnly();
-    }
-
-    /// @inheritdoc IZeroSeedLaunch
-    function quoteToken() external view returns (address) {
-        return QUOTE_TOKEN;
     }
 
     /// @inheritdoc IZeroSeedLaunch
@@ -158,23 +149,18 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         return _swap(original.addr(), poolKey, params);
     }
 
-    /// @dev The supply is minted to Core and credited to this lock, then all of it is taken by one position, so
-    /// the lock settles with nothing owed and nothing left over.
+    /// @dev Installed inventory is minted to Core and credited to this lock; the remainder goes directly to zero.
+    /// The lock settles with nothing owed and no spendable inventory outside the position.
     function _create(address controller, LaunchParameters memory parameters)
         private
         returns (Installation memory installation)
     {
-        _validate(parameters);
-        (address predicted, PoolKey memory poolKey, PositionId positionId, int32 initialTick) =
-            _geometry(controller, parameters);
+        installation = previewInstallation(controller, parameters);
+        address predicted = installation.token;
+        PoolKey memory poolKey = installation.poolKey;
+        PositionId positionId = installation.positionId;
+        int32 initialTick = installation.initialTick;
         bool tokenIs0 = poolKey.token0 == predicted;
-        uint128 installedSupply = _installedSupply(
-            tokenIs0, positionId, initialTick, parameters.liquidity, poolKey.config.concentratedMaxLiquidityPerTick()
-        );
-        if (installedSupply != parameters.supply) {
-            revert SupplyNotExactlyInstallable(parameters.supply, installedSupply);
-        }
-        installation = Installation(predicted, poolKey, positionId, initialTick, parameters.liquidity, installedSupply);
 
         MintableERC20 token = new MintableERC20{salt: _tokenSalt(controller, parameters.salt)}(
             address(this), parameters.name, parameters.symbol, parameters.decimals
@@ -192,10 +178,10 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
             tickUpper: positionId.tickUpper()
         });
         CORE.initializePool(poolKey, initialTick);
-        PoolBalanceUpdate update = CORE.updatePosition(poolKey, positionId, int128(parameters.liquidity));
+        PoolBalanceUpdate update = CORE.updatePosition(poolKey, positionId, int128(installation.liquidity));
         // Equal to the preview by construction; checked again because the principal claim depends on it.
         assert(
-            (tokenIs0 ? update.delta0() : update.delta1()) == int128(parameters.supply)
+            (tokenIs0 ? update.delta0() : update.delta1()) == int128(installation.installedSupply)
                 && (tokenIs0 ? update.delta1() : update.delta0()) == 0
         );
 
@@ -203,12 +189,16 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         // here, inside the forwarded call: the supply goes from the token contract straight into Core.
         bytes memory tokenArg = abi.encode(token);
         (bool started,) = address(CORE).call(bytes.concat(IFlashAccountant.startPayments.selector, tokenArg));
-        token.mint(address(CORE), parameters.supply);
+        token.mint(address(CORE), installation.installedSupply);
         (bool completed,) = address(CORE).call(bytes.concat(IFlashAccountant.completePayments.selector, tokenArg));
         assert(started && completed);
+        // Keep totalSupply exactly as requested without leaving spendable inventory outside the position.
+        // Mint directly to the sink: no custody, transfer or additional Core accounting is needed.
+        uint128 remainder = parameters.supply - installation.installedSupply;
+        if (remainder != 0) token.mint(address(0), remainder);
         token.renounceOwnership();
 
-        emit LaunchCreated(poolId, address(token), controller, poolKey, positionId, parameters.liquidity, parameters);
+        emit LaunchCreated(poolId, address(token), controller, poolKey, positionId, installation.liquidity, parameters);
     }
 
     /// @dev Only the controller that forwarded the creation may move the ledger; it is credited to the current lock
@@ -296,6 +286,9 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
     }
 
     function _validate(LaunchParameters memory parameters) private view {
+        if (parameters.quoteToken != NATIVE_TOKEN_ADDRESS && parameters.quoteToken.code.length == 0) {
+            revert UnsupportedQuoteToken();
+        }
         if (
             bytes(parameters.name).length > MAX_METADATA_LENGTH || bytes(parameters.symbol).length > MAX_METADATA_LENGTH
         ) {
@@ -320,10 +313,10 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
     {
         token = _tokenAddress(controller, parameters.salt, parameters.name, parameters.symbol, parameters.decimals);
         if (token.code.length != 0) revert LaunchTokenExists(token);
-        bool tokenIs0 = token < QUOTE_TOKEN;
+        bool tokenIs0 = token < parameters.quoteToken;
         poolKey = PoolKey({
-            token0: tokenIs0 ? token : QUOTE_TOKEN,
-            token1: tokenIs0 ? QUOTE_TOKEN : token,
+            token0: tokenIs0 ? token : parameters.quoteToken,
+            token1: tokenIs0 ? parameters.quoteToken : token,
             config: createConcentratedPoolConfig(0, parameters.tickSpacing, address(this))
         });
         positionId = _positionId(tokenIs0, parameters.askTick, parameters.upperTick);

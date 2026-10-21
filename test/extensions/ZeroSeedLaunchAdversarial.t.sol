@@ -33,8 +33,7 @@ import {computeFee, amountBeforeFee} from "../../src/math/fee.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {ZeroSeedLaunchBase, DecimalsToken} from "./ZeroSeedLaunch.t.sol";
 
-// Adversarial tests and negative controls ported from the EKU-1521 review of 39ca191, adapted to the
-// constructor-bound quote token. Local fixtures only.
+// Adversarial tests and negative controls for quote isolation on a shared extension. Local tests only.
 
 interface IQuoteHook {
     function onQuoteTransfer(address from, address to, uint256 amount) external;
@@ -211,26 +210,25 @@ abstract contract AdversarialBase is ZeroSeedLaunchBase {
         MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
     }
 
-    /// @dev Second extension instance at another callpoint-valid address bound to `quote`, with its own periphery.
+    /// @dev Exercise a different quote on the SAME extension and periphery, with a distinct token salt.
     function _secondLaunch(address quote)
         internal
         returns (ZeroSeedLaunch second, ZeroSeedLaunchPeriphery secondPeriphery)
     {
-        address target = address(uint160(_launchTarget()) | 0xbad);
-        deployCodeTo("ZeroSeedLaunch.sol:ZeroSeedLaunch", abi.encode(CORE, quote), target);
-        second = ZeroSeedLaunch(target);
-        secondPeriphery = new ZeroSeedLaunchPeriphery(ICore(CORE), second);
+        activeQuote = quote;
+        second = launch;
+        secondPeriphery = periphery;
     }
 
-    /// @dev Creates on a second (hostile-quote) instance through its periphery.
+    /// @dev Creates a distinct launch for the selected quote through the shared periphery.
     function _createOn(ZeroSeedLaunchPeriphery via, address who)
         internal
         returns (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p)
     {
         p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        p.salt = keccak256(abi.encode("other quote", activeQuote));
         IZeroSeedLaunch.Installation memory preview = via.previewInstallation(who, p);
-        p.liquidity = preview.liquidity;
-        p.supply = preview.installedSupply;
+        assertLe(preview.installedSupply, p.supply);
         vm.prank(who);
         inst = via.create(p);
     }
@@ -252,48 +250,41 @@ abstract contract AdversarialBase is ZeroSeedLaunchBase {
     }
 }
 
-/// M-1: one constructor-bound quote, native ETH or a plain ERC-20. There is no per-launch quote field: every pool of
-/// an instance pairs its launch token with the constructor quote, so a pool key with any other quote is unknown.
+/// Native, plain and hostile quote tokens share an extension; accounting and authority remain per pool.
 contract ZeroSeedLaunchQuoteTest is AdversarialBase {
     using CoreLib for ICore;
 
-    function test_constructor_acceptsNative_refusesCodeless() public {
-        address target = address(uint160(_launchTarget()) | 0xbad);
-        vm.etch(
-            target, abi.encodePacked(vm.getCode("ZeroSeedLaunch.sol:ZeroSeedLaunch"), abi.encode(CORE, address(0xdead)))
-        );
-        (bool ok, bytes memory reason) = target.call("");
-        assertFalse(ok, "constructor refuses an ERC-20 address without code");
-        assertEq(bytes4(reason), IZeroSeedLaunch.UnsupportedQuoteToken.selector, "reason");
-        // Registration rolled back with the constructor: a valid deployment at the same address still works.
-        assertEq(
-            vm.load(CORE, StorageSlot.unwrap(CoreStorageLayout.isExtensionRegisteredSlot(target))),
-            bytes32(0),
-            "not registered"
-        );
-        (ZeroSeedLaunch nativeLaunch,) = _secondLaunch(NATIVE_TOKEN_ADDRESS);
-        assertEq(nativeLaunch.quoteToken(), NATIVE_TOKEN_ADDRESS, "native quote accepted: no code, no decimals()");
-        assertTrue(ICore(CORE).isExtensionRegistered(address(nativeLaunch)), "registered");
+    function test_launch_acceptsNative_refusesCodeless() public {
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        p.quoteToken = address(0xdead);
+        vm.expectRevert(IZeroSeedLaunch.UnsupportedQuoteToken.selector);
+        periphery.previewInstallation(creator, p);
+        vm.prank(creator);
+        vm.expectRevert(IZeroSeedLaunch.UnsupportedQuoteToken.selector);
+        periphery.create(p);
+        p.quoteToken = NATIVE_TOKEN_ADDRESS;
+        vm.prank(creator);
+        IZeroSeedLaunch.Installation memory inst = periphery.create(p);
+        assertEq(inst.poolKey.token0, NATIVE_TOKEN_ADDRESS);
     }
 
-    function test_quoteToken_erc20AndNative_distinctRuntimes() public {
-        assertEq(launch.quoteToken(), QUOTE_HIGH, "bound quote");
+    function test_quoteToken_erc20AndNative_sameExtension() public {
         assertGt(QUOTE_HIGH.code.length, 0, "plain ERC-20 fixture");
         assertEq(ERC20(QUOTE_HIGH).decimals(), 18);
         assertEq(ERC20(QUOTE_HIGH).symbol(), "Q");
         assertEq(ERC20(QUOTE_HIGH).name(), "Quote");
         bytes32 highHash = address(launch).codehash;
-        console2.log("PIN|runtime|quoteERC20");
-        console2.logBytes32(highHash);
-        _quote(false, 18);
-        assertEq(launch.quoteToken(), NATIVE_TOKEN_ADDRESS, "native instance");
-        assertTrue(highHash != address(launch).codehash, "quote immutable changes runtime");
-        console2.log("PIN|runtime|quoteNative");
-        console2.logBytes32(address(launch).codehash);
+        (IZeroSeedLaunch.Installation memory erc20,) = _createWith(creator);
+        bytes32 before = _ledgerAndPrincipal(erc20);
+        activeQuote = NATIVE_TOKEN_ADDRESS;
+        (IZeroSeedLaunch.Installation memory nativeLaunch,) = _createOn(periphery, creator);
+        assertEq(nativeLaunch.poolKey.token0, NATIVE_TOKEN_ADDRESS);
+        assertEq(erc20.poolKey.config.extension(), nativeLaunch.poolKey.config.extension());
+        assertEq(highHash, address(launch).codehash);
+        assertEq(_ledgerAndPrincipal(erc20), before);
     }
 
-    /// @dev Integration refusal: no pool for another quote can exist under this extension, so routing, lying
-    /// settlement and forwarded swaps all fail with no state change.
+    /// @dev An existing launch cannot be rebound to a different quote by forging its pool key.
     function test_unsupportedQuote_integrationRefusal() public {
         (IZeroSeedLaunch.Installation memory erc20Launch,) = _createWith(creator);
         bytes32 before = _ledgerAndPrincipal(erc20Launch);
@@ -310,12 +301,17 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
         assertEq(_ledgerAndPrincipal(erc20Launch), before, "ERC-20 launch untouched");
     }
 
-    /// @dev Negative control for the constructor trust boundary: an instance deliberately deployed with a hostile
-    /// quote is exactly as unsafe as 39ca191 was for that quote. The restriction is only as good as the constructor
-    /// input; it is not a screen of the token. The plain ERC-20-bound instance on the same Core is unaffected.
-    function test_constructorTrust_hostileInstanceStillDrainable() public {
+    /// @dev A lying quote can steal only its paired launch inventory. Native and plain-quote pools on the SAME
+    /// extension/periphery retain their principal, balances, state and fee ledgers.
+    function test_hostileQuoteDrain_isolatedFromNativeAndERC20Launches() public {
         (IZeroSeedLaunch.Installation memory erc20Launch,) = _createWith(creator);
+        vm.warp(START);
+        _buy(erc20Launch.poolKey, erc20Launch.token, 1e18, false);
         bytes32 before = _ledgerAndPrincipal(erc20Launch);
+        activeQuote = NATIVE_TOKEN_ADDRESS;
+        (IZeroSeedLaunch.Installation memory nativeLaunch,) = _createOn(periphery, creator);
+        _buy(nativeLaunch.poolKey, nativeLaunch.token, 1e18, false);
+        bytes32 nativeBefore = _ledgerAndPrincipal(nativeLaunch);
         EvilQuote evil = _evilAt(QUOTE_LOW);
         (, ZeroSeedLaunchPeriphery hostilePeriphery) = _secondLaunch(address(evil));
         (IZeroSeedLaunch.Installation memory inst,) = _createOn(hostilePeriphery, creator);
@@ -330,8 +326,9 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
         );
         assertEq(evil.balanceOf(address(attacker)), 0, "attacker paid no real quote");
         assertGt(got * 1e6, uint256(inst.installedSupply) * 999_999, "~all supply taken");
-        console2.log("VEC|adversarial|hostileConstructorDrain|got=", got, "fakePaid=", owed);
+        console2.log("VEC|adversarial|hostileQuoteDrain|got=", got, "fakePaid=", owed);
         assertEq(_ledgerAndPrincipal(erc20Launch), before, "ERC-20 launch untouched");
+        assertEq(_ledgerAndPrincipal(nativeLaunch), nativeBefore, "native launch untouched");
     }
 
     /// @dev I-4 rerun next to the plain ERC-20 deployment: a hostile-callback quote steals the in-flight payment snapshot in
@@ -490,8 +487,7 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
         ReentrantOwner rc = new ReentrantOwner(hostilePeriphery, hostile);
         IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
         IZeroSeedLaunch.Installation memory preview = hostilePeriphery.previewInstallation(address(rc), p);
-        p.liquidity = preview.liquidity;
-        p.supply = preview.installedSupply;
+        assertLe(preview.installedSupply, p.supply);
         IZeroSeedLaunch.Installation memory inst = rc.createLaunch(p);
         MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
         vm.warp(START);
@@ -603,7 +599,6 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
             else q.symbol = len32;
             vm.expectRevert(IZeroSeedLaunch.MetadataTooLong.selector);
             periphery.previewInstallation(creator, q);
-            q.liquidity = 1e24;
             vm.prank(creator);
             vm.expectRevert(IZeroSeedLaunch.MetadataTooLong.selector);
             periphery.create(q);
@@ -662,7 +657,6 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
             if (starts[i] < t) {
                 vm.expectRevert(IZeroSeedLaunch.InvalidTradingStart.selector);
                 periphery.previewInstallation(creator, p);
-                p.liquidity = 1e24;
                 vm.prank(creator);
                 vm.expectRevert(IZeroSeedLaunch.InvalidTradingStart.selector);
                 periphery.create(p);
@@ -849,7 +843,7 @@ contract ZeroSeedLaunchBypassTest is AdversarialBase {
         vm.prank(address(launch));
         vm.expectRevert(Ownable.Unauthorized.selector);
         t.completeOwnershipHandover(eve);
-        assertEq(t.totalSupply(), inst.installedSupply);
+        assertEq(t.totalSupply(), inst.installedSupply + t.balanceOf(address(0)));
         // I-1: solady default, Permit2 holds an infinite allowance for every holder of the launch token.
         assertEq(t.allowance(address(this), 0x000000000022D473030F116dDEE9F6B43aC78BA3), type(uint256).max);
     }
@@ -978,8 +972,6 @@ contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
         q.salt = keccak256(abi.encode(creator, p.salt));
         IZeroSeedLaunch.Installation memory preview = launch.previewInstallation(address(m), q);
         assertTrue(preview.token != inst.token, "controller namespaces the token address");
-        q.liquidity = preview.liquidity;
-        q.supply = preview.installedSupply;
         q.tradingStart = uint64(block.timestamp);
         vm.recordLogs();
         IZeroSeedLaunch.Installation memory theirs = abi.decode(

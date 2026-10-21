@@ -19,6 +19,7 @@ import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {amountBeforeFee, AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
 import {decayedFee, decayQ128, Q128, DECAY_ZERO_FROM} from "../../src/math/feeDecay.sol";
 import {ZeroSeedLaunchBase} from "./ZeroSeedLaunch.t.sol";
+import {LaunchTestRouter} from "../LaunchTestRouter.sol";
 
 uint256 constant Q64 = 1 << 64;
 
@@ -95,9 +96,7 @@ abstract contract FeeCurveBase is ZeroSeedLaunchBase {
     /// canonical window, i.e. the same 600 s half-life the table now fixes.
     uint64 constant LEGACY_FACTOR = 18425445863997925462;
 
-    address constant ROUTER = 0x03c8B90854b90AA22448b11e885F692972DA441C;
-    bytes32 constant ROUTER_CODEHASH = 0x32ba8475c95ee5d9f7807f4ad9dce849929c992df9c68e9030e986d1854e726f;
-    bytes32 constant CORE_CODEHASH = 0xc5f90c9d0dbc5037f8f9e248f4bb292e7c1824f584eb6550cb4cad525b38c71a;
+    address ROUTER;
 
     FeeMathProbe internal probe;
 
@@ -169,13 +168,7 @@ abstract contract FeeCurveBase is ZeroSeedLaunchBase {
         (tokenFee, quoteFee) = key.token0 == token ? (f0, f1) : (f1, f0);
     }
 
-    function _int128(int128 value) internal pure returns (uint128 encoded) {
-        assembly ("memory-safe") {
-            encoded := value
-        }
-    }
-
-    /// @dev yul-router v0.8 route: flags bit0 recipient, bit1 inclusive uint32 deadline; one forwarded hop.
+    /// @dev Standard ABI for the locally compiled test locker.
     function _route(
         PoolKey memory key,
         address specified,
@@ -185,23 +178,8 @@ abstract contract FeeCurveBase is ZeroSeedLaunchBase {
         bool allowPartial,
         uint32 deadline
     ) internal view returns (bytes memory) {
-        return bytes.concat(
-            bytes1(uint8(3)),
-            bytes1(uint8(0)),
-            bytes20(specified),
-            bytes20(calculated),
-            bytes16(_int128(minOut)),
-            bytes20(address(this)),
-            bytes4(deadline),
-            bytes16(_int128(amount)),
-            bytes1(uint8(0)),
-            bytes1(uint8(1)),
-            bytes20(key.config.extension()),
-            bytes20(key.token0),
-            bytes20(key.token1),
-            bytes32(PoolConfig.unwrap(key.config)),
-            bytes12(uint96(0)),
-            bytes4(allowPartial ? uint32(1 << 31) : uint32(0))
+        return abi.encodeCall(
+            LaunchTestRouter.swap, (key, specified, calculated, amount, minOut, allowPartial, deadline)
         );
     }
 
@@ -212,9 +190,11 @@ abstract contract FeeCurveBase is ZeroSeedLaunchBase {
     }
 
     function _routerQuote(bytes memory route) internal returns (int256 calculated) {
-        (bool ok, bytes memory result) = ROUTER.call(abi.encodeWithSignature("quote(bytes)", route));
+        uint256 snapshot = vm.snapshotState();
+        (bool ok, bytes memory result) = ROUTER.call(route);
         assertTrue(ok, "quote");
         (,,, calculated) = abi.decode(result, (address, address, int256, int256));
+        vm.revertToState(snapshot);
     }
 }
 
@@ -591,12 +571,10 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         _assertLedger(inst, activeQuote, 0, 0, 1);
     }
 
-    /// @dev The deployed Base Yul router runtime against the injected maximum rate (token0 order; the native order
+    /// @dev The test router against the injected maximum rate (token0 order; the native order
     /// through the same router is covered by the main suite).
     function test_router_maxRate_minOut_deadline_partial_balance() public {
-        vm.etch(ROUTER, vm.parseBytes(vm.trim(vm.readFile("test/fixtures/yul-router-0x03c8-base-52449112.hex"))));
-        assertEq(ROUTER.codehash, ROUTER_CODEHASH, "router fixture");
-        assertEq(CORE.codehash, CORE_CODEHASH, "local Core == Base Core runtime");
+        ROUTER = address(new LaunchTestRouter(ICore(CORE)));
         (IZeroSeedLaunch.Installation memory inst,) = _createCurve(true, 18, DURATION, RATE_MAX, FEE_03);
         ERC20(activeQuote).approve(ROUTER, type(uint256).max);
         ERC20(inst.token).approve(ROUTER, type(uint256).max);

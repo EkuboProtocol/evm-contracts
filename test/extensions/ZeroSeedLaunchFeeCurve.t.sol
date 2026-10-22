@@ -6,9 +6,11 @@ import {console2} from "forge-std/console2.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
+import {IExposedStorage} from "../../src/interfaces/IExposedStorage.sol";
 import {IZeroSeedLaunch, ZERO_SEED_LAUNCH_CREATE} from "../../src/interfaces/extensions/IZeroSeedLaunch.sol";
 import {ZeroSeedLaunch, MAX_CREATOR_FEE} from "../../src/extensions/ZeroSeedLaunch.sol";
 import {MintableERC20} from "../../src/MintableERC20.sol";
+import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
@@ -87,6 +89,22 @@ contract FeeMathProbe {
     }
 }
 
+/// @dev Takes a Core lock and, inside it, asks the test for Core's transient lock state, so the test can prove that
+/// its `tload` reads are live (nonzero while a lock is open) and not vacuously zero.
+contract LockObserver is BaseLocker {
+    constructor(ICore core) BaseLocker(core) {}
+
+    function observe(address test, PoolKey memory key) external returns (uint256 locker, uint256 count) {
+        return abi.decode(lock(abi.encode(test, key)), (uint256, uint256));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (address test, PoolKey memory key) = abi.decode(data, (address, PoolKey));
+        (uint256 locker, uint256 count,,) = FeeCurveBase(payable(test)).coreLockState(key);
+        return abi.encode(locker, count);
+    }
+}
+
 abstract contract FeeCurveBase is ZeroSeedLaunchBase {
     using CoreLib for ICore;
 
@@ -153,6 +171,35 @@ abstract contract FeeCurveBase is ZeroSeedLaunchBase {
         assertEq(l.tradingStart, START, "stored start");
         assertEq(launch.feeAt(id, START), initialFee, "rate at start");
         assertEq(launch.feeAt(id, uint256(START) + duration), finalFee, "rate at end");
+    }
+
+    /// @dev Core's transient accounting for the probe's lock, read through `tload`: the current locker word (zero
+    /// outside any lock), the nonzero-debt count of lock id 0 (the swapper's lock when nothing is nested) and that
+    /// lock's debt for each pool token. Slot constants as in `FlashAccountant`:
+    /// keccak256("FlashAccountant#CURRENT_LOCKER_SLOT"), keccak256("FlashAccountant#NONZERO_DEBT_COUNT_OFFSET") and
+    /// keccak256("FlashAccountant#_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET") + (id << 160) + token.
+    function coreLockState(PoolKey memory key)
+        public
+        view
+        returns (uint256 locker, uint256 nonzeroDebtCount, uint256 debt0, uint256 debt1)
+    {
+        uint256 currentLockerSlot = uint256(keccak256("FlashAccountant#CURRENT_LOCKER_SLOT"));
+        uint256 nonzeroDebtCountOffset = uint256(keccak256("FlashAccountant#NONZERO_DEBT_COUNT_OFFSET"));
+        uint256 debtOffset = uint256(keccak256("FlashAccountant#_DEBT_LOCKER_TOKEN_ADDRESS_OFFSET"));
+        assertEq(currentLockerSlot, 0x07cc7f5195d862f505d6b095c82f92e00cfc1766f5bca4383c28dc5fca1555fd, "slot");
+        assertEq(nonzeroDebtCountOffset, 0x7772acfd7e0f66ebb20a058830296c3dc1301b111d23348e1c961d324223190d, "slot");
+        assertEq(debtOffset, 0x753dfe4b4dfb3ff6c11bbf6a97f3c094e91c003ce904a55cc5662fbad220f599, "slot");
+        (bool ok, bytes memory words) = CORE.staticcall(
+            abi.encodePacked(
+                IExposedStorage.tload.selector,
+                currentLockerSlot,
+                nonzeroDebtCountOffset,
+                debtOffset + uint256(uint160(key.token0)),
+                debtOffset + uint256(uint160(key.token1))
+            )
+        );
+        assertTrue(ok && words.length == 128, "tload");
+        (locker, nonzeroDebtCount, debt0, debt1) = abi.decode(words, (uint256, uint256, uint256, uint256));
     }
 
     function _feeLedger(PoolKey memory key, address token) internal view returns (uint128 tokenFee, uint128 quoteFee) {
@@ -712,13 +759,52 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         );
     }
 
-    /// @dev Probes an exact-output buy of `want` tokens in a throwaway state: success with the calculated quote
-    /// (paid minus fee), or the revert selector.
-    function _probeExactOut(PoolKey memory key, address token, uint128 want)
+    /// @dev Balances of the two accounts a probe can charge: this contract (ERC-20 payer, output recipient) and the
+    /// swapper (native payer).
+    function _payerDigest(PoolKey memory key) internal view returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                _balance(key.token0, address(this)),
+                _balance(key.token1, address(this)),
+                _balance(key.token0, address(swapper)),
+                _balance(key.token1, address(swapper))
+            )
+        );
+    }
+
+    /// @dev The atomicity proof for one rejected forwarded swap, taken from the live EVM state right after the
+    /// revert and before any snapshot is restored: pool state, fee ledger, position and Core's balances are exactly
+    /// as before the call, neither payer was charged, Core holds no lock and no debt for the probe's lock, and a
+    /// fresh valid swap on the same launch still settles with the ledger conserved.
+    function _assertRejectedSwapLeftNothing(
+        PoolKey memory key,
+        IZeroSeedLaunch.Installation memory inst,
+        bytes32 stateBefore,
+        bytes32 payerBefore
+    ) internal {
+        assertEq(_stateDigest(key, inst), stateBefore, "rejected swap: pool, ledger, position, Core balances");
+        assertEq(_payerDigest(key), payerBefore, "rejected swap: payers not charged");
+        (uint256 locker, uint256 nonzeroDebtCount, uint256 debt0, uint256 debt1) = coreLockState(key);
+        assertEq(locker, 0, "rejected swap: no lock left in Core");
+        assertEq(nonzeroDebtCount, 0, "rejected swap: no nonzero-debt count left");
+        assertEq(debt0, 0, "rejected swap: no token0 debt left");
+        assertEq(debt1, 0, "rejected swap: no token1 debt left");
+        PoolBalanceUpdate u = _buy(key, inst.token, 1e18, false);
+        assertGt(uint128(-_tokenDelta(key, inst.token, u)), 0, "a valid swap settles after the rejected one");
+        _assertLedger(inst, activeQuote, 1e18, 0, MAX_DUST);
+    }
+
+    /// @dev Probes an exact-output buy of `want` tokens: success with the calculated quote (paid minus fee), or the
+    /// revert selector together with the atomicity checks above, all taken before the snapshot is restored. Only
+    /// then is the state restored so every probe starts from the same point.
+    function _probeExactOut(PoolKey memory key, IZeroSeedLaunch.Installation memory inst, uint128 want)
         internal
         returns (bool ok, bytes4 selector, uint128 calc, uint128 paid)
     {
+        address token = inst.token;
         uint256 snap = vm.snapshotState();
+        bytes32 stateBefore = _stateDigest(key, inst);
+        bytes32 payerBefore = _payerDigest(key);
         (, uint128 feeBefore) = _feeLedger(key, token);
         try swapper.forwardSwap(
             key, createSwapParameters(SqrtRatio.wrap(0), -int128(want), key.token1 == token, 0)
@@ -729,8 +815,12 @@ contract FeeCurveHighRateTest is FeeCurveBase {
             paid = uint128(_quoteDelta(key, token, u));
             (, uint128 feeAfter) = _feeLedger(key, token);
             calc = paid - (feeAfter - feeBefore);
+            // The digests are sensitive: an executed probe moves both of them.
+            assertTrue(_stateDigest(key, inst) != stateBefore, "executed swap changed state");
+            assertTrue(_payerDigest(key) != payerBefore, "executed swap charged the payer");
         } catch (bytes memory reason) {
             selector = bytes4(reason);
+            _assertRejectedSwapLeftNothing(key, inst, stateBefore, payerBefore);
         }
         vm.revertToState(snap);
     }
@@ -738,8 +828,9 @@ contract FeeCurveHighRateTest is FeeCurveBase {
     /// @dev At the maximum rate the fee-inclusive input is calc * 2**64, so both representation limits are inside
     /// the fixture's inventory: calc <= 2**63 - 1 executes, calc in [2**63, 2**64 - 1] passes the uint128 helper
     /// and fails the signed conversion, calc >= 2**64 fails the helper. Everything reverts atomically: pool state,
-    /// fee ledger, Core balances and the position are the same after every failed probe, and the lock that
-    /// forwarded it is gone.
+    /// fee ledger, Core balances, the position and the payers are the same right after every rejected probe, Core
+    /// holds no lock or debt for it, and a valid swap still settles; all checked in `_probeExactOut` on the live
+    /// state before the snapshot is restored (the snapshot only resets the harness between probes).
     function test_exactOut_executedBounds_maxRate_token0_erc20() public {
         _exactOutBounds(true);
     }
@@ -754,40 +845,47 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         assertEq(key.token0 == NATIVE_TOKEN_ADDRESS, !tokenIs0, "native order");
         vm.warp(START);
         bytes32 ledgerBefore = _stateDigest(key, inst);
+        // The transient reads behind the rollback proof are live: inside an open lock the locker word is nonzero
+        // (id 0 stored as 1 with the locker's address) and outside it everything is zero.
+        (uint256 openLocker, uint256 openCount) = new LockObserver(ICore(CORE)).observe(address(this), key);
+        assertEq(openLocker >> 160, 1, "lock id 0 is open as 1");
+        assertEq(openCount, 0, "no debt inside an idle lock");
+        (uint256 idleLocker, uint256 idleCount, uint256 idle0, uint256 idle1) = coreLockState(key);
+        assertEq(idleLocker | idleCount | idle0 | idle1, 0, "nothing open before the probes");
 
         uint128 lo = 1;
         uint128 hi = inst.installedSupply;
         while (lo < hi) {
             uint128 mid = lo + (hi - lo + 1) / 2;
-            (bool ok,,,) = _probeExactOut(key, inst.token, mid);
+            (bool ok,,,) = _probeExactOut(key, inst, mid);
             if (ok) lo = mid;
             else hi = mid - 1;
         }
         uint128 lastValid = lo;
-        (bool okLast,, uint128 calcLast, uint128 paidLast) = _probeExactOut(key, inst.token, lastValid);
+        (bool okLast,, uint128 calcLast, uint128 paidLast) = _probeExactOut(key, inst, lastValid);
         assertTrue(okLast, "last valid executes");
         assertEq(uint256(paidLast), uint256(calcLast) << 64, "paid = calc * 2**64");
         // One more token unit raises the calculated quote by at most one raw unit at these prices, so the last
         // executable request sits exactly on the signed bound.
         assertEq(calcLast, uint128(type(int128).max) >> 64, "calc = 2**63 - 1 exactly");
-        (bool okNext, bytes4 selNext,,) = _probeExactOut(key, inst.token, lastValid + 1);
+        (bool okNext, bytes4 selNext,,) = _probeExactOut(key, inst, lastValid + 1);
         assertFalse(okNext, "first invalid reverts");
         assertEq(selNext, SafeCastLib.Overflow.selector, "signed int128 overflow, helper succeeded");
-        assertEq(_stateDigest(key, inst), ledgerBefore, "signed overflow rolled back");
+        assertEq(_stateDigest(key, inst), ledgerBefore, "harness: snapshot restored between probes");
 
         lo = lastValid + 1;
         hi = inst.installedSupply;
         while (lo < hi) {
             uint128 mid = lo + (hi - lo + 1) / 2;
-            (, bytes4 sel,,) = _probeExactOut(key, inst.token, mid);
+            (, bytes4 sel,,) = _probeExactOut(key, inst, mid);
             if (sel == SafeCastLib.Overflow.selector) lo = mid;
             else hi = mid - 1;
         }
-        (, bytes4 selHelperLast,,) = _probeExactOut(key, inst.token, lo);
-        (, bytes4 selHelperFirst,,) = _probeExactOut(key, inst.token, lo + 1);
+        (, bytes4 selHelperLast,,) = _probeExactOut(key, inst, lo);
+        (, bytes4 selHelperFirst,,) = _probeExactOut(key, inst, lo + 1);
         assertEq(selHelperLast, SafeCastLib.Overflow.selector, "helper still succeeds");
         assertEq(selHelperFirst, AmountBeforeFeeOverflow.selector, "helper uint128 overflow");
-        assertEq(_stateDigest(key, inst), ledgerBefore, "probes left nothing behind");
+        assertEq(_stateDigest(key, inst), ledgerBefore, "harness: snapshot restored after the last probe");
         _assertLedger(inst, activeQuote, 0, 0, 1);
         console2.log(
             string.concat(

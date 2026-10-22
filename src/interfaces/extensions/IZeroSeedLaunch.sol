@@ -17,8 +17,10 @@ uint256 constant ZERO_SEED_LAUNCH_CLAIM_FEES = 0xe52d8a05fd0f2d32b280675736d8117
 /// @dev Ticks in `LaunchParameters` are economic: log base 1.000001 of raw quote units per raw launch token unit,
 /// independent of address order. The pool tick is the same for a token0 launch and negated for a token1 launch.
 /// Creator fees are Q0.64 fractions (2**64 = 100%) held by this extension, separate from the pool config fee,
-/// which is always zero. The fee is `initialFee` at `tradingStart` and follows a 600 second half-life exponential
-/// rescaled to reach `finalFee` exactly `feeDuration` seconds later (see `src/math/feeDecay.sol`).
+/// which is always zero. Every `uint64` is a valid rate, `0..2**64 - 1` inclusive; exactly 100% is not encodable.
+/// The fee is `initialFee` at `tradingStart` and follows a 600 second half-life exponential
+/// rescaled to reach `finalFee` exactly `feeDuration` seconds later (see `src/math/feeDecay.sol`), which requires
+/// `finalFee <= initialFee` and `feeDuration > 0` (`InvalidFeeSchedule` otherwise).
 ///
 /// Forward payloads, all settled by the forwarding locker within its lock:
 /// - swap: `abi.encode(PoolKey, SwapParameters)` (128 bytes), returns `abi.encode(PoolBalanceUpdate, PoolState)`;
@@ -43,7 +45,9 @@ interface IZeroSeedLaunch {
         int32 upperTick;
         uint32 tickSpacing;
         uint64 tradingStart;
+        /// @dev Seconds from `tradingStart` to `finalFee`; must be nonzero.
         uint32 feeDuration;
+        /// @dev Q0.64 rates; any `uint64` value, with `finalFee <= initialFee`.
         uint64 initialFee;
         uint64 finalFee;
         /// @dev Namespaced by the controller: the token salt is `keccak256(abi.encode(controller, salt))`.
@@ -74,7 +78,6 @@ interface IZeroSeedLaunch {
     error UnsupportedQuoteToken();
     error MetadataTooLong();
     error LaunchTokenExists(address token);
-    error FeeTooHigh();
     error InvalidFeeSchedule();
     error InvalidTradingStart();
     error ZeroLiquidity();

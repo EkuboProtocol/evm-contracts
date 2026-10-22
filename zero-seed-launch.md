@@ -81,8 +81,8 @@ Refusals:
 | the token address for this controller, salt and metadata already has code (same owner and salt again) | `LaunchTokenExists(token)` |
 | `supply == 0` or `supply > int128.max`; `tickSpacing` 0 or above 698,605; `askTick < MIN_TICK`; `upperTick > MAX_TICK`; `askTick >= upperTick` | `InvalidParameters` |
 | misaligned bounds | Core `BoundsTickSpacing` |
-| `initialFee > floor(2**64 * 99 / 100)` (99%; exactly 100% is not a `uint64`) | `FeeTooHigh` |
 | `finalFee > initialFee` or `feeDuration == 0` | `InvalidFeeSchedule` |
+| `initialFee` or `finalFee` of exactly `2**64` (100%) | not a `uint64`: the call fails ABI decoding with empty revert data before any logic, through `create`, `previewInstallation` and a raw forwarded create payload alike; nothing is truncated or wrapped |
 | `tradingStart < block.timestamp` | `InvalidTradingStart` |
 | liquidity 0 | `ZeroLiquidity` |
 | liquidity above the per-tick cap of the spacing | `LiquidityAboveTickCap(liquidity, cap)` |
@@ -129,11 +129,22 @@ The fee is charged on the calculated side of the actual fill:
 | exact-output buy | quote (input) | `ceil(input * 2**64 / (2**64 - fee)) - input` added to input |
 | exact-output sell | launch token (input) | same |
 
+### Rate range
+
+`initialFee` and `finalFee` accept every `uint64`, `0..18446744073709551615` inclusive (`MAX_CREATOR_FEE = type(uint64).max`); the only schedule rules are `finalFee <= initialFee` and `feeDuration > 0`. There is no ceiling below the type: the former 99% limit and its `FeeTooHigh` error are gone. The maximum, `2**64 - 1`, is `1 - 2**-64` of the calculated amount, just under 100%; exactly 100% (`2**64`) is not a `uint64` and cannot be submitted (see the refusals above). Consumers must carry rates as exact integers (decimal strings at API boundaries) and must not describe the maximum as 100%.
+
+At the maximum rate the arithmetic above gives, per swap:
+
+- exact input: `net = floor(gross / 2**64)` and `fee = gross - net`. A fill grossing less than `2**64` raw units of the calculated asset nets zero and is entirely fee; a whole quote unit on the fixture nets 54,160 raw launch-token units (18/18) or 54,158 (18/6). A positive fill with zero net output is still a swap: the buyer pays and receives nothing unless its router enforces a minimum output.
+- exact output: `paid = calc * 2**64`, so the fee-inclusive input is representable only while `calc <= 2**63 - 1` (`int128` delta). `calc` in `[2**63, 2**64 - 1]` passes the `uint128` gross-up helper and fails the signed conversion (`SafeCastLib.Overflow`, `0x35278d12`); `calc >= 2**64` fails the helper (`AmountBeforeFeeOverflow`, `0x0d88f526`). Either reverts the whole forwarded swap: pool state, fee ledger, position and Core balances are unchanged and the lock is released. On the fixture the last executable exact-output request is `9147280263567190862134907` raw launch-token units (t0; `9147280263567190861982364` native t1) with `calc = 2**63 - 1` and `paid = 2**127 - 2**64`; the helper limit is first hit at `18145179163502972233172124` (t0; `18145179163502972233028471` native t1).
+
+These bounds are amount-dependent at every rate; routers keep their own maximum-input, minimum-output and full-fill checks. The 50% to 0.3% over 3,600 s schedule remains the consumer-side default; the ceiling is a caller-selectable bound, not a suggested value.
+
 The fee is saved in Core under the extension with salt = pool id, separate from the position. A claim forward moves the whole two-asset ledger onto the controller's lock as a credit; the extension transfers nothing. `ZeroSeedLaunchPeriphery.claimFees(poolKey, recipient)` (owner only) forwards the claim and withdraws both amounts from Core to `recipient` in the same lock, native ETH by Core's plain call. It never touches the position.
 
 The recipient must not be zero, Core, the extension, the periphery or either pool token; each would strand the fees, and the claim reverts `InvalidRecipient` with the ledger and principal unchanged. The claim is all or nothing over both assets: a reverting native recipient or a refused ERC-20 transfer rolls everything back and the owner can retry to another recipient. Because the ledger is moved before Core pays, an owner contract that re-enters `claimFees` while receiving its ETH claims zero. Fee rights move with `transferLaunch`. The owner can buy and later claim its own fee back, so the fee does not protect buyers from the owner.
 
-Local reference parameters (not live selections): 5% (`922337203685477580`) to 0.3% (`55340232221128654`) over 3,600 s, and 600 s for comparison; the fee-curve study executes 50%, 75%, 90%, 99% and the injected maximum.
+Local reference parameters (not live selections): 5% (`922337203685477580`) to 0.3% (`55340232221128654`) over 3,600 s, and 600 s for comparison; the fee-curve study executes 50%, 75%, 90%, 99% and the maximum `2**64 - 1`, every one created through the periphery.
 
 ## Events
 
@@ -147,7 +158,7 @@ Local reference parameters (not live selections): 5% (`922337203685477580`) to 0
 
 `LaunchParameters` is `(string name, string symbol, uint8 decimals, uint128 supply, address quoteToken, int32 askTick, int32 upperTick, uint32 tickSpacing, uint64 tradingStart, uint32 feeDuration, uint64 initialFee, uint64 finalFee, bytes32 salt)`; the emitted `salt` is the namespaced extension salt. `LaunchSwapped` deltas are fee-inclusive, from the pool's side, as settled by the locker; `locker` is the forwarding locker (a router), not the trader. Principal moves are Core's own swap events. The fee ledger is the running sum of `LaunchSwapped.feeAmount` minus claims.
 
-Selectors: extension `previewInstallation(address,LaunchParameters) 0x917c1163`, `feeAt(bytes32,uint256) 0xe81084ec`, `getLaunch(bytes32) 0x7d1d589c`, `creatorFees((address,address,bytes32)) 0xb4ce9a2e`; periphery `create(LaunchParameters) 0x662af306`, `previewInstallation(address,LaunchParameters) 0x917c1163`, `claimFees((address,address,bytes32),address) 0x6906b4c0`, `transferLaunch(bytes32,address) 0x8b1cb36f`, `launchOwner(bytes32) 0x60ac0b66`, `LAUNCH() 0x096e3c3e`. The full list is in `test/vectors/zero-seed-launch.json` under `abi`. Integrators must update the creation/preview tuple, selectors, constructor and LaunchCreated topic; the old quote getter is removed. Pool IDs, forwarded swaps, fee claims and Launch storage layout are unchanged. Consumers must distinguish requested total supply from installed inventory and must not rewrite supply to the preview's installed amount.
+Selectors: extension `previewInstallation(address,LaunchParameters) 0x917c1163`, `feeAt(bytes32,uint256) 0xe81084ec`, `getLaunch(bytes32) 0x7d1d589c`, `creatorFees((address,address,bytes32)) 0xb4ce9a2e`; periphery `create(LaunchParameters) 0x662af306`, `previewInstallation(address,LaunchParameters) 0x917c1163`, `claimFees((address,address,bytes32),address) 0x6906b4c0`, `transferLaunch(bytes32,address) 0x8b1cb36f`, `launchOwner(bytes32) 0x60ac0b66`, `LAUNCH() 0x096e3c3e`. The full list is in `test/vectors/zero-seed-launch.json` under `abi`. Integrators must update the creation/preview tuple, selectors, constructor and LaunchCreated topic; the old quote getter is removed, and so is the `FeeTooHigh()` error (`0xcd4e6167`): decoders that still carry it never see it, and client-side rate guards must accept the whole `uint64` range. Pool IDs, forwarded swaps, fee claims and Launch storage layout are unchanged. Consumers must distinguish requested total supply from installed inventory and must not rewrite supply to the preview's installed amount.
 
 ## Launch token
 
@@ -171,7 +182,7 @@ With Core holding only this launch's tokens:
 
 `test/extensions/ZeroSeedLaunchAdversarial.t.sol`: per-launch native acceptance and codeless ERC-20 refusal, forged quote/pool refusal, shared-extension hostile-quote isolation, nested settlement-snapshot theft failing closed, recipient sinks, atomic claim rollback for a refused ERC-20 transfer and a reverting native recipient, re-entrant native and hostile-quote claims, launch transfer, metadata and collision refusals, start boundaries, fee signs and conservation from events, bypasses, minter renounce and Permit2, amount extremes, forward dispatch, controller identity against a malicious locker, and absence of direct extension entrypoints.
 
-`test/extensions/ZeroSeedLaunchFeeCurve.t.sol`: the generated table against the generator's constants, cutoffs and aliasing, fuzzed monotonicity and bounds over the whole duration domain, Python-pinned digests over every second of both windows at five rates, the per-second deviation from the previous implementation, executed swaps at 50/75/90/99% and at the highest encodable rate (injected into storage, since creation refuses it) in both orders, both exact-output representation limits executed at that rate, the test router at the maximum rate, and isolated-math, swap and bytecode measurements.
+`test/extensions/ZeroSeedLaunchFeeCurve.t.sol`: the generated table against the generator's constants, cutoffs and aliasing, fuzzed monotonicity and bounds over the whole uint64 rate and uint32 duration domain, the maximum-rate schedule at both duration extremes, Python-pinned digests over every second of both windows at five rates, the per-second deviation from the previous implementation, ordinary periphery creation at `2**64 - 1` in both orders with native ETH and plain ERC-20 quotes at 18 and 6 decimals (decaying to 0.3%, to zero, and flat at the maximum, over 1 s, 3,600 s and `2**32 - 1` s) with the emitted parameters, stored record and live schedule checked, the exact-100% ABI refusal in either fee word through the periphery and a raw forward, executed swaps at 50/75/90/99% and at the maximum in both orders, both exact-output representation limits executed at the maximum in the ERC-20 and the native order with rollback checked, the test router at the maximum rate in both orders including native value refunds, claims at the maximum against the emitted fee sum, and isolated-math, swap, bytecode and runtime-hash measurements.
 
 Every test is a local fixture. None is live evidence.
 

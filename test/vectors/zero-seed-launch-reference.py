@@ -153,6 +153,73 @@ for r in v["trade"]:
         check(paid == -(-(calc * Q) // (Q - i)))
         check(int(r["fee"]) == paid - calc)
 
+
+# Creator fee range: the whole uint64, no ceiling below the type; 2**64 is not encodable; schedule shape only.
+fee_range = v["creator_fee_range"]
+U64_MAX = Q - 1
+check(int(fee_range["max_q64"]) == U64_MAX and int(fee_range["min_q64"]) == 0)
+check(int(v["fixture"]["max_creator_fee_q64"]) == U64_MAX)
+check(int(fee_range["unencodable"]["value"]) == Q)
+check(int(fee_range["unencodable"]["dirty_high_bits"]["value"]) == Q | U64_MAX)
+
+
+def fee_verdict(initial, final, duration):
+    if initial > U64_MAX or final > U64_MAX:
+        return "abi_decoding_failure"
+    if final > initial or duration == 0:
+        return "InvalidFeeSchedule"
+    return "accept"
+
+
+for r in fee_range["vectors"]:
+    check(fee_verdict(int(r["initialFee"]), int(r["finalFee"]), int(r["feeDuration"])) == r["verdict"])
+    if r["verdict"] == "accept":
+        initial, final, duration = int(r["initialFee"]), int(r["finalFee"]), int(r["feeDuration"])
+        check(fee_at(initial, final, duration, 0) == initial and fee_at(initial, final, duration, duration) == final)
+        previous = initial
+        for t in (1, 2, 599, 600, 1800, 3599, 3600, 76799, 76800, ZERO_FROM, duration, duration + 1):
+            fee = fee_at(initial, final, duration, t)
+            check(final <= fee <= previous)
+            previous = fee
+        if duration > 1 and final < initial:
+            check(fee_at(initial, final, duration, 1) < initial)
+        if duration == 0xFFFFFFFF:
+            check(fee_at(initial, final, duration, 76800) == final)
+for label in ("fixture", "consumer_default"):
+    s = fee_range["reference_schedules"][label]
+    check(fee_verdict(int(s["initialFee"]), int(s["finalFee"]), int(s["feeDuration"])) == "accept")
+check(int(fee_range["reference_schedules"]["consumer_default"]["initialFee"]) == Q // 2)
+check(int(fee_range["reference_schedules"]["fixture"]["initialFee"]) == i)
+check(fee_range["removed"]["selector"] == "0xcd4e6167")
+check(int(curve["rates_q64"]["max"]) == U64_MAX)
+
+# Maximum rate: exact input nets floor(gross / 2**64); exact output pays calc * 2**64; both representation limits.
+max_rate = v["max_rate"]
+for r in max_rate["trades"]:
+    if r["step"] in ("oneUnit", "buyExactIn"):
+        gross, fee, net = int(r["gross"]), int(r["fee"]), int(r["net"])
+        check(net == gross >> 64 and fee == gross - net)
+        check(fee == -(-gross * U64_MAX // Q))
+        check((r["step"] == "oneUnit") == (net == 0))
+    elif r["step"] == "buyExactOut":
+        calc, paid, fee = int(r["calcQuote"]), int(r["paid"]), int(r["fee"])
+        check(paid == calc << 64 and fee == paid - calc)
+        check(paid == -(-(calc * Q) // (Q - U64_MAX)))
+    elif r["step"] == "sellAll":
+        gross, fee, out = int(r["grossQuote"]), int(r["fee"]), int(r["quoteOut"])
+        check(out == gross >> 64 and fee == gross - out)
+bounds = max_rate["exact_output_bounds"]
+check(int(bounds["signed_bound_calc"]) == (1 << 63) - 1 and int(bounds["helper_bound_calc"]) == U64_MAX)
+for r in bounds["vectors"]:
+    calc, paid = int(r["calc"]), int(r["paid"])
+    check(calc == (1 << 63) - 1 and paid == calc << 64 and paid < 1 << 127)
+    check((calc + 1) << 64 == 1 << 127)
+    check(int(r["firstSignedOverflowTokenOut"]) == int(r["lastValidTokenOut"]) + 1)
+    check(int(r["firstHelperOverflowTokenOut"]) == int(r["lastSignedOverflowTokenOut"]) + 1)
+    check(int(r["lastSignedOverflowTokenOut"]) > int(r["firstSignedOverflowTokenOut"]))
+    installed = {c["order"]: int(c["installed"]) for c in v["create"] if c["dec"] == "18/18"}
+    check(int(r["firstHelperOverflowTokenOut"]) < installed[r["order"]])
+
 for r in v["residue_metrics"]["scenarios"]:
     residue = int(r["upper_residue_raw_token"])
     check(int(r["position_token_before_exhaust"]) - int(r["delivered_raw_token"]) == residue)

@@ -24,7 +24,10 @@ Q128 = 1 << 128
 HALF_LIFE_SECONDS = 600
 # floor(2**64 * 2**(-1/600)): the per-second Q0.64 factor of the previous variable-base implementation.
 OLD_FACTOR = 18425445863997925462
-MAX_CREATOR_FEE = 18262276632972456099
+# type(uint64).max: every uint64 is a valid Q0.64 creator fee rate; exactly 100% (2**64) is not encodable.
+MAX_CREATOR_FEE = Q64 - 1
+# floor(2**64 * 99 / 100): a study rate, formerly the ceiling.
+FEE_99 = Q64 * 99 // 100
 FEE_50 = Q64 // 2
 FEE_03 = Q64 * 3 // 1000
 
@@ -150,7 +153,7 @@ def main():
         )
 
     if args.json:
-        rates = {"50": FEE_50, "75": Q64 * 3 // 4, "90": Q64 * 9 // 10, "99": MAX_CREATOR_FEE, "max": Q64 - 1}
+        rates = {"50": FEE_50, "75": Q64 * 3 // 4, "90": Q64 * 9 // 10, "99": FEE_99, "max": MAX_CREATOR_FEE}
         rows = [
             {"initial": str(rate), "final": str(FEE_03), "duration": duration, "elapsed": t,
              "fee": str(decayed_fee(rate, FEE_03, duration, t))}

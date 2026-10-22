@@ -485,25 +485,28 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         p = _copy(base);
         p.tickSpacing = 0;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidParameters.selector));
-        p = _copy(base);
-        p.initialFee = MAX_CREATOR_FEE + 1;
-        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.FeeTooHigh.selector));
-        // The largest encodable rate is above the cap, so it is refused like any other value above it.
-        p = _copy(base);
-        p.initialFee = type(uint64).max;
-        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.FeeTooHigh.selector));
-        p = _copy(base);
-        p.initialFee = type(uint64).max;
-        p.finalFee = type(uint64).max;
-        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.FeeTooHigh.selector));
+        // No rate ceiling below the type: the only schedule rules are final <= initial and a nonzero duration.
         p = _copy(base);
         p.finalFee = p.initialFee + 1;
+        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
+        p = _copy(base);
+        p.initialFee = type(uint64).max - 1;
+        p.finalFee = type(uint64).max;
+        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
+        p = _copy(base);
+        p.initialFee = 0;
+        p.finalFee = 1;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
         p = _copy(base);
         p.feeDuration = 0;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
         vm.expectRevert(IZeroSeedLaunch.InvalidFeeSchedule.selector);
         periphery.previewInstallation(creator, p);
+        p = _copy(base);
+        p.initialFee = type(uint64).max;
+        p.finalFee = type(uint64).max;
+        p.feeDuration = 0;
+        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
         vm.warp(START + 1);
         _expectCreateRevert(base, abi.encodeWithSelector(IZeroSeedLaunch.InvalidTradingStart.selector));
         vm.warp(1);
@@ -513,17 +516,30 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         vm.prank(creator);
         vm.expectRevert();
         periphery.create(p);
-        // MAX_CREATOR_FEE itself is accepted, as are the shortest and the longest fee windows.
+        // The whole uint64 range is accepted at both ends of the schedule, as are the shortest and the longest fee
+        // windows; the full maximum-rate matrix is in ZeroSeedLaunchFeeCurve.t.sol.
+        assertEq(MAX_CREATOR_FEE, type(uint64).max, "ceiling is the type maximum");
         p = _copy(base);
         p.initialFee = MAX_CREATOR_FEE;
         p.feeDuration = 1;
         vm.prank(creator);
-        periphery.create(p);
+        IZeroSeedLaunch.Installation memory inst = periphery.create(p);
+        assertEq(launch.getLaunch(inst.poolKey.toPoolId()).initialFee, MAX_CREATOR_FEE, "stored as given");
         p = _copy(base);
         p.salt = bytes32(uint256(2));
+        p.initialFee = MAX_CREATOR_FEE;
+        p.finalFee = MAX_CREATOR_FEE;
         p.feeDuration = type(uint32).max;
         vm.prank(creator);
-        periphery.create(p);
+        inst = periphery.create(p);
+        assertEq(launch.getLaunch(inst.poolKey.toPoolId()).finalFee, MAX_CREATOR_FEE, "stored as given");
+        p = _copy(base);
+        p.salt = bytes32(uint256(3));
+        p.initialFee = 0;
+        p.finalFee = 0;
+        vm.prank(creator);
+        inst = periphery.create(p);
+        assertEq(launch.feeAt(inst.poolKey.toPoolId(), START + 1), 0, "zero schedule");
     }
 
     function testFuzz_roundSupplyConservation(uint128 supply, bool tokenIs0) public {

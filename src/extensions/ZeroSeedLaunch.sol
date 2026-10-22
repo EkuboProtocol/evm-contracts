@@ -29,8 +29,10 @@ import {decayedFee} from "../math/feeDecay.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
-/// @dev Highest creator fee rate, Q0.64: floor(2**64 * 99 / 100) = 99%. Exactly 100% (2**64) is not encodable.
-uint64 constant MAX_CREATOR_FEE = 18262276632972456099;
+/// @dev Highest creator fee rate: every `uint64` is a valid Q0.64 rate, so the ceiling is the type's own maximum,
+/// 2**64 - 1 (just under 100%). Exactly 100% (2**64) is not a `uint64`: calldata carrying it fails ABI decoding
+/// before any logic runs, and no narrowing can wrap it to zero.
+uint64 constant MAX_CREATOR_FEE = type(uint64).max;
 
 /// @dev Longest token name or symbol in bytes: `MintableERC20` packs each with its length into one word.
 uint256 constant MAX_METADATA_LENGTH = 31;
@@ -61,7 +63,10 @@ function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
 /// controller: the only locker that may claim its fee ledger, and the namespace of its token address. A periphery
 /// that forwards for users records who owns each launch itself.
 /// No admin, upgrade, withdrawal, migration or staging path. The pool fee is zero; the creator fee is taken on the
-/// calculated side of each swap and saved in Core under this extension, salt = pool id. Each launch chooses
+/// calculated side of each swap and saved in Core under this extension, salt = pool id. Any `uint64` rate is
+/// accepted: at 2**64 - 1 an exact-input swap nets floor(gross / 2**64) and an exact-output swap pays
+/// calculated * 2**64, so exact output is bounded by the signed delta (calculated <= 2**63 - 1) and the uint128
+/// gross-up helper (calculated < 2**64); either limit reverts the whole swap. Each launch chooses
 /// its quote: native ETH (`address(0)`, always token0) or a plain
 /// ERC-20 (no transfer fee, rebase, callback, pause, blocklist, upgrade or misreported balance); nothing here can
 /// detect a token that only behaves later.
@@ -299,7 +304,7 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
             parameters.tickSpacing == 0 || parameters.tickSpacing > MAX_TICK_SPACING || parameters.askTick < MIN_TICK
                 || parameters.upperTick > MAX_TICK || parameters.askTick >= parameters.upperTick
         ) revert InvalidParameters();
-        if (parameters.initialFee > MAX_CREATOR_FEE) revert FeeTooHigh();
+        // Any uint64 initial rate is accepted (see MAX_CREATOR_FEE); only the schedule shape is checked.
         if (parameters.finalFee > parameters.initialFee || parameters.feeDuration == 0) revert InvalidFeeSchedule();
         if (parameters.tradingStart < block.timestamp) revert InvalidTradingStart();
     }

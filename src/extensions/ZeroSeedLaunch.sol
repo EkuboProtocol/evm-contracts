@@ -20,7 +20,7 @@ import {PositionId, createPositionId} from "../types/positionId.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 import {Locker} from "../types/locker.sol";
-import {SqrtRatio} from "../types/sqrtRatio.sol";
+import {SqrtRatio, BIT_MASK} from "../types/sqrtRatio.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
 import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {maxLiquidity, liquidityDeltaToAmountDelta} from "../math/liquidity.sol";
@@ -69,7 +69,10 @@ function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
 /// gross-up helper (calculated < 2**64); either limit reverts the whole swap. Each launch chooses
 /// its quote: native ETH (`address(0)`, always token0) or a plain
 /// ERC-20 (no transfer fee, rebase, callback, pause, blocklist, upgrade or misreported balance); nothing here can
-/// detect a token that only behaves later.
+/// detect a token that only behaves later. That trust is token-wide: Core holds one balance per token, so a quote
+/// that lies about payments exposes every pool, position and fee ledger holding it, on this extension or not, and
+/// the honest side of any pool paired with it, up to those pools' own reserves. Pools without that quote keep their
+/// own per-token accounting and are not reachable through it.
 contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
     using CoreLib for ICore;
 
@@ -106,9 +109,8 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         (address token, PoolKey memory poolKey, PositionId positionId, int32 initialTick) =
             _geometry(controller, parameters);
         bool tokenIs0 = poolKey.token0 == token;
-        (SqrtRatio initial, SqrtRatio lower, SqrtRatio upper) = _sqrtRatios(positionId, initialTick);
-        uint128 liquidity =
-            maxLiquidity(initial, lower, upper, tokenIs0 ? parameters.supply : 0, tokenIs0 ? 0 : parameters.supply);
+        (, SqrtRatio lower, SqrtRatio upper) = _sqrtRatios(positionId, initialTick);
+        uint128 liquidity = _maxLiquidity(tokenIs0, lower, upper, parameters.supply);
         uint128 installedSupply = _installedSupply(
             tokenIs0, positionId, initialTick, liquidity, poolKey.config.concentratedMaxLiquidityPerTick()
         );
@@ -346,6 +348,39 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         lower = tickToSqrtRatio(positionId.tickLower());
         upper = tickToSqrtRatio(positionId.tickUpper());
         initial = initialTick == positionId.tickLower() ? lower : upper;
+    }
+
+    /// @dev The largest liquidity `supply` pays for at the initial price, i.e. the largest whose Core debit, rounded
+    /// up, is at most `supply`. A token1 launch keeps the shared helper: one floor inverts Core's single round-up
+    /// exactly. A token0 launch inverts Core's nested round-up exactly instead of using the helper's
+    /// `floor(lower * upper / 2**128)` first step, which can leave whole liquidity units unpaid for at low prices.
+    /// Core's token0 debit is `ceil(ceil(liquidity * 2**128 * (upper - lower) / upper) / lower)`, equal to
+    /// `ceil(liquidity * 2**128 * (upper - lower) / (upper * lower))`, so the largest affordable liquidity is
+    /// `floor(supply * lower * upper / (2**128 * (upper - lower)))`.
+    /// Each compact sqrt ratio is `mantissa * 2**shift` with `2**62 <= mantissa < 2**94` and a shift of 2, 34, 66 or
+    /// 98 selected by its top two bits, so `lower < upper` gives `shiftLower <= shiftUpper`, and `upper - lower` is a
+    /// multiple of `2**shiftLower`. Dividing the fixed difference by that power and multiplying by
+    /// `2**(128 - shiftUpper)` (at least 2**30) is exact and leaves a denominator below 2**220, nonzero because
+    /// `tickToSqrtRatio` is strictly increasing. The numerator `supply * mantissaLower * mantissaUpper` is below
+    /// 2**315, within the 512-bit multiply, and the quotient is below 2**213 for every supported tick pair (adjacent
+    /// ticks at the top of the range maximize `upper * lower / (upper - lower)` below 2**213), so the division never
+    /// fails; above `uint128` it saturates like the helper and then fails the per-tick cap.
+    function _maxLiquidity(bool tokenIs0, SqrtRatio lower, SqrtRatio upper, uint128 supply)
+        private
+        pure
+        returns (uint128)
+    {
+        if (!tokenIs0) return maxLiquidity(upper, lower, upper, 0, supply);
+        uint256 lowerRaw = SqrtRatio.unwrap(lower);
+        uint256 upperRaw = SqrtRatio.unwrap(upper);
+        uint256 shiftLower = 2 + ((lowerRaw & BIT_MASK) >> 89);
+        uint256 shiftUpper = 2 + ((upperRaw & BIT_MASK) >> 89);
+        uint256 mantissas = (lowerRaw & ~uint256(BIT_MASK)) * (upperRaw & ~uint256(BIT_MASK));
+        uint256 denominator = ((upper.toFixed() - lower.toFixed()) >> shiftLower) << (128 - shiftUpper);
+        return
+            uint128(
+                FixedPointMathLib.min(type(uint128).max, FixedPointMathLib.fullMulDiv(supply, mantissas, denominator))
+            );
     }
 
     /// @dev The exact token amount Core takes for `liquidity` at the initial price, rounded up.

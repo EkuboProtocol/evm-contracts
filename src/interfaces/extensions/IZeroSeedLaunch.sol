@@ -36,10 +36,15 @@ interface IZeroSeedLaunch {
         string name;
         string symbol;
         uint8 decimals;
-        /// @dev Exact minted supply. Maximum installable liquidity is derived from this amount;
-        /// any rounding remainder is minted to address(0), preserving the round totalSupply.
+        /// @dev Exact minted supply. The installed liquidity is the largest amount whose Core debit, rounded up,
+        /// fits this supply; the remainder below one more liquidity unit is minted to address(0), preserving the
+        /// round totalSupply.
         uint128 supply;
-        /// @dev Native ETH is address(0). ERC-20 quotes are untrusted; their risks belong to this pair only.
+        /// @dev Native ETH is address(0). An ERC-20 quote is untrusted and its trust is token-wide, not pair-local:
+        /// Core keeps one balance per token, so a quote that misreports balances or transfers compromises every
+        /// pool, position and fee ledger that holds that quote, including other launches and ordinary pools on the
+        /// same quote, and an honest token paired with it can lose those pools' own reserves. Unrelated tokens and
+        /// native ETH keep their own per-token accounting, so pools without the quote are not reachable through it.
         address quoteToken;
         int32 askTick;
         int32 upperTick;

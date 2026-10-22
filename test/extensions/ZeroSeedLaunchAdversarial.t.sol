@@ -28,7 +28,9 @@ import {PoolConfig} from "../../src/types/poolConfig.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {PoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
-import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
+import {SqrtRatio, MIN_SQRT_RATIO} from "../../src/types/sqrtRatio.sol";
+import {PositionId, createPositionId} from "../../src/types/positionId.sol";
+import {createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {computeFee, amountBeforeFee} from "../../src/math/fee.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {ZeroSeedLaunchBase, DecimalsToken} from "./ZeroSeedLaunch.t.sol";
@@ -301,7 +303,8 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
         assertEq(_ledgerAndPrincipal(erc20Launch), before, "ERC-20 launch untouched");
     }
 
-    /// @dev A lying quote can steal only its paired launch inventory. Native and plain-quote pools on the SAME
+    /// @dev A lying quote takes its paired launch inventory and, as `ZeroSeedLaunchSharedQuoteTest` shows, any real
+    /// balance of the same quote that Core holds for other pools. Native and plain-quote pools on the SAME
     /// extension/periphery retain their principal, balances, state and fee ledgers.
     function test_hostileQuoteDrain_isolatedFromNativeAndERC20Launches() public {
         (IZeroSeedLaunch.Installation memory erc20Launch,) = _createWith(creator);
@@ -1034,5 +1037,294 @@ contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
         // The forward callback only from Core.
         (bool okFwd,) = address(launch).call(abi.encodeWithSelector(bytes4(uint32(1)), bytes32(0)));
         assertFalse(okFwd, "forwarded() only from Core");
+    }
+}
+
+/// @dev Baseline control: a locker that never touches any launch. Fakes a Q payment and withdraws Q (or tries
+/// another asset) straight from Core.
+contract PhantomWithdrawer is BaseLocker {
+    using FlashAccountantLib for *;
+
+    constructor(ICore core) BaseLocker(core) {}
+
+    function run(address quote, uint128 fake, address withdrawToken, uint128 amount) external {
+        lock(abi.encode(quote, fake, withdrawToken, amount));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        (address quote, uint128 fake, address withdrawToken, uint128 amount) =
+            abi.decode(data, (address, uint128, address, uint128));
+        (bool s1,) = address(ACCOUNTANT).call(bytes.concat(IFlashAccountant.startPayments.selector, abi.encode(quote)));
+        EvilQuote(quote).setInflate(EvilQuote(quote).inflate() + fake);
+        (bool s2,) =
+            address(ACCOUNTANT).call(bytes.concat(IFlashAccountant.completePayments.selector, abi.encode(quote)));
+        require(s1 && s2);
+        ACCOUNTANT.withdraw(withdrawToken, address(this), amount);
+        return "";
+    }
+
+    receive() external payable {}
+}
+
+/// @dev Ordinary-Core control: a plain (no extension) pool funded by an honest LP, then a phantom-paid swap.
+contract PlainPoolLocker is BaseLocker {
+    using CoreLib for ICore;
+    using FlashAccountantLib for *;
+
+    constructor(ICore core) BaseLocker(core) {}
+
+    function provide(PoolKey memory key, int32 tick, PositionId pid, int128 liquidity, address payer) external {
+        lock(abi.encode(uint256(0), key, tick, pid, liquidity, payer));
+    }
+
+    function phantomSwap(PoolKey memory key, SwapParameters params, address quote) external returns (int128, int128) {
+        return abi.decode(lock(abi.encode(uint256(1), key, params, quote)), (int128, int128));
+    }
+
+    function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        uint256 kind = abi.decode(data, (uint256));
+        ICore core = ICore(payable(address(ACCOUNTANT)));
+        if (kind == 0) {
+            (, PoolKey memory key, int32 tick, PositionId pid, int128 liquidity, address payer) =
+                abi.decode(data, (uint256, PoolKey, int32, PositionId, int128, address));
+            core.initializePool(key, tick);
+            PoolBalanceUpdate u = core.updatePosition(key, pid, liquidity);
+            if (u.delta0() > 0) ACCOUNTANT.payFrom(payer, key.token0, uint128(u.delta0()));
+            if (u.delta1() > 0) ACCOUNTANT.payFrom(payer, key.token1, uint128(u.delta1()));
+            return "";
+        }
+        (, PoolKey memory key, SwapParameters params, address quote) =
+            abi.decode(data, (uint256, PoolKey, SwapParameters, address));
+        (PoolBalanceUpdate u,) = core.swap(0, key, params);
+        int128 q = key.token0 == quote ? u.delta0() : u.delta1();
+        int128 other = key.token0 == quote ? u.delta1() : u.delta0();
+        address otherToken = key.token0 == quote ? key.token1 : key.token0;
+        (bool s1,) = address(ACCOUNTANT).call(bytes.concat(IFlashAccountant.startPayments.selector, abi.encode(quote)));
+        EvilQuote(quote).setInflate(EvilQuote(quote).inflate() + uint128(q));
+        (bool s2,) =
+            address(ACCOUNTANT).call(bytes.concat(IFlashAccountant.completePayments.selector, abi.encode(quote)));
+        require(s1 && s2);
+        ACCOUNTANT.withdraw(otherToken, address(this), uint128(-other));
+        return abi.encode(q, other);
+    }
+}
+
+/// Two launches sharing one lying quote Q: Core's Q balance is one shared pot, so whoever can fake Q payments can
+/// take the real Q that other Q pools' buyers deposited. The same withdrawal needs no launch at all (FlashAccountant
+/// alone), the Q credit cannot pay for native ETH or an honest ERC-20, and an honest asset paired with Q in an
+/// ordinary pool is exposed only up to that pool's own reserve. Launches on native ETH and on an honest ERC-20
+/// on the same extension and periphery are unaffected and keep trading.
+contract ZeroSeedLaunchSharedQuoteTest is AdversarialBase {
+    using CoreLib for ICore;
+
+    address attackerOwner = makeAddr("attackerOwner");
+    address honestLp = makeAddr("honestLp");
+
+    function _realQ(EvilQuote evil, address who) internal view returns (uint256) {
+        return evil.balanceOf(who) - (who == CORE_ADDR ? evil.inflate() : 0);
+    }
+
+    function _createOwned(address owner, bytes32 salt) internal returns (IZeroSeedLaunch.Installation memory inst) {
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        p.salt = salt;
+        vm.prank(owner);
+        inst = periphery.create(p);
+        MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
+    }
+
+    /// @dev Pool-local facts only: state, principal and fee ledger. Excludes Q's reported Core balance, which the
+    /// attacker inflates by construction.
+    function _poolFacts(IZeroSeedLaunch.Installation memory inst) internal view returns (bytes32) {
+        (uint128 f0, uint128 f1) = launch.creatorFees(inst.poolKey);
+        (uint128 p0, uint128 p1) = _principal(inst);
+        return keccak256(abi.encode(f0, f1, p0, p1, PoolState.unwrap(ICore(CORE).poolState(inst.poolKey.toPoolId()))));
+    }
+
+    IZeroSeedLaunch.Installation honestErc20;
+    IZeroSeedLaunch.Installation nativeLaunch;
+    IZeroSeedLaunch.Installation attackerLaunch;
+    IZeroSeedLaunch.Installation victimLaunch;
+    bytes32 honestErc20Before;
+    bytes32 nativeBefore;
+    bytes32 victimBefore;
+    uint256 ethCoreBefore;
+    uint256 highCoreBefore;
+    uint256 victimTokens;
+    uint256 got1;
+
+    function _controls() internal {
+        (honestErc20,) = _createWith(creator);
+        vm.warp(START);
+        _buy(honestErc20.poolKey, honestErc20.token, 1e18, false);
+        activeQuote = NATIVE_TOKEN_ADDRESS;
+        (nativeLaunch,) = _createOn(periphery, creator);
+        MintableERC20(nativeLaunch.token).approve(address(swapper), type(uint256).max);
+        _buy(nativeLaunch.poolKey, nativeLaunch.token, 1e18, false);
+        honestErc20Before = _ledgerAndPrincipal(honestErc20);
+        nativeBefore = _ledgerAndPrincipal(nativeLaunch);
+        ethCoreBefore = CORE.balance;
+        highCoreBefore = ERC20(QUOTE_HIGH).balanceOf(CORE);
+    }
+
+    function _assertControlsUntouched() internal {
+        assertEq(CORE.balance, ethCoreBefore, "Core ETH unchanged");
+        assertEq(ERC20(QUOTE_HIGH).balanceOf(CORE), highCoreBefore, "Core honest ERC-20 unchanged");
+        assertEq(_ledgerAndPrincipal(honestErc20), honestErc20Before, "honest ERC-20 launch untouched");
+        assertEq(_ledgerAndPrincipal(nativeLaunch), nativeBefore, "native launch untouched");
+        _sell(honestErc20.poolKey, honestErc20.token, 1e20, false);
+        _sell(nativeLaunch.poolKey, nativeLaunch.token, 1e20, false);
+    }
+
+    /// Attacker-owned launch A and honest launch B share Q. A's owner phantom-pays an exact-output buy on A, then
+    /// (a) claims A's Q fee through the periphery and (b) sells A tokens back; the real Q deposited by B's honest
+    /// buyer leaves Core, and B's buyer can no longer sell.
+    function test_sharedLyingQuote_otherLaunchRealQuoteTaken_unrelatedAssetsIsolated() public {
+        _controls();
+
+        EvilQuote evil = _evilAt(QUOTE_LOW);
+        activeQuote = address(evil);
+        attackerLaunch = _createOwned(attackerOwner, keccak256("A"));
+        victimLaunch = _createOwned(creator, keccak256("B"));
+        assertEq(attackerLaunch.poolKey.token0, address(evil));
+        assertEq(victimLaunch.poolKey.token0, address(evil));
+        assertTrue(
+            PoolId.unwrap(attackerLaunch.poolKey.toPoolId()) != PoolId.unwrap(victimLaunch.poolKey.toPoolId()),
+            "distinct pools"
+        );
+
+        // Honest buyer funds B with 5e18 REAL Q (transferred from this contract's real balance).
+        _buy(victimLaunch.poolKey, victimLaunch.token, 5e18, false);
+        assertEq(_realQ(evil, CORE_ADDR), 5e18, "B's buyer deposited real Q");
+        assertEq(evil.inflate(), 0);
+        victimBefore = _poolFacts(victimLaunch);
+        victimTokens = ERC20(victimLaunch.token).balanceOf(address(this));
+        assertGt(victimTokens, 0);
+
+        LyingPayer attacker = new LyingPayer(ICore(CORE));
+        uint128 feeQ = _phantomBuyAndClaim(evil, attacker);
+        _phantomBuyAndSellBack(evil, attacker, feeQ);
+
+        // B: nominal state, principal and fee ledger untouched; its honest buyer can no longer sell.
+        assertEq(_poolFacts(victimLaunch), victimBefore, "B pool state/principal/ledger nominally unchanged");
+        vm.expectRevert(bytes4(0x90b8ec18)); // Core withdraw -> Q.transfer fails on real balance -> TransferFailed()
+        _sell(victimLaunch.poolKey, victimLaunch.token, int128(uint128(victimTokens)), false);
+
+        // Negative controls: nothing outside Q is reachable. ETH and the honest ERC-20 are untouched and still trade.
+        _assertControlsUntouched();
+    }
+
+    function _phantomBuyAndClaim(EvilQuote evil, LyingPayer attacker) internal returns (uint128 feeQ) {
+        // Phantom exact-output buy #1 on A (fee booked in Q). No real Q moves.
+        uint256 fake1;
+        (got1, fake1) = attacker.drain(
+            attackerLaunch.poolKey,
+            createSwapParameters(SqrtRatio.wrap(0), -1e24, true, 0),
+            address(evil),
+            attackerLaunch.token
+        );
+        assertEq(_realQ(evil, CORE_ADDR), 5e18, "no real Q paid by the attacker");
+        assertEq(evil.inflate(), fake1, "payment was pure balanceOf inflation");
+        (feeQ,) = launch.creatorFees(attackerLaunch.poolKey);
+        assertGt(feeQ, 0, "A's fee ledger is Q-denominated and nominal");
+        assertLt(feeQ, 5e18);
+        console2.log("VEC|sharedQuote|buy#1 exact-out got tokens=", got1, " fakePaid Q=", fake1);
+        console2.log("VEC|sharedQuote|A fee ledger Q=", feeQ);
+
+        // (a) A's owner claims A's fee through the periphery: Core pays REAL Q deposited by B's buyer.
+        vm.prank(attackerOwner);
+        periphery.claimFees(attackerLaunch.poolKey, attackerOwner);
+        assertEq(_realQ(evil, attackerOwner), feeQ, "claim paid real Q to A's owner");
+        assertEq(_realQ(evil, CORE_ADDR), 5e18 - feeQ, "real Q backing B is reduced");
+        console2.log("VEC|sharedQuote|(a) real Q at Core after claim=", _realQ(evil, CORE_ADDR));
+    }
+
+    function _phantomBuyAndSellBack(EvilQuote evil, LyingPayer attacker, uint128 feeQ) internal {
+        // Phantom buy #2: the rest of A's inventory for fake Q, then (b) sell back for exactly the remaining real Q.
+        (uint256 got2, uint256 fake2) = attacker.drain(
+            attackerLaunch.poolKey,
+            createSwapParameters(SqrtRatio.wrap(0), 1e30, false, 0),
+            address(evil),
+            attackerLaunch.token
+        );
+        console2.log("VEC|sharedQuote|buy#2 exact-in got tokens=", got2, " fakePaid Q=", fake2);
+        uint128 remaining = uint128(_realQ(evil, CORE_ADDR));
+        assertEq(remaining, 5e18 - feeQ);
+        vm.prank(address(attacker));
+        ERC20(attackerLaunch.token).transfer(address(this), got1 + got2);
+        _sell(attackerLaunch.poolKey, attackerLaunch.token, int128(remaining), true);
+        assertEq(_realQ(evil, CORE_ADDR), 0, "all real Q left Core through A");
+        assertEq(_realQ(evil, address(this)), type(uint128).max - 5e18 + remaining, "sold for real Q");
+        console2.log("VEC|sharedQuote|(b) real Q at Core after sell-back=", _realQ(evil, CORE_ADDR));
+    }
+
+    /// Baseline: the same real-Q loss needs no launch at all. Whoever controls Q's reported Core balance withdraws
+    /// every real Q in Core directly through FlashAccountant, and cannot touch any other asset with that credit.
+    function test_sharedLyingQuote_coreAloneLosesAllRealQ_noOtherAssetReachable() public {
+        (IZeroSeedLaunch.Installation memory erc20Launch,) = _createWith(creator);
+        vm.warp(START);
+        _buy(erc20Launch.poolKey, erc20Launch.token, 1e18, false);
+        activeQuote = NATIVE_TOKEN_ADDRESS;
+        (IZeroSeedLaunch.Installation memory ethLaunch,) = _createOn(periphery, creator);
+        _buy(ethLaunch.poolKey, ethLaunch.token, 1e18, false);
+        uint256 ethBefore = CORE.balance;
+        uint256 highBefore = ERC20(QUOTE_HIGH).balanceOf(CORE);
+        assertGt(highBefore + ethBefore, 0);
+
+        EvilQuote evil = _evilAt(QUOTE_LOW);
+        activeQuote = address(evil);
+        IZeroSeedLaunch.Installation memory victim = _createOwned(creator, keccak256("B"));
+        _buy(victim.poolKey, victim.token, 5e18, false);
+        assertEq(_realQ(evil, CORE_ADDR), 5e18);
+
+        PhantomWithdrawer thief = new PhantomWithdrawer(ICore(CORE));
+        // Credit is per token: a Q credit cannot pay for an ETH or honest-ERC-20 withdrawal.
+        vm.expectRevert(abi.encodeWithSelector(IFlashAccountant.DebtsNotZeroed.selector, 0));
+        thief.run(address(evil), 5e18, NATIVE_TOKEN_ADDRESS, 1);
+        vm.expectRevert(abi.encodeWithSelector(IFlashAccountant.DebtsNotZeroed.selector, 0));
+        thief.run(address(evil), 5e18, QUOTE_HIGH, 1);
+        // The Q credit withdraws all real Q without any launch, swap or extension call.
+        thief.run(address(evil), 5e18, address(evil), 5e18);
+        assertEq(_realQ(evil, CORE_ADDR), 0, "Core alone: all real Q gone");
+        assertEq(_realQ(evil, address(thief)), 5e18);
+        assertEq(CORE.balance, ethBefore);
+        assertEq(ERC20(QUOTE_HIGH).balanceOf(CORE), highBefore);
+        console2.log(
+            "VEC|sharedQuote|control: direct FlashAccountant withdrawal of real Q=", _realQ(evil, address(thief))
+        );
+    }
+
+    /// Ordinary Core behaviour for comparison: an honest asset paired with Q in a plain pool is reachable only up to
+    /// what that pool's own liquidity pays out; the honest asset held for an unrelated launch is not.
+    function test_sharedLyingQuote_plainCorePoolPairedWithQ_boundedByItsOwnReserve() public {
+        (IZeroSeedLaunch.Installation memory erc20Launch,) = _createWith(creator); // honest QUOTE_HIGH launch
+        vm.warp(START);
+        _buy(erc20Launch.poolKey, erc20Launch.token, 10e18, false);
+        uint256 highBefore = ERC20(QUOTE_HIGH).balanceOf(CORE);
+
+        EvilQuote evil = _evilAt(QUOTE_LOW);
+        // Honest LP provides QUOTE_HIGH-only liquidity in plain pool (Q, QUOTE_HIGH) just above the current price.
+        DecimalsToken(QUOTE_HIGH).transfer(honestLp, 1e18);
+        PlainPoolLocker lp = new PlainPoolLocker(ICore(CORE));
+        vm.prank(honestLp);
+        ERC20(QUOTE_HIGH).approve(address(lp), type(uint256).max);
+        PoolKey memory key = PoolKey({
+            token0: address(evil), token1: QUOTE_HIGH, config: createConcentratedPoolConfig(0, 100, address(0))
+        });
+        lp.provide(key, 0, createPositionId(bytes24(0), -1000, 0), 1e18, honestLp);
+        uint256 lpDeposited = highBefore + 1e18 - ERC20(QUOTE_HIGH).balanceOf(CORE);
+        uint256 poolHigh = ERC20(QUOTE_HIGH).balanceOf(CORE) - highBefore;
+        assertGt(poolHigh, 0, "plain pool holds honest QUOTE_HIGH");
+        assertEq(lpDeposited + poolHigh, 1e18);
+
+        // Phantom-pay Q, take QUOTE_HIGH: capped by the plain pool's liquidity, never reaching the launch's QUOTE_HIGH.
+        (int128 q, int128 outHigh) =
+            lp.phantomSwap(key, createSwapParameters(MIN_SQRT_RATIO, 1e30, false, 0), address(evil));
+        uint256 taken = uint128(-outHigh);
+        console2.log("VEC|sharedQuote|plain pool: fake Q in=", uint128(q), " honest QUOTE_HIGH out=", taken);
+        assertLe(taken, poolHigh, "bounded by the Q-paired pool's own reserve");
+        assertGe(ERC20(QUOTE_HIGH).balanceOf(CORE), highBefore, "launch's QUOTE_HIGH not reachable");
+        // A second phantom swap has nothing left to take.
+        (, int128 outHigh2) = lp.phantomSwap(key, createSwapParameters(MIN_SQRT_RATIO, 1e30, false, 0), address(evil));
+        assertEq(outHigh2, 0, "pool exhausted; no further honest asset");
     }
 }

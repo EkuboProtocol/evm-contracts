@@ -6,6 +6,7 @@ Run: python3 test/vectors/zero-seed-launch-reference.py [--export DIR]
 Numeric producer rules are a CTO-freeze proposal, not live parameters.
 """
 import hashlib
+import importlib.util
 import json
 import sys
 from decimal import Decimal, getcontext
@@ -130,6 +131,24 @@ for dur, worst in legacy["max_abs_diff_q64_by_duration"].items():
     dur = int(dur)
     check(max(abs(fee_at(rates["50"], final, dur, t) - legacy_fee(rates["50"], final, legacy_factor, dur, t))
               for t in range(dur + 1)) == worst)
+
+# Exact installation oracle (tick table port, Core's rounded debits, direct inverse): every creation row installs
+# the largest liquidity its requested supply pays for, in both orders.
+spec = importlib.util.spec_from_file_location(
+    "installation", Path(__file__).with_name("zero-seed-launch-installation.py")
+)
+installation = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(installation)
+for r in v["create"]:
+    exact = installation.installation(
+        r["order"] == "t0", int(r["ask"]), int(r["upper"]), v["fixture"]["tick_spacing"], int(r["requested"])
+    )
+    check(int(exact["liquidity"]) == int(r["liquidity"]) and int(exact["installedSupply"]) == int(r["installed"]))
+    check(int(exact["debitAtLiquidityPlusOne"]) > int(r["requested"]))
+for r in v["installation"]["vectors"]:
+    exact = installation.installation(r["order"] == "t0", int(r["ask"]), int(r["upper"]), int(r["spacing"]), int(r["supply"]))
+    check(int(exact["liquidity"]) == int(r["liquidity"]) and int(exact["installedSupply"]) == int(r["installed"]))
+    check(int(exact["previousLiquidity"]) == int(r["previous_liquidity"]) < int(r["liquidity"]))
 
 for r in v["create"]:
     ask, upper = Decimal(r["ask"]), Decimal(r["upper"])

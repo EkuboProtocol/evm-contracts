@@ -1,5 +1,5 @@
 {
- "version": 5,
+ "version": 6,
  "fixture": {
   "core": "Locally compiled src/Core.sol deployed at the test's canonical Core address; no fork or live-chain validation",
   "router": "Locally compiled test/LaunchTestRouter.sol; standard-ABI single-hop forwarding and settlement, with snapshot/revert quotes in the test harness; no deployed-router bytecode fixture",
@@ -106,6 +106,55 @@
    "relative_error": "2.875e-29"
   }
  ],
+ "installation": {
+  "token0_liquidity": "floor(supply * lowerFixed * upperFixed / (2**128 * (upperFixed - lowerFixed))), the exact inverse of Core's token0 debit ceil(ceil(liquidity * 2**128 * (upperFixed - lowerFixed) / upperFixed) / lowerFixed); computed on chain as floor(supply * mantissaLower * mantissaUpper / (((upperFixed - lowerFixed) >> shiftLower) << (128 - shiftUpper))) from the compact sqrt ratios (mantissa = low 94 bits, shift = 2 + 32 * top two bits); saturates at 2**128 - 1",
+  "token1_liquidity": "floor(supply * 2**128 / (upperFixed - lowerFixed)), unchanged shared helper; the exact inverse of ceil(liquidity * (upperFixed - lowerFixed) / 2**128)",
+  "note": "Installed liquidity is the exact inverse of Core's rounded-up debit in both orders: debit(liquidity) <= supply < debit(liquidity + 1). The token0 order no longer uses math/liquidity.sol maxLiquidityForToken0, whose first floor under-installed at low prices; the fixture creation rows above are unchanged by this. Full pinned rows, refusals and pins: zero-seed-launch-installation.json (oracle: zero-seed-launch-installation.py).",
+  "vectors": [
+   {
+    "label": "low price, 1e30",
+    "order": "t0",
+    "ask": "-88080384",
+    "upper": "-85983232",
+    "spacing": "524288",
+    "supply": "1000000000000000000000000000000",
+    "liquidity": "115073586432",
+    "installed": "999999999991410763432286846442",
+    "sink": "8589236567713153558",
+    "debit_at_liquidity_plus_one": "1000000000000100854972818930129",
+    "previous_liquidity": "106052588672",
+    "previous_installed": "921606703670075887283160121070"
+   },
+   {
+    "label": "low price, two liquidity units",
+    "order": "t0",
+    "ask": "-88080384",
+    "upper": "-85983232",
+    "spacing": "524288",
+    "supply": "17380183081064167375",
+    "liquidity": "2",
+    "installed": "17380183081064167375",
+    "sink": "0",
+    "debit_at_liquidity_plus_one": "26070274621596251062",
+    "previous_liquidity": "1",
+    "previous_installed": "8690091540532083688"
+   },
+   {
+    "label": "full width, int128 budget",
+    "order": "t0",
+    "ask": "-88722835",
+    "upper": "88722835",
+    "spacing": "1",
+    "supply": "170141183460469231694794709727778658247",
+    "liquidity": "9223595582101085260",
+    "installed": "170141183460469231694794709727778658247",
+    "sink": "0",
+    "debit_at_liquidity_plus_one": "170141183460469231713241006721831381988",
+    "previous_liquidity": "9223595582101085259",
+    "previous_installed": "170141183460469231676348412733725934507"
+   }
+  ]
+ },
  "trade": [
   {
    "order": "t0",
@@ -439,18 +488,18 @@
  "gas": [
   {
    "order": "t0",
-   "create": "1367815",
-   "firstBuy": "102469",
-   "secondBuy": "34251",
-   "sell": "34255",
+   "create": "1368128",
+   "firstBuy": "102472",
+   "secondBuy": "34254",
+   "sell": "34258",
    "claim": "70172"
   },
   {
    "order": "t1",
-   "create": "1327004",
-   "firstBuy": "84647",
-   "secondBuy": "35147",
-   "sell": "38593",
+   "create": "1326970",
+   "firstBuy": "84650",
+   "secondBuy": "35150",
+   "sell": "38596",
    "claim": "79694"
   }
  ],
@@ -470,7 +519,7 @@
    "raw": "VEC|recapture|t0|quoteIn=10e18|netOfFee=9415099531871718329641155|afterClaim=9910631086180756136011948"
   }
  ],
- "gas_note": "In-test warm gas, t0 on the plain 18-decimal test ERC-20 quote and t1 on native ETH, through the periphery (create, claim) and the forwarding test locker (swaps).",
+ "gas_note": "In-test warm gas, t0 on the plain 18-decimal test ERC-20 quote and t1 on native ETH, through the periphery (create, claim) and the forwarding test locker (swaps), as logged by test_gas_vectors at this revision (forge 1.8.3, solc 0.8.33, via_ir, optimizer 9999999, evm osaka).",
  "residue_metrics": {
   "definitions": {
    "core_unbooked_dust": "Per token: Core balance - position amount (rounded down) - creator fee ledger, accumulated over all swaps; raw units of that token. Unowned: not creator principal, not creator fees, unreachable by claims.",

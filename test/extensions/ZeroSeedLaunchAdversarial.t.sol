@@ -205,7 +205,7 @@ abstract contract AdversarialBase is ZeroSeedLaunchBase {
         internal
         returns (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p)
     {
-        p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         _bind(p, who);
         vm.prank(who);
         inst = periphery.create(p);
@@ -227,7 +227,7 @@ abstract contract AdversarialBase is ZeroSeedLaunchBase {
         internal
         returns (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p)
     {
-        p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         p.salt = keccak256(abi.encode("other quote", activeQuote));
         IZeroSeedLaunch.Installation memory preview = via.previewInstallation(who, p);
         assertLe(preview.installedSupply, p.supply);
@@ -257,7 +257,7 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
     using CoreLib for ICore;
 
     function test_launch_acceptsNative_refusesCodeless() public {
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         p.quoteToken = address(0xdead);
         vm.expectRevert(IZeroSeedLaunch.UnsupportedQuoteToken.selector);
         periphery.previewInstallation(creator, p);
@@ -363,7 +363,7 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
     using CoreLib for ICore;
 
     function _withFees(bool tokenIs0) internal returns (IZeroSeedLaunch.Installation memory inst) {
-        (inst,) = _create(tokenIs0, 18, DURATION);
+        (inst,) = _create(tokenIs0, 18, DECAY_RATE);
         vm.warp(START);
         _buy(inst.poolKey, inst.token, 10e18, false); // fee in launch token
         _buy(inst.poolKey, inst.token, 1e24, true); // fee in quote
@@ -458,7 +458,7 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
         _quote(false, 18);
         assertEq(activeQuote, NATIVE_TOKEN_ADDRESS);
         ReentrantOwner owner = new ReentrantOwner(periphery, launch);
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         _bind(p, address(owner));
         IZeroSeedLaunch.Installation memory inst = owner.createLaunch(p);
         MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
@@ -488,7 +488,7 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
         EvilQuote evil = _evilAt(QUOTE_LOW);
         (ZeroSeedLaunch hostile, ZeroSeedLaunchPeriphery hostilePeriphery) = _secondLaunch(address(evil));
         ReentrantOwner rc = new ReentrantOwner(hostilePeriphery, hostile);
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         IZeroSeedLaunch.Installation memory preview = hostilePeriphery.previewInstallation(address(rc), p);
         assertLe(preview.installedSupply, p.supply);
         IZeroSeedLaunch.Installation memory inst = rc.createLaunch(p);
@@ -593,7 +593,7 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
     using CoreLib for ICore;
 
     function test_metadataBounds_sharedByPreviewAndCreate() public {
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         string memory len31 = "abcdefghijklmnopqrstuvwxyz01234";
         string memory len32 = "abcdefghijklmnopqrstuvwxyz012345";
         for (uint256 field; field < 2; field++) {
@@ -622,7 +622,7 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
 
     function test_collision_refusedPredictably_otherSaltOrMetadataIndependent() public {
         (IZeroSeedLaunch.Installation memory first, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(true, 18, DURATION);
+            _create(true, 18, DECAY_RATE);
         bytes memory exists = abi.encodeWithSelector(IZeroSeedLaunch.LaunchTokenExists.selector, first.token);
         vm.expectRevert(exists);
         periphery.previewInstallation(creator, p);
@@ -651,7 +651,7 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
     function test_startBoundaries() public {
         uint64 t = 5000;
         vm.warp(t);
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         uint64[5] memory starts = [t - 1, t, t + 1, t + 86_400, type(uint64).max];
         for (uint256 i; i < starts.length; i++) {
             uint256 snap = vm.snapshotState();
@@ -736,7 +736,7 @@ contract ZeroSeedLaunchFeeEventTest is AdversarialBase {
     }
 
     function testFuzz_feeSignsAndConservation(uint256 seed, bool tokenIs0) public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(tokenIs0, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(tokenIs0, 18, DECAY_RATE);
         PoolKey memory key = inst.poolKey;
         vm.warp(START);
         _buy(key, inst.token, 50e18, false);
@@ -788,7 +788,7 @@ contract ZeroSeedLaunchFeeEventTest is AdversarialBase {
     }
 
     function test_dustTradesPayFee() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         vm.warp(START);
         _buy(inst.poolKey, inst.token, 1e18, false);
         (uint128 s0, uint128 s1) = launch.creatorFees(inst.poolKey);
@@ -807,7 +807,7 @@ contract ZeroSeedLaunchBypassTest is AdversarialBase {
     using CoreLib for ICore;
 
     function test_bypass_zeroDeltaPositionAndAccumulateAndCollect() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         vm.warp(START);
         _buy(inst.poolKey, inst.token, 1e18, false);
         RawLocker raw = new RawLocker(ICore(CORE));
@@ -823,7 +823,7 @@ contract ZeroSeedLaunchBypassTest is AdversarialBase {
     }
 
     function test_forward_wrongConfigUnknown() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         vm.warp(START);
         PoolKey memory k = inst.poolKey;
         k.config = PoolConfig.wrap(bytes32((uint256(uint160(address(launch))) << 96) | 0x80000000 | uint256(200)));
@@ -832,7 +832,7 @@ contract ZeroSeedLaunchBypassTest is AdversarialBase {
     }
 
     function test_minterRenounced_noHandover_permit2Disclosed() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         MintableERC20 t = MintableERC20(inst.token);
         assertEq(t.owner(), address(0));
         vm.expectRevert(Ownable.Unauthorized.selector);
@@ -860,7 +860,7 @@ contract ZeroSeedLaunchBypassTest is AdversarialBase {
     }
 
     function _extreme(bool tokenIs0) internal {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(tokenIs0, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(tokenIs0, 18, DECAY_RATE);
         vm.warp(START);
         PoolBalanceUpdate u = _buy(inst.poolKey, inst.token, type(int128).max, false);
         assertGt(_quoteDelta(inst.poolKey, inst.token, u), 0);
@@ -922,7 +922,7 @@ contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
     }
 
     function test_forward_unknownOrMalformedPayloadsRefused() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(false, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(false, 18, DECAY_RATE);
         vm.warp(START);
         bytes32 before = _ledgerAndPrincipal(inst);
         MaliciousLocker m = new MaliciousLocker(ICore(CORE));
@@ -953,7 +953,7 @@ contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
     /// and nothing it sends can name another controller.
     function test_impersonation_controllerIsTheLocker() public {
         (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(false, 18, DURATION);
+            _create(false, 18, DECAY_RATE);
         vm.warp(START);
         _buy(inst.poolKey, inst.token, 10e18, false);
         (uint128 f0, uint128 f1) = launch.creatorFees(inst.poolKey);
@@ -1015,7 +1015,7 @@ contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
 
     /// @dev The extension exposes no user-callable mutation: no lock callback, no create, no claim, no ETH receipt.
     function test_extension_noDirectEntrypoints() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(false, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(false, 18, DECAY_RATE);
         bytes[4] memory calls = [
             abi.encodeWithSignature("locked_6416899205(uint256)", uint256(0)),
             abi.encodeWithSignature(
@@ -1125,7 +1125,7 @@ contract ZeroSeedLaunchSharedQuoteTest is AdversarialBase {
     }
 
     function _createOwned(address owner, bytes32 salt) internal returns (IZeroSeedLaunch.Installation memory inst) {
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         p.salt = salt;
         vm.prank(owner);
         inst = periphery.create(p);

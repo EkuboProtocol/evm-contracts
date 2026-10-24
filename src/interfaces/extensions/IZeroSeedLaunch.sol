@@ -18,9 +18,12 @@ uint256 constant ZERO_SEED_LAUNCH_CLAIM_FEES = 0xe52d8a05fd0f2d32b280675736d8117
 /// independent of address order. The pool tick is the same for a token0 launch and negated for a token1 launch.
 /// Creator fees are Q0.64 fractions (2**64 = 100%) held by this extension, separate from the pool config fee,
 /// which is always zero. Every `uint64` is a valid rate, `0..2**64 - 1` inclusive; exactly 100% is not encodable.
-/// The fee is `initialFee` at `tradingStart` and follows a 600 second half-life exponential
-/// rescaled to reach `finalFee` exactly `feeDuration` seconds later (see `src/math/feeDecay.sol`), which requires
-/// `finalFee <= initialFee` and `feeDuration > 0` (`InvalidFeeSchedule` otherwise).
+/// The fee is `initialFee` until `tradingStart`; afterwards the excess over `finalFee` shrinks by the tick-math
+/// factor `tickToSqrtRatio(-m)`, about `1.000001**(-m / 2)`, where `m` is the whole number of ticks the launch's
+/// `decayRateX32` (Q32.32 ticks per second) has accumulated since the start (see `src/math/feeDecay.sol`).
+/// `finalFee` is the long-run floor, not a scheduled endpoint: the fee approaches it and settles there only by
+/// rounding or by saturation once `m` exceeds the supported tick magnitude. Requires `finalFee <= initialFee`
+/// (`InvalidFeeSchedule` otherwise); every `uint64` rate is accepted, zero included (a flat fee).
 ///
 /// Forward payloads, all settled by the forwarding locker within its lock:
 /// - swap: `abi.encode(PoolKey, SwapParameters)` (128 bytes), returns `abi.encode(PoolBalanceUpdate, PoolState)`;
@@ -50,8 +53,11 @@ interface IZeroSeedLaunch {
         int32 upperTick;
         uint32 tickSpacing;
         uint64 tradingStart;
-        /// @dev Seconds from `tradingStart` to `finalFee`; must be nonzero.
-        uint32 feeDuration;
+        /// @dev Fee decay speed in ticks per second as unsigned Q32.32 (`2**32` = one tick per second). The excess
+        /// fee over `finalFee` halves every `2 * ln(2) / ln(1.000001)` = 1,386,295.05 ticks, so the half-life in
+        /// seconds is `1386295.05 * 2**32 / decayRateX32`; 68913100933 is a one-day half-life. Any `uint64` value:
+        /// zero keeps the fee flat at `initialFee`, the maximum saturates to `finalFee` within the first second.
+        uint64 decayRateX32;
         /// @dev Q0.64 rates; any `uint64` value, with `finalFee <= initialFee`.
         uint64 initialFee;
         uint64 finalFee;
@@ -63,7 +69,7 @@ interface IZeroSeedLaunch {
         /// @dev The locker that forwarded the creation; the only locker that may claim the fee ledger.
         address controller;
         uint64 tradingStart;
-        uint32 feeDuration;
+        uint64 decayRateX32;
         uint64 initialFee;
         uint64 finalFee;
         int32 tickLower;

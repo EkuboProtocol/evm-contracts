@@ -74,7 +74,7 @@ contract ZeroSeedLaunchInstallationTest is ZeroSeedLaunchBase {
         view
         returns (IZeroSeedLaunch.LaunchParameters memory p)
     {
-        p = _parameters(ask, supply, DURATION);
+        p = _parameters(ask, supply, DECAY_RATE);
         p.upperTick = upper;
         p.tickSpacing = spacing;
     }
@@ -741,7 +741,7 @@ contract ZeroSeedLaunchInstallationTest is ZeroSeedLaunchBase {
         for (uint256 o; o < 2; o++) {
             bool tokenIs0 = o == 0;
             _quote(tokenIs0, 18);
-            _measureCreate("fixture18/18", _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION));
+            _measureCreate("fixture18/18", _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE));
             _measureCreate("lowAsk1e30", _geometry(-88080384, -85983232, 524288, 1e30));
             _measureCreate("lowAskTwoUnits", _geometry(-88080384, -85983232, 524288, 17380183081064167375));
             _measureCreate("fullWidth", _geometry(-88722835, 88722835, 1, 170141183460469231694794709727778658247));
@@ -749,9 +749,9 @@ contract ZeroSeedLaunchInstallationTest is ZeroSeedLaunchBase {
             _measureCreate("threeRegions", _geometry(-44361442, 44361442, 2, 1e27));
         }
         _quote(true, 6);
-        _measureCreate("fixture18/6", _parameters(ASK_18_6, REQUESTED_SUPPLY, DURATION));
+        _measureCreate("fixture18/6", _parameters(ASK_18_6, REQUESTED_SUPPLY, DECAY_RATE));
         _quote(false, 6);
-        _measureCreate("fixture18/6", _parameters(ASK_18_6, REQUESTED_SUPPLY, DURATION));
+        _measureCreate("fixture18/6", _parameters(ASK_18_6, REQUESTED_SUPPLY, DECAY_RATE));
     }
 }
 

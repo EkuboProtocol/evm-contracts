@@ -28,7 +28,7 @@ import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {liquidityDeltaToAmountDelta} from "../../src/math/liquidity.sol";
 import {AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
-import {decayedFee} from "../../src/math/feeDecay.sol";
+import {decayedFee, MAX_DECAY_PRODUCT} from "../../src/math/feeDecay.sol";
 import {LaunchTestRouter} from "../LaunchTestRouter.sol";
 
 /// @dev Plain ERC-20 for alternate token-order and decimal math coverage. The deployment quote is native ETH.
@@ -120,8 +120,12 @@ abstract contract ZeroSeedLaunchBase is Test {
     /// @dev floor(2**64 * 5 / 100) and floor(2**64 * 3 / 1000): 5% -> 0.3% local reference parameters.
     uint64 constant FEE_5 = 922337203685477580;
     uint64 constant FEE_03 = 55340232221128654;
-    uint32 constant DURATION = 3600;
-    uint32 constant DURATION_SHORT = 600;
+    /// @dev Q32.32 ticks per second. floor(2 * ln(2) / ln(1.000001) * 2**32 / halfLife): the excess fee halves every
+    /// 1,386,295.05 ticks, so these are a one-day half-life (the consumer-side default) and a 600 second half-life.
+    uint64 constant DECAY_RATE = 68913100933;
+    uint64 constant DECAY_RATE_600 = 9923486534471;
+    uint256 constant HALF_LIFE = 86400;
+    uint256 constant HALF_LIFE_600 = 600;
     uint64 constant START = 1000;
     uint32 constant SPACING = 100;
     /// @dev ln(100)/ln(1.000001) = 4605172.4, rounded up to the spacing: upper/ask = 1.000001**4605200 = 100.0028x.
@@ -206,7 +210,7 @@ abstract contract ZeroSeedLaunchBase is Test {
         _deployLaunch(quote);
     }
 
-    function _parameters(int32 ask, uint128 supply, uint32 duration)
+    function _parameters(int32 ask, uint128 supply, uint64 decayRateX32)
         internal
         view
         returns (IZeroSeedLaunch.LaunchParameters memory)
@@ -221,7 +225,7 @@ abstract contract ZeroSeedLaunchBase is Test {
             upperTick: ask + WIDTH,
             tickSpacing: SPACING,
             tradingStart: START,
-            feeDuration: duration,
+            decayRateX32: decayRateX32,
             initialFee: FEE_5,
             finalFee: FEE_03,
             salt: bytes32(uint256(1))
@@ -234,12 +238,12 @@ abstract contract ZeroSeedLaunchBase is Test {
         assertLe(preview.installedSupply, p.supply, "installation fits supply");
     }
 
-    function _create(bool tokenIs0, uint8 quoteDecimals, uint32 duration)
+    function _create(bool tokenIs0, uint8 quoteDecimals, uint64 decayRateX32)
         internal
         returns (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p)
     {
         _quote(tokenIs0, quoteDecimals);
-        p = _parameters(quoteDecimals == 18 ? ASK_18_18 : ASK_18_6, REQUESTED_SUPPLY, duration);
+        p = _parameters(quoteDecimals == 18 ? ASK_18_18 : ASK_18_6, REQUESTED_SUPPLY, decayRateX32);
         _bind(p, creator);
         vm.prank(creator);
         inst = periphery.create(p);
@@ -343,14 +347,20 @@ abstract contract ZeroSeedLaunchBase is Test {
     }
 
     /// @dev Timestamp clamp plus the shared decay math; exact values are pinned by the vectors tests and the Python
-    /// reference, which recomputes the floor chain independently.
-    function _referenceFee(uint64 initialFee, uint64 finalFee, uint256 start, uint32 duration, uint256 t)
+    /// reference, which recomputes the tick chain and the floor independently.
+    function _referenceFee(uint64 initialFee, uint64 finalFee, uint256 start, uint64 decayRateX32, uint256 t)
         internal
         pure
         returns (uint64)
     {
         if (t <= start) return initialFee;
-        return decayedFee(initialFee, finalFee, duration, t - start);
+        return decayedFee(initialFee, finalFee, decayRateX32, t - start);
+    }
+
+    /// @dev Last elapsed second whose accumulated tick magnitude the helper still supports; one second later the
+    /// schedule saturates to `finalFee`.
+    function _saturationSecond(uint64 decayRateX32) internal pure returns (uint256) {
+        return MAX_DECAY_PRODUCT / decayRateX32;
     }
 
     function _str(int256 v) internal pure returns (string memory) {
@@ -367,7 +377,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
 
     function _checkCreation(bool tokenIs0, uint8 quoteDecimals) internal {
         (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(tokenIs0, quoteDecimals, DURATION);
+            _create(tokenIs0, quoteDecimals, DECAY_RATE);
         PoolKey memory key = inst.poolKey;
         PoolId id = key.toPoolId();
         assertEq(key.token0 == inst.token, tokenIs0, "order");
@@ -447,7 +457,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         for (uint256 i; i < 2; i++) {
             bool tokenIs0 = i == 0;
             _quote(tokenIs0, 18);
-            IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+            IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
             IZeroSeedLaunch.Installation memory preview = periphery.previewInstallation(creator, p);
             assertTrue(preview.installedSupply != p.supply, "requested is not exact");
             vm.prank(creator);
@@ -463,7 +473,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
 
     function test_create_refusesInvalidParameters() public {
         _quote(true, 18);
-        IZeroSeedLaunch.LaunchParameters memory base = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory base = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         _bind(base, creator);
         IZeroSeedLaunch.LaunchParameters memory p;
 
@@ -485,7 +495,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         p = _copy(base);
         p.tickSpacing = 0;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidParameters.selector));
-        // No rate ceiling below the type: the only schedule rules are final <= initial and a nonzero duration.
+        // No rate ceiling below the type: the only schedule rule is final <= initial; any decay rate is accepted.
         p = _copy(base);
         p.finalFee = p.initialFee + 1;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
@@ -498,15 +508,11 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         p.finalFee = 1;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
         p = _copy(base);
-        p.feeDuration = 0;
+        p.finalFee = p.initialFee + 1;
+        p.decayRateX32 = 0;
         _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
         vm.expectRevert(IZeroSeedLaunch.InvalidFeeSchedule.selector);
         periphery.previewInstallation(creator, p);
-        p = _copy(base);
-        p.initialFee = type(uint64).max;
-        p.finalFee = type(uint64).max;
-        p.feeDuration = 0;
-        _expectCreateRevert(p, abi.encodeWithSelector(IZeroSeedLaunch.InvalidFeeSchedule.selector));
         vm.warp(START + 1);
         _expectCreateRevert(base, abi.encodeWithSelector(IZeroSeedLaunch.InvalidTradingStart.selector));
         vm.warp(1);
@@ -516,23 +522,27 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         vm.prank(creator);
         vm.expectRevert();
         periphery.create(p);
-        // The whole uint64 range is accepted at both ends of the schedule, as are the shortest and the longest fee
-        // windows; the full maximum-rate matrix is in ZeroSeedLaunchFeeCurve.t.sol.
+        // The whole uint64 range is accepted at both ends of the schedule, as are the fastest and the slowest decay
+        // rates and a zero rate; the full maximum-rate matrix is in ZeroSeedLaunchFeeCurve.t.sol.
         assertEq(MAX_CREATOR_FEE, type(uint64).max, "ceiling is the type maximum");
         p = _copy(base);
         p.initialFee = MAX_CREATOR_FEE;
-        p.feeDuration = 1;
+        p.decayRateX32 = type(uint64).max;
         vm.prank(creator);
         IZeroSeedLaunch.Installation memory inst = periphery.create(p);
         assertEq(launch.getLaunch(inst.poolKey.toPoolId()).initialFee, MAX_CREATOR_FEE, "stored as given");
+        assertEq(launch.getLaunch(inst.poolKey.toPoolId()).decayRateX32, type(uint64).max, "stored rate");
+        assertEq(launch.feeAt(inst.poolKey.toPoolId(), START), MAX_CREATOR_FEE, "initial at the start");
+        assertEq(launch.feeAt(inst.poolKey.toPoolId(), START + 1), FEE_03, "fastest rate saturates in one second");
         p = _copy(base);
         p.salt = bytes32(uint256(2));
         p.initialFee = MAX_CREATOR_FEE;
         p.finalFee = MAX_CREATOR_FEE;
-        p.feeDuration = type(uint32).max;
+        p.decayRateX32 = 1;
         vm.prank(creator);
         inst = periphery.create(p);
         assertEq(launch.getLaunch(inst.poolKey.toPoolId()).finalFee, MAX_CREATOR_FEE, "stored as given");
+        assertEq(launch.feeAt(inst.poolKey.toPoolId(), type(uint256).max), MAX_CREATOR_FEE, "flat at equal fees");
         p = _copy(base);
         p.salt = bytes32(uint256(3));
         p.initialFee = 0;
@@ -540,12 +550,19 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
         vm.prank(creator);
         inst = periphery.create(p);
         assertEq(launch.feeAt(inst.poolKey.toPoolId(), START + 1), 0, "zero schedule");
+        p = _copy(base);
+        p.salt = bytes32(uint256(4));
+        p.decayRateX32 = 0;
+        vm.prank(creator);
+        inst = periphery.create(p);
+        assertEq(launch.feeAt(inst.poolKey.toPoolId(), START + 1), FEE_5, "zero rate: flat at the initial fee");
+        assertEq(launch.feeAt(inst.poolKey.toPoolId(), type(uint256).max), FEE_5, "zero rate never reaches the floor");
     }
 
     function testFuzz_roundSupplyConservation(uint128 supply, bool tokenIs0) public {
         supply = uint128(bound(supply, 1e18, 1_000_000_000_000e18));
         _quote(tokenIs0, 18);
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, supply, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, supply, DECAY_RATE);
         IZeroSeedLaunch.Installation memory preview = periphery.previewInstallation(creator, p);
         vm.prank(creator);
         IZeroSeedLaunch.Installation memory inst = periphery.create(p);
@@ -564,7 +581,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
     }
 
     function test_create_maxSupportedSupply() public {
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(-80_000_000, uint128(type(int128).max), DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(-80_000_000, uint128(type(int128).max), DECAY_RATE);
         vm.prank(creator);
         IZeroSeedLaunch.Installation memory inst = periphery.create(p);
         assertEq(ERC20(inst.token).totalSupply(), p.supply);
@@ -574,7 +591,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
     function test_create_refusesLiquidityAboveTickCapBothOrders() public {
         for (uint256 i; i < 2; i++) {
             _quote(i == 0, 18);
-            IZeroSeedLaunch.LaunchParameters memory p = _parameters(80_000_000, uint128(type(int128).max), DURATION);
+            IZeroSeedLaunch.LaunchParameters memory p = _parameters(80_000_000, uint128(type(int128).max), DECAY_RATE);
             vm.expectRevert();
             periphery.previewInstallation(creator, p);
             vm.prank(creator);
@@ -589,7 +606,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
 
     function test_create_refusesZeroLiquidity() public {
         _quote(true, 18);
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(-80_000_000, 1, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(-80_000_000, 1, DECAY_RATE);
         vm.expectRevert(IZeroSeedLaunch.ZeroLiquidity.selector);
         periphery.previewInstallation(creator, p);
         vm.prank(creator);
@@ -599,7 +616,7 @@ contract ZeroSeedLaunchCreationTest is ZeroSeedLaunchBase {
 
     function test_create_sameSaltSameCreatorRefused_otherCreatorIndependent() public {
         (IZeroSeedLaunch.Installation memory first, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(true, 18, DURATION);
+            _create(true, 18, DECAY_RATE);
         bytes memory exists = abi.encodeWithSelector(IZeroSeedLaunch.LaunchTokenExists.selector, first.token);
         vm.expectRevert(exists);
         periphery.previewInstallation(creator, p);
@@ -637,7 +654,7 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
     function test_bypass_directCoreSwapRefused() public {
         for (uint256 i; i < 2; i++) {
             uint256 snap = vm.snapshotState();
-            (IZeroSeedLaunch.Installation memory inst,) = _create(i == 0, 18, DURATION);
+            (IZeroSeedLaunch.Installation memory inst,) = _create(i == 0, 18, DECAY_RATE);
             vm.warp(START);
             bool tokenIs1 = inst.poolKey.token1 == inst.token;
             vm.expectRevert(IZeroSeedLaunch.SwapsThroughForwardOnly.selector);
@@ -649,7 +666,7 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
     }
 
     function test_bypass_foreignPositionRefused() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         vm.expectRevert(IZeroSeedLaunch.PositionsThroughCreateOnly.selector);
         swapper.addPosition(inst.poolKey, createPositionId(bytes24(0), -1_000_000, 1_000_000), 1e18);
         // Same bounds as the launch position, different owner: still refused.
@@ -669,7 +686,7 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
     }
 
     function test_forward_unknownLaunchAndBeforeStartRefused() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         PoolKey memory unknown = PoolKey(address(0x1234), inst.poolKey.token1, inst.poolKey.config);
         vm.expectRevert(IZeroSeedLaunch.UnknownLaunch.selector);
         swapper.forwardSwap(unknown, createSwapParameters(SqrtRatio.wrap(0), 1e18, true, 0));
@@ -686,7 +703,7 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
     }
 
     function test_claim_authenticationAndRecipient() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         vm.warp(START);
         _buy(inst.poolKey, inst.token, 1e18, false);
         vm.expectRevert(IZeroSeedLaunchPeriphery.OwnerOnly.selector);
@@ -706,7 +723,7 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
 
     function test_claim_cannotTouchPrincipal() public {
         (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(false, 18, DURATION);
+            _create(false, 18, DECAY_RATE);
         vm.warp(START);
         PoolBalanceUpdate u = _buy(inst.poolKey, inst.token, 5e18, false);
         uint256 quoteIn = uint128(_quoteDelta(inst.poolKey, inst.token, u));
@@ -743,7 +760,7 @@ contract ZeroSeedLaunchSecurityTest is ZeroSeedLaunchBase {
     /// against the creator, who pays only price impact.
     function test_creatorRecaptureDemonstration() public {
         (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(true, 18, DURATION);
+            _create(true, 18, DECAY_RATE);
         ERC20(activeQuote).transfer(creator, 10e18);
         vm.startPrank(creator);
         ERC20(activeQuote).approve(address(swapper), type(uint256).max);
@@ -776,7 +793,7 @@ contract ZeroSeedLaunchTradingTest is ZeroSeedLaunchBase {
 
     function _scenario(bool tokenIs0, uint8 quoteDecimals) internal {
         (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(tokenIs0, quoteDecimals, DURATION);
+            _create(tokenIs0, quoteDecimals, DECAY_RATE);
         PoolKey memory key = inst.poolKey;
         address token = inst.token;
         address quote = activeQuote;
@@ -952,19 +969,20 @@ contract ZeroSeedLaunchTradingTest is ZeroSeedLaunchBase {
         _scenario(false, 6);
     }
 
-    function test_noDemand_afterFeeEnd() public {
+    function test_noDemand_afterSaturation() public {
         (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(true, 18, DURATION);
-        vm.warp(START + DURATION + 365 days);
+            _create(true, 18, DECAY_RATE);
+        assertLt(_saturationSecond(DECAY_RATE), 365 days, "the default rate saturates within 64 days");
+        vm.warp(START + 365 days);
         (uint128 p0, uint128 p1) = _principal(inst);
         assertEq(p1, 0, "quote reserve zero");
         assertLe(inst.installedSupply - p0, 1, "inventory installed");
-        assertEq(launch.feeAt(inst.poolKey.toPoolId(), block.timestamp), FEE_03, "final fee");
+        assertEq(launch.feeAt(inst.poolKey.toPoolId(), block.timestamp), FEE_03, "saturated at the floor");
         _assertLedger(inst, activeQuote, 0, 0, 1);
     }
 
     function test_dust_exactInputOneUnit() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         vm.warp(START);
         // 1 raw quote unit buys ~1e6 raw tokens at 1e-6; fee rounds up.
         PoolBalanceUpdate u = _buy(inst.poolKey, inst.token, 1, false);
@@ -983,7 +1001,7 @@ contract ZeroSeedLaunchTradingTest is ZeroSeedLaunchBase {
     /// @dev Random buy/sell sequences in both orders keep conservation, x <= S and the price inside the range.
     function testFuzz_sequenceInvariants(uint256 seed, bool tokenIs0) public {
         (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
-            _create(tokenIs0, 18, DURATION);
+            _create(tokenIs0, 18, DECAY_RATE);
         PoolKey memory key = inst.poolKey;
         Flow memory f;
         vm.warp(START);
@@ -1024,28 +1042,39 @@ contract ZeroSeedLaunchTradingTest is ZeroSeedLaunchBase {
 contract ZeroSeedLaunchTimeTest is ZeroSeedLaunchBase {
     using CoreLib for ICore;
 
-    function _schedule(uint32 duration) internal {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, duration);
+    /// @dev The live schedule at a decay rate against the shared math at the start, around the half-life, far out
+    /// and at the saturation boundary; time alone changes nothing in Core, and swaps settle at the floor after
+    /// saturation. The fee at exactly one half-life is identical for both rates: both accumulate 1,386,295 ticks
+    /// there, and the one-second quantization is what makes it 2.650000064% rather than 2.65% of the excess.
+    function _schedule(uint64 decayRateX32, uint256 halfLife) internal {
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, decayRateX32);
         PoolId id = inst.poolKey.toPoolId();
-        uint256[9] memory ts = [
+        uint256 saturation = _saturationSecond(decayRateX32);
+        uint256[11] memory ts = [
             uint256(START - 1),
             START,
             START + 1,
-            START + duration / 2,
-            START + duration - 1,
-            START + duration,
-            START + duration + 1,
+            START + halfLife / 2,
+            START + halfLife - 1,
+            START + halfLife,
+            START + halfLife + 1,
+            START + saturation,
+            START + saturation + 1,
             START + 10 * 365 days,
             uint256(type(uint64).max)
         ];
         PoolState state = ICore(CORE).poolState(id);
+        uint64 previous = type(uint64).max;
         for (uint256 i; i < ts.length; i++) {
             uint64 fee = launch.feeAt(id, ts[i]);
-            assertEq(fee, _referenceFee(FEE_5, FEE_03, START, duration, ts[i]), "reference schedule");
+            assertEq(fee, _referenceFee(FEE_5, FEE_03, START, decayRateX32, ts[i]), "reference schedule");
+            assertLe(fee, previous, "non-increasing");
+            assertGe(fee, FEE_03, "never below the floor");
+            previous = fee;
             console2.log(
                 string.concat(
-                    "VEC|fee|duration=",
-                    _ustr(duration),
+                    "VEC|fee|decayRateX32=",
+                    _ustr(decayRateX32),
                     "|t=start+",
                     i == 0 ? "-1" : _ustr(ts[i] - START),
                     "|feeQ64=",
@@ -1059,30 +1088,28 @@ contract ZeroSeedLaunchTimeTest is ZeroSeedLaunchBase {
                 assertEq(ICore(CORE).poolPositions(id, address(launch), inst.positionId).liquidity, inst.liquidity, "L");
             }
         }
-        // Midpoint exact value (Python reference) and a live swap at each boundary that is open for trading. The
-        // 600 s half-life is fixed, so the 3,600 s window spans six half-lives and its normalized midpoint is close
-        // to 1/64 of the excess, while the 600 s window spans one and its midpoint is near 1/2 of the excess.
-        assertEq(
-            launch.feeAt(id, START + duration / 2),
-            duration == DURATION_SHORT ? 414462136338061256 : 151673229050500756,
-            "midpoint"
-        );
-        vm.warp(START + duration);
+        assertEq(launch.feeAt(id, START + halfLife), 488838729715618946, "one half-life (Python)");
+        // On this fixture the floored excess is already zero before the helper's range ends (the span is below
+        // 2**60); the nonzero residual at the minimum tick needs the full uint64 span, see ZeroSeedLaunchFeeCurve.
+        assertEq(launch.feeAt(id, START + saturation), FEE_03, "at the floor by rounding before saturation");
+        assertEq(launch.feeAt(id, START + saturation + 1), FEE_03, "saturated");
+        // A live swap right after saturation settles at the floor; trading never ends.
+        vm.warp(START + saturation + 1);
         PoolBalanceUpdate u = _buy(inst.poolKey, inst.token, 1e18, false);
         (uint128 f0,) = launch.creatorFees(inst.poolKey);
         uint128 net = uint128(-u.delta0());
-        assertEq(f0, uint128((uint256(net + f0) * FEE_03 + Q64 - 1) >> 64), "final-fee swap");
+        assertEq(f0, uint128((uint256(net + f0) * FEE_03 + Q64 - 1) >> 64), "floor-fee swap");
         vm.warp(START + 10 * 365 days);
         _buy(inst.poolKey, inst.token, 1e18, false); // no end-time revert, same pool
         assertEq(ICore(CORE).poolPositions(id, address(launch), inst.positionId).liquidity, inst.liquidity, "L");
     }
 
-    function test_schedule_3600() public {
-        _schedule(DURATION);
+    function test_schedule_oneDayHalfLife() public {
+        _schedule(DECAY_RATE, HALF_LIFE);
     }
 
-    function test_schedule_600() public {
-        _schedule(DURATION_SHORT);
+    function test_schedule_600sHalfLife() public {
+        _schedule(DECAY_RATE_600, HALF_LIFE_600);
     }
 }
 
@@ -1140,7 +1167,7 @@ contract ZeroSeedLaunchRouterTest is ZeroSeedLaunchBase {
         for (uint256 i; i < 2; i++) {
             uint256 snap = vm.snapshotState();
             bool tokenIs0 = i == 0;
-            (IZeroSeedLaunch.Installation memory inst,) = _create(tokenIs0, 18, DURATION);
+            (IZeroSeedLaunch.Installation memory inst,) = _create(tokenIs0, 18, DECAY_RATE);
             bool native = activeQuote == NATIVE_TOKEN_ADDRESS;
             assertEq(native, !tokenIs0, "t1 order is the native quote");
             _approveQuote(activeQuote, ROUTER);
@@ -1208,7 +1235,7 @@ contract ZeroSeedLaunchRouterTest is ZeroSeedLaunchBase {
     }
 
     function test_router_zeroMinOutNotNeededAndPositiveMinRequired() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         ERC20(inst.token).approve(ROUTER, type(uint256).max);
         vm.warp(START);
         // Sell before any buy: nothing to sell into; a positive minimum output refuses the no-bid fill.
@@ -1223,7 +1250,7 @@ contract ZeroSeedLaunchGasTest is ZeroSeedLaunchBase {
             uint256 snap = vm.snapshotState();
             bool tokenIs0 = i == 0;
             _quote(tokenIs0, 18);
-            IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+            IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
             _bind(p, creator);
             vm.prank(creator);
             uint256 g = gasleft();
@@ -1281,7 +1308,7 @@ contract ZeroSeedLaunchVectorsTest is ZeroSeedLaunchBase {
 
     function _check(Expected memory e) internal {
         uint256 snap = vm.snapshotState();
-        (IZeroSeedLaunch.Installation memory inst,) = _create(e.tokenIs0, e.quoteDecimals, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(e.tokenIs0, e.quoteDecimals, DECAY_RATE);
         assertEq(inst.installedSupply, e.installed, "installed");
         assertEq(inst.liquidity, e.liquidity, "liquidity");
         vm.warp(START);
@@ -1348,31 +1375,44 @@ contract ZeroSeedLaunchVectorsTest is ZeroSeedLaunchBase {
         );
     }
 
+    /// @dev Default one-day half-life on the fixture (5% -> 0.3%), pinned by the Python oracle.
     function test_vectors_feeSchedule() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
         PoolId id = inst.poolKey.toPoolId();
         assertEq(launch.feeAt(id, START - 1), 922337203685477580);
         assertEq(launch.feeAt(id, START), 922337203685477580);
-        assertEq(launch.feeAt(id, START + 1), 921320298688452636);
-        assertEq(launch.feeAt(id, START + 10), 912220825711290708);
-        assertEq(launch.feeAt(id, START + 60), 863355419786439719);
-        assertEq(launch.feeAt(id, START + 600), 481957789608347966);
-        assertEq(launch.feeAt(id, START + 1800), 151673229050500756);
-        assertEq(launch.feeAt(id, START + 3599), 55356139728168999);
-        assertEq(launch.feeAt(id, START + 3600), 55340232221128654);
+        assertEq(launch.feeAt(id, START + 1), 922330267740917652);
+        assertEq(launch.feeAt(id, START + 10), 922267846736753839);
+        assertEq(launch.feeAt(id, START + 60), 921920278629180106);
+        assertEq(launch.feeAt(id, START + 600), 918173943809149156);
+        assertEq(launch.feeAt(id, START + 1800), 909907303121253143);
+        assertEq(launch.feeAt(id, START + 3600), 897655606672062181);
+        assertEq(launch.feeAt(id, START + 43200), 668399831593786699);
+        assertEq(launch.feeAt(id, START + 86399), 488842197715736884);
+        assertEq(launch.feeAt(id, START + 86400), 488838729715618946);
+        assertEq(launch.feeAt(id, START + 86401), 488835261743244884);
+        assertEq(launch.feeAt(id, START + 172800), 272089486849531874);
+        assertEq(launch.feeAt(id, START + 7 days), 62113647347197278);
+        assertEq(launch.feeAt(id, START + 30 days), 55340233028582759);
+        assertEq(launch.feeAt(id, START + 5529597), 55340232221128654);
+        assertEq(launch.feeAt(id, START + 5529598), 55340232221128654);
         assertEq(launch.feeAt(id, type(uint64).max), 55340232221128654);
         assertEq(launch.feeAt(id, type(uint256).max), 55340232221128654);
     }
 
+    /// @dev 600 second half-life on the fixture, pinned by the Python oracle; saturates after 38,399 s.
     function test_vectors_feeSchedule600() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DURATION_SHORT);
+        (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE_600);
         PoolId id = inst.poolKey.toPoolId();
         assertEq(launch.feeAt(id, START), 922337203685477580);
-        assertEq(launch.feeAt(id, START + 1), 920335171972584721);
-        assertEq(launch.feeAt(id, START + 10), 902420584548797176);
-        assertEq(launch.feeAt(id, START + 60), 806216816634246792);
-        assertEq(launch.feeAt(id, START + 300), 414462136338061256);
-        assertEq(launch.feeAt(id, START + 599), 56342405164670430);
-        assertEq(launch.feeAt(id, START + 600), 55340232221128654);
+        assertEq(launch.feeAt(id, START + 1), 921336400758785753);
+        assertEq(launch.feeAt(id, START + 10), 912379287313991670);
+        assertEq(launch.feeAt(id, START + 60), 864277214588907100);
+        assertEq(launch.feeAt(id, START + 600), 488838729715618946);
+        assertEq(launch.feeAt(id, START + 1800), 163714862475909380);
+        assertEq(launch.feeAt(id, START + 3600), 68887062105693473);
+        assertEq(launch.feeAt(id, START + 38399), 55340232221128654);
+        assertEq(launch.feeAt(id, START + 38400), 55340232221128654);
+        assertEq(launch.feeAt(id, START + 43200), 55340232221128654);
     }
 }

@@ -1,5 +1,5 @@
 {
- "version": 6,
+ "version": 7,
  "fixture": {
   "core": "Locally compiled src/Core.sol deployed at the test's canonical Core address; no fork or live-chain validation",
   "router": "Locally compiled test/LaunchTestRouter.sol; standard-ABI single-hop forwarding and settlement, with snapshot/revert quotes in the test harness; no deployed-router bytecode fixture",
@@ -11,38 +11,18 @@
   "trading_start": 1000,
   "fee_initial_q64": "922337203685477580",
   "fee_final_q64": "55340232221128654",
-  "fee_durations": [
-   3600,
-   600
-  ],
-  "fee_schedule": "finalFee + floor((initialFee - finalFee) * (decay(t) - decay(D)) / (2**128 - decay(D))) for 0 < t < D; initialFee at t <= 0; finalFee at t >= D. decay(t) = 0 for t >= fee_decay_zero_from_s, else the product over the set bits i of t of fee_decay_table_q128[i], starting at 2**128 and flooring to Q128 after every multiply (src/math/feeDecay.sol decayQ128). The table is round(2**128 * 2**(-2**i/600)); the operation order is normative.",
   "max_creator_fee_q64": "18446744073709551615",
-  "creator_fee_range": "every uint64 0..18446744073709551615 inclusive for initialFee and finalFee (Q0.64; 2**64 - 1 is just under 100%, never exactly 100%); finalFee <= initialFee and feeDuration > 0, else InvalidFeeSchedule; exactly 100% = 2**64 is not a uint64 and fails ABI decoding with empty revert data; see creator_fee_range",
+  "creator_fee_range": "every uint64 0..18446744073709551615 inclusive for initialFee and finalFee (Q0.64; 2**64 - 1 is just under 100%, never exactly 100%); finalFee <= initialFee, else InvalidFeeSchedule; exactly 100% = 2**64 is not a uint64 and fails ABI decoding with empty revert data; see creator_fee_range",
   "label": "LOCAL FIXTURE VECTORS - not live evidence; numeric start margin is a local-reference proposal, not a live parameter; the creator fee ceiling is the uint64 maximum",
   "quote_18": "t0 order: plain 18-decimal test ERC-20 selected per launch at the top of the address space. t1 order: native ETH, address(0), the reference Base configuration; always token0, no code, no decimals(), no approvals.",
   "quote_6": "plain 6-decimal solady ERC-20 (DecimalsToken), selected per launch for math vectors only",
-  "fee_half_life_s": 600,
-  "fee_decay_table_q128": [
-   "339889484297159900493648602831395569057",
-   "339497055287118257930533248299650400736",
-   "338713556013920184336129943844147573651",
-   "337151977828609613753562640265082287810",
-   "334050386396171404885545237344599070716",
-   "327932539264834336949184815807600758235",
-   "316030922441737935988095136387330274498",
-   "293507844215098455952964317090465751204",
-   "253162852354938356992240649094357060196",
-   "188347784201757897225807540435664088841",
-   "104251325552682051605813724741512712010",
-   "31939177389160626453527783486618815759",
-   "2997836947964109484105344435429137776",
-   "26410496811510722015611852309540293",
-   "2049810421099131403277778219901",
-   "12347753427443481862030",
-   "448060"
+  "fee_decay_rates_x32": [
+   "68913100933",
+   "9923486534471"
   ],
-  "fee_decay_zero_from_s": 131072,
-  "fee_decay_first_zero_s": 76800
+  "fee_decay_rate_x32_default": "68913100933",
+  "fee_decay_rate_encoding": "decayRateX32: uint64, unsigned Q32.32 ticks per second (2**32 = 1 tick/s). Any value is accepted; 0 is a flat fee. Half-life in seconds of the excess over finalFee = 2 * ln(2) / ln(1.000001) * 2**32 / decayRateX32 = 1386295.05426695565 * 2**32 / decayRateX32. rate for a half-life H: floor(1386295.05426695565... * 2**32 / H), computed with exact high-precision arithmetic (not binary floating point).",
+  "fee_schedule": "initialFee for t <= 0 or decayRateX32 == 0; finalFee for t > MAX_DECAY_PRODUCT / decayRateX32 (integer division; MAX_DECAY_PRODUCT = (88722835 + 1) * 2**32 - 1 = 381061679028371455); otherwise m = floor(decayRateX32 * t / 2**32) and fee = finalFee + floor((initialFee - finalFee) * R / 2**128) with R = toFixed(tickToSqrtRatio(-m)), the compact (94-bit mantissa, rounded down) sqrt ratio of src/math/ticks.sol as a 64.128 integer. t = block timestamp - tradingStart in whole seconds. The operation order is normative; the saturation check must precede the helper call."
  },
  "create": [
   {
@@ -383,93 +363,243 @@
  ],
  "fee": [
   {
-   "duration": 3600,
-   "t_minus_start": 0,
+   "decayRateX32": "68913100933",
+   "t_minus_start": "-1",
+   "tick_magnitude": null,
    "fee_q64": "922337203685477580"
   },
   {
-   "duration": 3600,
-   "t_minus_start": 1800,
-   "fee_q64": "151673229050500756"
-  },
-  {
-   "duration": 3600,
-   "t_minus_start": 18446744073709550615,
-   "fee_q64": "55340232221128654"
-  },
-  {
-   "duration": 3600,
-   "t_minus_start": 1,
-   "fee_q64": "921320298688452636"
-  },
-  {
-   "duration": 3600,
-   "t_minus_start": -1,
+   "decayRateX32": "68913100933",
+   "t_minus_start": "0",
+   "tick_magnitude": null,
    "fee_q64": "922337203685477580"
   },
   {
-   "duration": 3600,
-   "t_minus_start": 315360000,
+   "decayRateX32": "68913100933",
+   "t_minus_start": "1",
+   "tick_magnitude": "16",
+   "fee_q64": "922330267740917652"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "10",
+   "tick_magnitude": "160",
+   "fee_q64": "922267846736753839"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "60",
+   "tick_magnitude": "962",
+   "fee_q64": "921920278629180106"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "600",
+   "tick_magnitude": "9627",
+   "fee_q64": "918173943809149156"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "1800",
+   "tick_magnitude": "28881",
+   "fee_q64": "909907303121253143"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "3600",
+   "tick_magnitude": "57762",
+   "fee_q64": "897655606672062181"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "43200",
+   "tick_magnitude": "693147",
+   "fee_q64": "668399831593786699"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "86399",
+   "tick_magnitude": "1386279",
+   "fee_q64": "488842197715736884"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "86400",
+   "tick_magnitude": "1386295",
+   "fee_q64": "488838729715618946"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "86401",
+   "tick_magnitude": "1386311",
+   "fee_q64": "488835261743244884"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "172800",
+   "tick_magnitude": "2772590",
+   "fee_q64": "272089486849531874"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "604800",
+   "tick_magnitude": "9704065",
+   "fee_q64": "62113647347197278"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "2592000",
+   "tick_magnitude": "41588851",
+   "fee_q64": "55340233028582759"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "5529596",
+   "tick_magnitude": "88722819",
    "fee_q64": "55340232221128654"
   },
   {
-   "duration": 3600,
-   "t_minus_start": 3599,
-   "fee_q64": "55356139728168999"
-  },
-  {
-   "duration": 3600,
-   "t_minus_start": 3600,
+   "decayRateX32": "68913100933",
+   "t_minus_start": "5529597",
+   "tick_magnitude": "88722835",
    "fee_q64": "55340232221128654"
   },
   {
-   "duration": 3600,
-   "t_minus_start": 3601,
+   "decayRateX32": "68913100933",
+   "t_minus_start": "5529598",
+   "tick_magnitude": null,
    "fee_q64": "55340232221128654"
   },
   {
-   "duration": 600,
-   "t_minus_start": 0,
+   "decayRateX32": "68913100933",
+   "t_minus_start": "18446744073709551615",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "-1",
+   "tick_magnitude": null,
    "fee_q64": "922337203685477580"
   },
   {
-   "duration": 600,
-   "t_minus_start": 18446744073709550615,
-   "fee_q64": "55340232221128654"
-  },
-  {
-   "duration": 600,
-   "t_minus_start": 1,
-   "fee_q64": "920335171972584721"
-  },
-  {
-   "duration": 600,
-   "t_minus_start": -1,
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "0",
+   "tick_magnitude": null,
    "fee_q64": "922337203685477580"
   },
   {
-   "duration": 600,
-   "t_minus_start": 300,
-   "fee_q64": "414462136338061256"
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "1",
+   "tick_magnitude": "2310",
+   "fee_q64": "921336400758785753"
   },
   {
-   "duration": 600,
-   "t_minus_start": 315360000,
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "10",
+   "tick_magnitude": "23104",
+   "fee_q64": "912379287313991670"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "60",
+   "tick_magnitude": "138629",
+   "fee_q64": "864277214588907100"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "600",
+   "tick_magnitude": "1386295",
+   "fee_q64": "488838729715618946"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "1800",
+   "tick_magnitude": "4158885",
+   "fee_q64": "163714862475909380"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "3600",
+   "tick_magnitude": "8317770",
+   "fee_q64": "68887062105693473"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "43200",
+   "tick_magnitude": null,
    "fee_q64": "55340232221128654"
   },
   {
-   "duration": 600,
-   "t_minus_start": 599,
-   "fee_q64": "56342405164670430"
-  },
-  {
-   "duration": 600,
-   "t_minus_start": 600,
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "86399",
+   "tick_magnitude": null,
    "fee_q64": "55340232221128654"
   },
   {
-   "duration": 600,
-   "t_minus_start": 601,
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "86400",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "86401",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "172800",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "604800",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "2592000",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "38398",
+   "tick_magnitude": "88718262",
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "38399",
+   "tick_magnitude": "88720572",
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "38400",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "18446744073709551615",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+   "tick_magnitude": null,
    "fee_q64": "55340232221128654"
   }
  ],
@@ -488,19 +618,19 @@
  "gas": [
   {
    "order": "t0",
-   "create": "1368128",
-   "firstBuy": "102472",
-   "secondBuy": "34254",
-   "sell": "34258",
-   "claim": "70172"
+   "create": 1368087,
+   "firstBuy": 102485,
+   "secondBuy": 34267,
+   "sell": 34271,
+   "claim": 70154
   },
   {
    "order": "t1",
-   "create": "1326970",
-   "firstBuy": "84650",
-   "secondBuy": "35150",
-   "sell": "38596",
-   "claim": "79694"
+   "create": 1326935,
+   "firstBuy": 84663,
+   "secondBuy": 35163,
+   "sell": 38609,
+   "claim": 79676
   }
  ],
  "other": [
@@ -761,46 +891,532 @@
   "rule": "token address = CREATE2(extension, keccak256(abi.encode(controller, salt)), MintableERC20 init code with name/symbol/decimals). The controller is the locker that forwards the creation; the periphery passes salt = keccak256(abi.encode(owner, userSalt)). Refused when the address already has code. Same salt with other metadata, another salt, another owner or another controller is independent."
  },
  "fee_curve": {
-  "note": "Fixed-base schedule on the fixture. Digests: SHA-256 chain h = sha256(h || fee as 8-byte big-endian) over t = 0..D inclusive, h0 = 32 zero bytes; asserted in Solidity (ZeroSeedLaunchFeeCurve.t.sol) and recomputed by gen-fee-decay-table.py and this reference. The 600 s window spans one half-life and the 3,600 s window six.",
+  "note": "Tick-rate schedule. Digests: SHA-256 chain h = sha256(h || fee as 8-byte big-endian) over the sampled seconds t = 0, step, 2*step, ..., last inclusive; all from the independent Python oracle (exact port of the tick table).",
   "rates_q64": {
    "5": "922337203685477580",
    "50": "9223372036854775808",
    "75": "13835058055282163712",
    "90": "16602069666338596454",
    "99": "18262276632972456099",
+   "99.9": "18428297329635842064",
    "max": "18446744073709551615"
   },
   "final_fee_q64": "55340232221128654",
-  "all_second_digests_sha256": {
-   "600": {
-    "5": "636937adfdd71123c726c4d2a596d079a63726428a2fe4646571b28f8400a3b7",
-    "50": "a5d0666688ef4a2dd7153351cf2871a5b84a4fbf7023bbb876bc2de8c740cf23",
-    "75": "8acacd858306553f71f73f15197ccf8915d3473a6a1d3ced8876ff355fd2a865",
-    "90": "d29e09a6613fbd52bccbcc0e49ba74ea7469bcea65904887c67b3115603b7109",
-    "99": "47a588db69ac7fe12529c7cb9b15fe91b41494195360caa9bccb939ae8133cc4",
-    "max": "7c849a9c92021aa28ed2e4a32f7c33b15c2ff8513157f822229f53e85c0f9612"
+  "decay_rates_x32": {
+   "default_one_day": "68913100933",
+   "600s": "9923486534471",
+   "two_ticks_per_second": "8589934592",
+   "quarter_tick_per_second": "1073741824",
+   "tenth_tick_per_second_floor": "429496729",
+   "min": "1",
+   "max": "18446744073709551615"
+  },
+  "half_life_s": {
+   "default_one_day": "86400.00000104363",
+   "600s": "600.00000000005238",
+   "two_ticks_per_second": "693151.52713347783 (8.0225408233 days)",
+   "quarter_tick_per_second": "5545180.2170678226 (64.18 days)",
+   "min": "5954091920683119 (about 1.89e8 years)",
+   "max": "0.0000000003229 (saturates within the first second)"
+  },
+  "saturation_second": {
+   "default_one_day": "5529597",
+   "600s": "38399",
+   "two_ticks_per_second": "44361417",
+   "quarter_tick_per_second": "354891343",
+   "min": "381061679028371455",
+   "max": "0"
+  },
+  "saturation_note": "saturation_second = MAX_DECAY_PRODUCT / decayRateX32 is the last elapsed second computed through the helper; from the next second the fee is exactly finalFee. On the 50% -> 0.3% fixtures the floored excess is already zero earlier (rounding), so the two mechanisms coincide at the floor; a full-span excess (2**64 - 1 -> 0) still leaves 1 raw unit when the magnitude is exactly 88,722,835 at saturation_second, which is why the guard rather than a clamp to the minimum tick yields finalFee.",
+  "digests_sha256": [
+   {
+    "label": "default 50% -> 0.3%, every second 0..3600",
+    "initialFee": "9223372036854775808",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "68913100933",
+    "last": 3600,
+    "step": 1,
+    "digest": "c3de4d91d476acc61f73455efe7fb8c750b89de3759a0c500bbde0bdf9bcd062"
    },
-   "3600": {
-    "5": "41cb8af04c65adc7513c3a9741665eb332011f25b3b46d2b2f06ddad318409c8",
-    "50": "9d60494802e0ebc9136779b23c27cd4a18f13b9c68102aa343908cf6d422b3f6",
-    "75": "700df4fd9f07ce4eedc4ad337d17836c478b0a2b1e752ae3cbfdf72940aae60f",
-    "90": "4cfbc14801fe33bef5a1c0201d2cc03a992d446efd4bacdd3883469e8dc7d5d1",
-    "99": "7988ddeb4a28991a8b29a05eb9ce25763fc27d41a25a370d19f5b1364f285bfc",
-    "max": "56a3f80709937290c4323f106110af97b27ec87e019266c65bd91eb3aa316e02"
+   {
+    "label": "default 50% -> 0.3%, every minute 0..30 days",
+    "initialFee": "9223372036854775808",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "68913100933",
+    "last": 2592000,
+    "step": 60,
+    "digest": "b2c022f5cbbc90cedca9834bcf64f636b97c45dee08c730ab4dbf17d8d5acc74"
+   },
+   {
+    "label": "600 s half-life 5% -> 0.3%, every second 0..3600",
+    "initialFee": "922337203685477580",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "9923486534471",
+    "last": 3600,
+    "step": 1,
+    "digest": "c4db35cd45f48222463cb9a940c506599715162db6c37b01428331ff5263bdc6"
+   },
+   {
+    "label": "2 ticks/s 99.9% -> 0, every hour 0..30 days",
+    "initialFee": "18428297329635842064",
+    "finalFee": "0",
+    "decayRateX32": "8589934592",
+    "last": 2592000,
+    "step": 3600,
+    "digest": "8fdefff5fe4cfb98c43bbbf6ed6f0b9a0ae398f1f810ffea0522d5504e1321da"
+   },
+   {
+    "label": "1/4 tick/s max -> 0, every second 0..3600",
+    "initialFee": "18446744073709551615",
+    "finalFee": "0",
+    "decayRateX32": "1073741824",
+    "last": 3600,
+    "step": 1,
+    "digest": "11ff0a905ab22707579e714aba31b895ed3234788a0dab10b0daa0881a9ccf36"
    }
+  ],
+  "tables": {
+   "default_one_day_50_to_0.3": [
+    {
+     "t": "0",
+     "fee_q64": "9223372036854775808",
+     "pct": "50.0000000000"
+    },
+    {
+     "t": "1",
+     "fee_q64": "9223298692930386783",
+     "pct": "49.9996024018",
+     "tick_magnitude": "16"
+    },
+    {
+     "t": "60",
+     "fee_q64": "9218963276153076996",
+     "pct": "49.9761000603",
+     "tick_magnitude": "962"
+    },
+    {
+     "t": "3600",
+     "fee_q64": "8962377276946957658",
+     "pct": "48.5851445715",
+     "tick_magnitude": "57762"
+    },
+    {
+     "t": "43200",
+     "fee_q64": "6538119400055406284",
+     "pct": "35.4432162875",
+     "tick_magnitude": "693147"
+    },
+    {
+     "t": "86400",
+     "fee_q64": "4639356258918185573",
+     "pct": "25.1500006743",
+     "tick_magnitude": "1386295"
+    },
+    {
+     "t": "172800",
+     "fee_q64": "2347348307759775472",
+     "pct": "12.7250006743",
+     "tick_magnitude": "2772590"
+    },
+    {
+     "t": "604800",
+     "fee_q64": "126965494298918151",
+     "pct": "0.6882813237",
+     "tick_magnitude": "9704065"
+    },
+    {
+     "t": "2592000",
+     "fee_q64": "55340240759526319",
+     "pct": "0.3000000463",
+     "tick_magnitude": "41588851"
+    },
+    {
+     "t": "5529597",
+     "fee_q64": "55340232221128654",
+     "pct": "0.3000000000",
+     "tick_magnitude": "88722835"
+    },
+    {
+     "t": "5529598",
+     "fee_q64": "55340232221128654",
+     "pct": "0.3000000000"
+    }
+   ],
+   "two_ticks_per_second_50_to_0.3": [
+    {
+     "t": "0",
+     "fee_q64": "9223372036854775808",
+     "pct": "50.0000000000"
+    },
+    {
+     "t": "1",
+     "fee_q64": "9223362868832139196",
+     "pct": "49.9999503000",
+     "tick_magnitude": "2"
+    },
+    {
+     "t": "60",
+     "fee_q64": "9222821971723649262",
+     "pct": "49.9970180909",
+     "tick_magnitude": "120"
+    },
+    {
+     "t": "3600",
+     "fee_q64": "9190426476420833039",
+     "pct": "49.8214017590",
+     "tick_magnitude": "7200"
+    },
+    {
+     "t": "43200",
+     "fee_q64": "8835746255246636721",
+     "pct": "47.8986764273",
+     "tick_magnitude": "86400"
+    },
+    {
+     "t": "86400",
+     "fee_q64": "8464509350746382498",
+     "pct": "45.8861971355",
+     "tick_magnitude": "172800"
+    },
+    {
+     "t": "172800",
+     "fee_q64": "7768459773126180960",
+     "pct": "42.1129048144",
+     "tick_magnitude": "345600"
+    },
+    {
+     "t": "604800",
+     "fee_q64": "5062770843274302024",
+     "pct": "27.4453357354",
+     "tick_magnitude": "1209600"
+    },
+    {
+     "t": "2592000",
+     "fee_q64": "741753037726786584",
+     "pct": "4.0210512748",
+     "tick_magnitude": "5184000"
+    },
+    {
+     "t": "44361417",
+     "fee_q64": "55340232221128654",
+     "pct": "0.3000000000",
+     "tick_magnitude": "88722834"
+    },
+    {
+     "t": "44361418",
+     "fee_q64": "55340232221128654",
+     "pct": "0.3000000000"
+    }
+   ],
+   "two_ticks_per_second_99.9_to_0": [
+    {
+     "t": "0",
+     "fee_q64": "18428297329635842064",
+     "pct": "99.9000000000"
+    },
+    {
+     "t": "1",
+     "fee_q64": "18428278901356940707",
+     "pct": "99.8999001001",
+     "tick_magnitude": "2"
+    },
+    {
+     "t": "60",
+     "fee_q64": "18427191665519151079",
+     "pct": "99.8940061828",
+     "tick_magnitude": "120"
+    },
+    {
+     "t": "3600",
+     "fee_q64": "18362074764497997343",
+     "pct": "99.5410067550",
+     "tick_magnitude": "7200"
+    },
+    {
+     "t": "43200",
+     "fee_q64": "17649146110668978989",
+     "pct": "95.6762127785",
+     "tick_magnitude": "86400"
+    },
+    {
+     "t": "86400",
+     "fee_q64": "16902937523957200381",
+     "pct": "91.6310079243",
+     "tick_magnitude": "172800"
+    },
+    {
+     "t": "172800",
+     "fee_q64": "15503835857875547793",
+     "pct": "84.0464625948",
+     "tick_magnitude": "345600"
+    },
+    {
+     "t": "604800",
+     "fee_q64": "10065237787609899792",
+     "pct": "54.5637633795",
+     "tick_magnitude": "1209600"
+    },
+    {
+     "t": "2592000",
+     "fee_q64": "1379731172434914028",
+     "pct": "7.4795376730",
+     "tick_magnitude": "5184000"
+    }
+   ],
+   "default_one_day_max_to_0": [
+    {
+     "t": "0",
+     "fee_q64": "18446744073709551615",
+     "pct": "100.0000000000"
+    },
+    {
+     "t": "1",
+     "fee_q64": "18446596500421042511",
+     "pct": "99.9992000036",
+     "tick_magnitude": "16"
+    },
+    {
+     "t": "60",
+     "fee_q64": "18437873327830881974",
+     "pct": "99.9519115902",
+     "tick_magnitude": "962"
+    },
+    {
+     "t": "3600",
+     "fee_q64": "17921603711721989946",
+     "pct": "97.1532083934",
+     "tick_magnitude": "57762"
+    },
+    {
+     "t": "43200",
+     "fee_q64": "13043821263248043520",
+     "pct": "70.7106967556",
+     "tick_magnitude": "693147"
+    },
+    {
+     "t": "86400",
+     "fee_q64": "9223372287116814725",
+     "pct": "50.0000013567",
+     "tick_magnitude": "1386295"
+    },
+    {
+     "t": "172800",
+     "fee_q64": "4611686268689430216",
+     "pct": "25.0000013567",
+     "tick_magnitude": "2772590"
+    },
+    {
+     "t": "604800",
+     "fee_q64": "144115215448268606",
+     "pct": "0.7812501484",
+     "tick_magnitude": "9704065"
+    },
+    {
+     "t": "2592000",
+     "fee_q64": "17179874578",
+     "pct": "9.31E-8",
+     "tick_magnitude": "41588851"
+    },
+    {
+     "t": "5529597",
+     "fee_q64": "1",
+     "pct": "0E-10",
+     "tick_magnitude": "88722835"
+    },
+    {
+     "t": "5529598",
+     "fee_q64": "0",
+     "pct": "0E-10"
+    }
+   ],
+   "min_rate_max_to_0": [
+    {
+     "t": "0",
+     "fee_q64": "18446744073709551615",
+     "pct": "100.0000000000"
+    },
+    {
+     "t": "4294967295",
+     "fee_q64": "18446744073709551615",
+     "pct": "100.0000000000",
+     "tick_magnitude": "0"
+    },
+    {
+     "t": "4294967296",
+     "fee_q64": "18446734850344432283",
+     "pct": "99.9999500000",
+     "tick_magnitude": "1"
+    },
+    {
+     "t": "381061679028371454",
+     "fee_q64": "1",
+     "pct": "0E-10",
+     "tick_magnitude": "88722835"
+    },
+    {
+     "t": "381061679028371455",
+     "fee_q64": "1",
+     "pct": "0E-10",
+     "tick_magnitude": "88722835"
+    },
+    {
+     "t": "381061679028371456",
+     "fee_q64": "0",
+     "pct": "0E-10"
+    },
+    {
+     "t": "18446744073709551615",
+     "fee_q64": "0",
+     "pct": "0E-10"
+    }
+   ]
   },
-  "legacy_comparison": {
-   "legacy_factor_q64": "18425445863997925462",
-   "note": "Previous variable-base implementation (powQ64 square-and-multiply, floor after every Q64 multiply) at floor(2**64 * 2**(-1/600)), the same 600 s half-life. 50% -> 0.3% over 3,600 s: max |table - legacy| = 120 Q64 units (about 6.5e-18 absolute) at t = 756; endpoints identical.",
-   "max_abs_diff_q64_by_duration": {
-    "600": 32,
-    "1800": 82,
-    "3600": 120,
-    "7200": 133,
-    "86400": 133
+  "tick_steps": [
+   {
+    "decayRateX32": "1073741824",
+    "note": "1/4 tick/s: the fee steps every 4 s",
+    "rows": [
+     {
+      "t": "1",
+      "fee_q64": "9223372036854775808",
+      "pct": "50.0000000000",
+      "tick_magnitude": "0"
+     },
+     {
+      "t": "3",
+      "fee_q64": "9223372036854775808",
+      "pct": "50.0000000000",
+      "tick_magnitude": "0"
+     },
+     {
+      "t": "4",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "5",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "7",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "8",
+      "fee_q64": "9223362868832139196",
+      "pct": "49.9999503000",
+      "tick_magnitude": "2"
+     },
+     {
+      "t": "9",
+      "fee_q64": "9223362868832139196",
+      "pct": "49.9999503000",
+      "tick_magnitude": "2"
+     }
+    ]
+   },
+   {
+    "decayRateX32": "429496729",
+    "note": "floor(0.1 * 2**32), slightly below one tick per 10 s: first step at 11 s",
+    "rows": [
+     {
+      "t": "9",
+      "fee_q64": "9223372036854775808",
+      "pct": "50.0000000000",
+      "tick_magnitude": "0"
+     },
+     {
+      "t": "10",
+      "fee_q64": "9223372036854775808",
+      "pct": "50.0000000000",
+      "tick_magnitude": "0"
+     },
+     {
+      "t": "11",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "20",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "21",
+      "fee_q64": "9223362868832139196",
+      "pct": "49.9999503000",
+      "tick_magnitude": "2"
+     },
+     {
+      "t": "30",
+      "fee_q64": "9223362868832139196",
+      "pct": "49.9999503000",
+      "tick_magnitude": "2"
+     },
+     {
+      "t": "31",
+      "fee_q64": "9223358284824258897",
+      "pct": "49.9999254501",
+      "tick_magnitude": "3"
+     }
+    ]
+   },
+   {
+    "decayRateX32": "68913100933",
+    "note": "default: 16 whole ticks per second, 1,386,295 after one day",
+    "rows": [
+     {
+      "t": "1",
+      "fee_q64": "9223298692930386783",
+      "pct": "49.9996024018",
+      "tick_magnitude": "16"
+     },
+     {
+      "t": "2",
+      "fee_q64": "9223225349592746513",
+      "pct": "49.9992048068",
+      "tick_magnitude": "32"
+     },
+     {
+      "t": "86400",
+      "fee_q64": "4639356258918185573",
+      "pct": "25.1500006743",
+      "tick_magnitude": "1386295"
+     }
+    ]
+   },
+   {
+    "decayRateX32": "68913100933",
+    "note": "a one-unit excess is gone after the first whole tick",
+    "rows": [
+     {
+      "t": "0",
+      "fee_q64": "55340232221128655",
+      "pct": "0.3000000000"
+     },
+     {
+      "t": "1",
+      "fee_q64": "55340232221128654",
+      "pct": "0.3000000000",
+      "tick_magnitude": "16"
+     }
+    ]
    }
-  },
-  "rates_q64_note": "Study rates. 99 = floor(2**64 * 99 / 100) is a study rate like the others, not a ceiling; max = 2**64 - 1 is created through the periphery like any other rate (no storage injection)."
+  ],
+  "oracle_error_bounds": {
+   "note": "Integer result minus the real-number F + (I - F) * 1.000001**(-(decayRateX32 / 2**32) * t / 2) at 150 digits, default 50% -> 0.3%, every second of the first hour then every 10 minutes to 30 days. The error is dominated by the whole-tick floor of m (one tick = 5e-7 of the excess), not by the helper (which is within a few units of 2**-128 of the real sqrt ratio) or the final floor.",
+   "max_abs_q64": "4574692217333.041",
+   "at_t": "244",
+   "max_abs_fraction_of_excess": "4.98983E-7",
+   "one_tick_of_excess_fraction": "5.00000E-7"
+  }
  },
  "creator_fee_range": {
   "type": "uint64, Q0.64 (2**64 = 100%)",
@@ -809,8 +1425,7 @@
   "max_fraction": "1 - 2**-64: just under 100%, not 100%",
   "constant": "MAX_CREATOR_FEE = type(uint64).max (src/extensions/ZeroSeedLaunch.sol); no ceiling comparison in _validate",
   "schedule_rules": [
-   "finalFee <= initialFee",
-   "feeDuration > 0"
+   "finalFee <= initialFee"
   ],
   "error": "InvalidFeeSchedule() 0xf75a271a",
   "checked_in": [
@@ -837,103 +1452,118 @@
    {
     "initialFee": "18446744073709551615",
     "finalFee": "55340232221128654",
-    "feeDuration": 3600,
+    "decayRateX32": "68913100933",
     "verdict": "accept",
-    "note": "max -> 0.3% over the canonical window"
+    "note": "max -> 0.3% at the default one-day half-life"
    },
    {
     "initialFee": "18446744073709551615",
     "finalFee": "18446744073709551615",
-    "feeDuration": 1,
+    "decayRateX32": "1",
     "verdict": "accept",
-    "note": "flat at the maximum, shortest window"
+    "note": "flat at the maximum, slowest rate"
    },
    {
     "initialFee": "18446744073709551615",
     "finalFee": "18446744073709551615",
-    "feeDuration": 4294967295,
+    "decayRateX32": "18446744073709551615",
     "verdict": "accept",
-    "note": "flat at the maximum, longest window"
+    "note": "flat at the maximum, fastest rate"
    },
    {
     "initialFee": "18446744073709551615",
     "finalFee": "0",
-    "feeDuration": 4294967295,
+    "decayRateX32": "18446744073709551615",
     "verdict": "accept",
-    "note": "max -> 0 over the longest window; the decay chain is zero from 76,800 s so the rate is 0 from there"
+    "note": "max -> 0 at the fastest rate: saturated to 0 from t = 1"
    },
    {
     "initialFee": "18446744073709551615",
     "finalFee": "0",
-    "feeDuration": 1,
-    "verdict": "accept"
+    "decayRateX32": "1",
+    "verdict": "accept",
+    "note": "max -> 0 at the slowest rate: one raw unit at t = MAX_DECAY_PRODUCT (minimum tick residual), 0 from t = MAX_DECAY_PRODUCT + 1"
    },
    {
     "initialFee": "0",
     "finalFee": "0",
-    "feeDuration": 3600,
+    "decayRateX32": "68913100933",
     "verdict": "accept",
     "note": "zero schedule"
    },
    {
+    "initialFee": "922337203685477580",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "0",
+    "verdict": "accept",
+    "note": "zero rate: flat at initialFee forever"
+   },
+   {
     "initialFee": "18446744073709551614",
     "finalFee": "18446744073709551615",
-    "feeDuration": 3600,
+    "decayRateX32": "68913100933",
     "verdict": "InvalidFeeSchedule",
     "note": "final above initial at the top of the range"
    },
    {
     "initialFee": "0",
     "finalFee": "1",
-    "feeDuration": 3600,
+    "decayRateX32": "68913100933",
     "verdict": "InvalidFeeSchedule"
    },
    {
     "initialFee": "922337203685477580",
     "finalFee": "922337203685477581",
-    "feeDuration": 3600,
-    "verdict": "InvalidFeeSchedule"
-   },
-   {
-    "initialFee": "18446744073709551615",
-    "finalFee": "18446744073709551615",
-    "feeDuration": 0,
+    "decayRateX32": "0",
     "verdict": "InvalidFeeSchedule",
-    "note": "zero duration"
+    "note": "shape is checked even at a zero rate"
    },
    {
     "initialFee": "18446744073709551616",
     "finalFee": "18446744073709551615",
-    "feeDuration": 3600,
+    "decayRateX32": "68913100933",
     "verdict": "abi_decoding_failure",
     "note": "2**64 in initialFee"
    },
    {
     "initialFee": "18446744073709551615",
     "finalFee": "18446744073709551616",
-    "feeDuration": 3600,
+    "decayRateX32": "68913100933",
     "verdict": "abi_decoding_failure",
     "note": "2**64 in finalFee"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "18446744073709551616",
+    "verdict": "abi_decoding_failure",
+    "note": "2**64 in decayRateX32"
    }
   ],
   "reference_schedules": {
    "fixture": {
     "initialFee": "922337203685477580",
     "finalFee": "55340232221128654",
-    "feeDuration": 3600,
-    "note": "5% -> 0.3%: this fixture's local reference parameters"
+    "decayRateX32": "68913100933",
+    "note": "5% -> 0.3% at the default one-day half-life: this fixture's local reference parameters"
    },
    "consumer_default": {
     "initialFee": "9223372036854775808",
     "finalFee": "55340232221128654",
-    "feeDuration": 3600,
-    "note": "50% -> 0.3% over 3,600 s: the unchanged consumer-side default schedule; a contract parameter choice, not a contract constant. The ceiling is a caller-selectable bound, not a suggested default."
+    "decayRateX32": "68913100933",
+    "half_life_s": "86400.0000010436",
+    "fee_after_one_day_q64": "4639356258918185573",
+    "fee_after_one_day_pct": "25.1500006743",
+    "note": "50% -> 0.3% with a one-day half-life of the excess: the consumer-side default; a creation parameter choice, not a contract constant. About 25.15% after one day, 12.73% after two, 0.69% after seven; the floor is approached, not scheduled."
    }
-  }
+  },
+  "decay_rate_rules": [
+   "any uint64 decayRateX32 is accepted, including 0 (flat at initialFee) and 2**64 - 1 (finalFee from the first second)"
+  ]
  },
  "max_rate": {
-  "note": "Launches created through ZeroSeedLaunchPeriphery.create at initialFee = 2**64 - 1 (no storage injection), finalFee = 0.3%, 3,600 s, traded at tradingStart. Exact input: net = floor(gross / 2**64), fee = gross - net = ceil(gross * (2**64 - 1) / 2**64). Exact output: paid = calc * 2**64, fee = paid - calc. Settled by the local test lockers against locally compiled Core; not live evidence.",
-  "first_buy_note": "The first whole-quote-unit buy is identical for the max -> 0.3% / 3,600 s, max -> max / 1 s and max -> 0 / 4,294,967,295 s schedules (the rate at tradingStart is the initial rate in every case).",
+  "note": "Launches created through ZeroSeedLaunchPeriphery.create at initialFee = 2**64 - 1 (no storage injection), finalFee = 0.3%, default one-day half-life rate 68913100933, traded at tradingStart. Exact input: net = floor(gross / 2**64), fee = gross - net = ceil(gross * (2**64 - 1) / 2**64). Exact output: paid = calc * 2**64, fee = paid - calc. Settled by the local test lockers against locally compiled Core; not live evidence.",
+  "first_buy_note": "The first whole-quote-unit buy is identical for the max -> 0.3% / default rate, max -> max / rate 1 and max -> 0 / rate 2**64 - 1 schedules (the rate at tradingStart is the initial rate in every case).",
   "trades": [
    {
     "order": "t0",
@@ -1142,32 +1772,111 @@
  "abi": {
   "ZeroSeedLaunch": {
    "selectors": {
-    "previewInstallation(address,LaunchParameters)": "0x917c1163",
-    "feeAt(bytes32,uint256)": "0xe81084ec",
-    "getLaunch(bytes32)": "0x7d1d589c",
     "creatorFees((address,address,bytes32))": "0xb4ce9a2e",
-    "forwarded_2374103877(bytes32)": "0x00000001"
+    "feeAt(bytes32,uint256)": "0xe81084ec",
+    "forwarded_2374103877(bytes32)": "0x00000001",
+    "getLaunch(bytes32)": "0x7d1d589c",
+    "previewInstallation(address,(string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint64,uint64,uint64,bytes32))": "0xb665ec4d"
    },
    "topics": {
-    "LaunchCreated": "0x3a4e811187f4a8c0b72396e9d7ca13aeed62eb97a599a24af1ed99066041098f",
+    "LaunchCreated": "0x8f81ce1beb182cad759aa1c797ef027d374f535fd0c08696441c32797c7a5888",
     "LaunchSwapped": "0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d",
     "CreatorFeesClaimed": "0xf0ffdfa84530baef2e9f8bbb160545a59bfef8da319fa27aa69e4f3c8f05a41d"
+   },
+   "errors": {
+    "ControllerOnly()": "0xac8ff76a",
+    "InitializeThroughCreateOnly()": "0x028eb443",
+    "InvalidFeeSchedule()": "0xf75a271a",
+    "InvalidParameters()": "0xe5239090",
+    "InvalidTradingStart()": "0xe0839259",
+    "LaunchTokenExists(address)": "0xf68475cd",
+    "LiquidityAboveTickCap(uint128,uint128)": "0x20ea795f",
+    "MetadataTooLong()": "0x85b8e2f4",
+    "PositionsThroughCreateOnly()": "0x74a99003",
+    "SwapsThroughForwardOnly()": "0xf17f54b3",
+    "TradingNotStarted()": "0xacf75be8",
+    "UnknownForwardAction()": "0xe5c78d9a",
+    "UnknownLaunch()": "0xf6806bf8",
+    "UnsupportedQuoteToken()": "0x658d8331",
+    "ZeroLiquidity()": "0x10074548"
    }
   },
   "ZeroSeedLaunchPeriphery": {
    "selectors": {
-    "create(LaunchParameters)": "0x662af306",
-    "previewInstallation(address,LaunchParameters)": "0x917c1163",
+    "LAUNCH()": "0x096e3c3e",
     "claimFees((address,address,bytes32),address)": "0x6906b4c0",
-    "transferLaunch(bytes32,address)": "0x8b1cb36f",
+    "create((string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint64,uint64,uint64,bytes32))": "0xf91810d2",
     "launchOwner(bytes32)": "0x60ac0b66",
-    "LAUNCH()": "0x096e3c3e"
+    "previewInstallation(address,(string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint64,uint64,uint64,bytes32))": "0xb665ec4d",
+    "transferLaunch(bytes32,address)": "0x8b1cb36f"
    },
    "topics": {
     "LaunchOwnerChanged": "0x478004cf03e8c3b648608ce0259ce479c813aa671a383230ee7763fe5da22391",
     "LaunchFeesClaimed": "0x908c6b2c19765fe47aef218b4f71ea1a10a9e156d9d5c3500c3a298e01428805"
    }
   },
-  "LaunchParameters": "(string name,string symbol,uint8 decimals,uint128 supply,address quoteToken,int32 askTick,int32 upperTick,uint32 tickSpacing,uint64 tradingStart,uint32 feeDuration,uint64 initialFee,uint64 finalFee,bytes32 salt)"
+  "LaunchParameters": "(string name,string symbol,uint8 decimals,uint128 supply,address quoteToken,int32 askTick,int32 upperTick,uint32 tickSpacing,uint64 tradingStart,uint64 decayRateX32,uint64 initialFee,uint64 finalFee,bytes32 salt)",
+  "Launch": "(address controller,uint64 tradingStart,uint64 decayRateX32,uint64 initialFee,uint64 finalFee,int32 tickLower,int32 tickUpper)",
+  "changed_from_previous_revision": {
+   "previewInstallation(address,LaunchParameters)": {
+    "previous": "0x917c1163",
+    "current": "0xb665ec4d"
+   },
+   "create(LaunchParameters)": {
+    "previous": "0x662af306",
+    "current": "0xf91810d2"
+   },
+   "LaunchCreated topic": {
+    "previous": "0x3a4e811187f4a8c0b72396e9d7ca13aeed62eb97a599a24af1ed99066041098f",
+    "current": "0x8f81ce1beb182cad759aa1c797ef027d374f535fd0c08696441c32797c7a5888"
+   },
+   "LaunchParameters": "uint32 feeDuration (10th field) replaced by uint64 decayRateX32 at the same position",
+   "Launch": "uint32 feeDuration (3rd field) replaced by uint64 decayRateX32 at the same position; getLaunch(bytes32) selector unchanged, return tuple changed",
+   "unchanged": [
+    "feeAt(bytes32,uint256) 0xe81084ec",
+    "getLaunch(bytes32) 0x7d1d589c",
+    "creatorFees 0xb4ce9a2e",
+    "claimFees 0x6906b4c0",
+    "transferLaunch 0x8b1cb36f",
+    "launchOwner 0x60ac0b66",
+    "LAUNCH 0x096e3c3e",
+    "LaunchSwapped topic",
+    "CreatorFeesClaimed topic",
+    "LaunchOwnerChanged topic",
+    "LaunchFeesClaimed topic",
+    "forward tags ZERO_SEED_LAUNCH_CREATE / ZERO_SEED_LAUNCH_CLAIM_FEES",
+    "swap payload",
+    "InvalidFeeSchedule selector 0xf75a271a (now only finalFee > initialFee)"
+   ]
+  },
+  "storage_layout_Launch": {
+   "slots": 2,
+   "slot0": "controller address @0, tradingStart uint64 @20",
+   "slot1": "decayRateX32 uint64 @0, initialFee uint64 @8, finalFee uint64 @16, tickLower int32 @24, tickUpper int32 @28",
+   "source": "forge inspect ZeroSeedLaunch storage-layout"
+  }
+ },
+ "pins": {
+  "runtime": {
+   "ZeroSeedLaunch": {
+    "keccak256": "0xe08ad382497fc9825956c2b4e9ccf463014c4ed65baf50c0a59db8d7b7aedfc3",
+    "bytes": 19694
+   },
+   "ZeroSeedLaunchPeriphery": {
+    "keccak256": "0xfa8ef7dfd8f5f7454366b471449f8a771f1cef34c764022c971e9394a05f0444",
+    "bytes": 5534
+   }
+  },
+  "initcode": {
+   "ZeroSeedLaunch": {
+    "keccak256": "0xa76b1de0bfc2d72b32ce963cbc7598aa67fa60ae6b8874ec176e3630ec965f2c",
+    "bytes": 20184
+   },
+   "ZeroSeedLaunchPeriphery": {
+    "keccak256": "0x7a4c7a556485b2005cb824b11641adc4d766a5c501e3a65adaa72646654ec0c4",
+    "bytes": 5754
+   }
+  },
+  "note": "forge 1.8.3 (cae51ad), solc 0.8.33, via_ir, optimizer 9999999, evm osaka; immutables resolved with Core at the canonical address and the extension at its callpoint address; LOCAL compilation from test_bytecodeSizes, not a deployment."
  }
 }

@@ -54,8 +54,9 @@ function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
 /// @notice Mints the requested fixed supply and installs its maximum liquidity as one token-only position, with
 /// the rounding remainder sent directly to address(0), from the ask price up, with
 /// no quote seed. Buyers fund the only quote reserve. The position, its principal and the pool never change
-/// except through swaps; time only lowers the creator fee, from `initialFee` at `tradingStart` along the 600 second
-/// half-life exponential rescaled to reach `finalFee` after `feeDuration`, where it stays.
+/// except through swaps; time only lowers the creator fee, from `initialFee` at `tradingStart` towards the floor
+/// `finalFee` at the launch's own tick rate: the excess shrinks by `tickToSqrtRatio(-m)` for the `m` whole ticks
+/// accumulated since the start (see `src/math/feeDecay.sol`).
 /// @dev Forward only: creation, fee claims and swaps all arrive through `Core.forward`, so this contract is never a
 /// locker, never holds a balance and never transfers a token. The forwarding locker settles what each action leaves
 /// on its lock: nothing for creation (the new supply is minted straight into Core as the position's payment), the
@@ -121,7 +122,7 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
     function feeAt(PoolId poolId, uint256 timestamp) external view returns (uint64) {
         Launch memory launch = _launches[poolId];
         if (launch.controller == address(0)) revert UnknownLaunch();
-        return _feeAt(launch.initialFee, launch.finalFee, launch.feeDuration, launch.tradingStart, timestamp);
+        return _feeAt(launch.initialFee, launch.finalFee, launch.decayRateX32, launch.tradingStart, timestamp);
     }
 
     /// @inheritdoc IZeroSeedLaunch
@@ -178,7 +179,7 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         _launches[poolId] = Launch({
             controller: controller,
             tradingStart: parameters.tradingStart,
-            feeDuration: parameters.feeDuration,
+            decayRateX32: parameters.decayRateX32,
             initialFee: parameters.initialFee,
             finalFee: parameters.finalFee,
             tickLower: positionId.tickLower(),
@@ -243,7 +244,7 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         int128 calculated = feeIsToken1 ? update.delta1() : update.delta0();
         uint128 amount = uint128(FixedPointMathLib.abs(calculated));
         uint64 rate =
-            _feeAt(launch.initialFee, launch.finalFee, launch.feeDuration, launch.tradingStart, block.timestamp);
+            _feeAt(launch.initialFee, launch.finalFee, launch.decayRateX32, launch.tradingStart, block.timestamp);
         uint128 feeAmount = params.isExactOut() ? amountBeforeFee(amount, rate) - amount : computeFee(amount, rate);
         if (feeAmount != 0) {
             CORE.updateSavedBalances(
@@ -283,13 +284,13 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         return createSwapParameters(limit, params.amount(), params.isToken1(), params.skipAhead());
     }
 
-    function _feeAt(uint64 initialFee, uint64 finalFee, uint32 duration, uint64 start, uint256 timestamp)
+    function _feeAt(uint64 initialFee, uint64 finalFee, uint64 decayRateX32, uint64 start, uint256 timestamp)
         private
         pure
         returns (uint64)
     {
         if (timestamp <= start) return initialFee;
-        return decayedFee(initialFee, finalFee, duration, timestamp - start);
+        return decayedFee(initialFee, finalFee, decayRateX32, timestamp - start);
     }
 
     function _validate(LaunchParameters memory parameters) private view {
@@ -306,8 +307,9 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
             parameters.tickSpacing == 0 || parameters.tickSpacing > MAX_TICK_SPACING || parameters.askTick < MIN_TICK
                 || parameters.upperTick > MAX_TICK || parameters.askTick >= parameters.upperTick
         ) revert InvalidParameters();
-        // Any uint64 initial rate is accepted (see MAX_CREATOR_FEE); only the schedule shape is checked.
-        if (parameters.finalFee > parameters.initialFee || parameters.feeDuration == 0) revert InvalidFeeSchedule();
+        // Any uint64 fee rate is accepted (see MAX_CREATOR_FEE), as is any uint64 decay rate, zero included; only the
+        // schedule shape is checked.
+        if (parameters.finalFee > parameters.initialFee) revert InvalidFeeSchedule();
         if (parameters.tradingStart < block.timestamp) revert InvalidTradingStart();
     }
 

@@ -22,70 +22,35 @@ import {PoolState} from "../../src/types/poolState.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {amountBeforeFee, AmountBeforeFeeOverflow} from "../../src/math/fee.sol";
-import {decayedFee, decayQ128, Q128, DECAY_ZERO_FROM} from "../../src/math/feeDecay.sol";
+import {decayedFee, MAX_DECAY_PRODUCT} from "../../src/math/feeDecay.sol";
+import {tickToSqrtRatio, InvalidTick} from "../../src/math/ticks.sol";
+import {MAX_TICK_MAGNITUDE} from "../../src/math/constants.sol";
 import {ZeroSeedLaunchBase} from "./ZeroSeedLaunch.t.sol";
 import {MaliciousLocker} from "./ZeroSeedLaunchAdversarial.t.sol";
 import {LaunchTestRouter} from "../LaunchTestRouter.sol";
 
 uint256 constant Q64 = 1 << 64;
 
-/// @dev The previous implementation, kept here only as the benchmark baseline: a per-launch Q0.64 base raised by
-/// square-and-multiply with a floor after every multiply, computed twice per fee (endpoint and elapsed).
-function legacyPowQ64(uint64 factor, uint256 exponent) pure returns (uint256 result) {
-    result = Q64;
-    uint256 base = factor;
-    unchecked {
-        while (exponent != 0) {
-            if (exponent & 1 != 0) result = (result * base) >> 64;
-            exponent >>= 1;
-            if (exponent != 0) base = (base * base) >> 64;
-        }
-    }
-}
-
-function legacyDecayedFee(uint64 initialFee, uint64 finalFee, uint64 decayFactor, uint32 duration, uint256 elapsed)
-    pure
-    returns (uint64)
-{
-    if (elapsed == 0) return initialFee;
-    if (elapsed >= duration) return finalFee;
-    uint256 endpoint = legacyPowQ64(decayFactor, duration);
-    return finalFee
-        + uint64(uint256(initialFee - finalFee) * (legacyPowQ64(decayFactor, elapsed) - endpoint) / (Q64 - endpoint));
-}
-
 /// @dev External entry points so the isolated math can be measured as a call and pure reverts can be expected.
 contract FeeMathProbe {
-    function fixedBase(uint64 initialFee, uint64 finalFee, uint32 duration, uint256 elapsed)
+    function fee(uint64 initialFee, uint64 finalFee, uint64 decayRateX32, uint256 elapsed)
         external
         pure
         returns (uint64)
     {
-        return decayedFee(initialFee, finalFee, duration, elapsed);
+        return decayedFee(initialFee, finalFee, decayRateX32, elapsed);
     }
 
-    function legacy(uint64 initialFee, uint64 finalFee, uint64 factor, uint32 duration, uint256 elapsed)
-        external
-        pure
-        returns (uint64)
-    {
-        return legacyDecayedFee(initialFee, finalFee, factor, duration, elapsed);
+    function factor(int32 tick) external pure returns (uint256) {
+        return tickToSqrtRatio(tick).toFixed();
     }
 
-    function decay(uint256 elapsed) external pure returns (uint256) {
-        return decayQ128(elapsed);
-    }
-
-    function identity(uint64 initialFee, uint64, uint32, uint256) external pure returns (uint64) {
+    function identity(uint64 initialFee, uint64, uint64, uint256) external pure returns (uint64) {
         return initialFee;
     }
 
-    function identityLegacy(uint64 initialFee, uint64, uint64, uint32, uint256) external pure returns (uint64) {
-        return initialFee;
-    }
-
-    function beforeFee(uint128 afterFee, uint64 fee) external pure returns (uint128) {
-        return amountBeforeFee(afterFee, fee);
+    function beforeFee(uint128 afterFee, uint64 fee_) external pure returns (uint128) {
+        return amountBeforeFee(afterFee, fee_);
     }
 }
 
@@ -115,9 +80,15 @@ abstract contract FeeCurveBase is ZeroSeedLaunchBase {
     uint64 constant RATE_99 = 18262276632972456099;
     /// @dev Highest encodable rate, 2**64 - 1 = MAX_CREATOR_FEE: created like any other rate.
     uint64 constant RATE_MAX = type(uint64).max;
-    /// @dev floor(2**64 * 2**(-1/600)): the per-second factor the previous implementation was given for the
-    /// canonical window, i.e. the same 600 s half-life the table now fixes.
-    uint64 constant LEGACY_FACTOR = 18425445863997925462;
+    /// @dev floor(2**64 * 999 / 1000), the 99.9% example rate.
+    uint64 constant RATE_999 = 18428297329635842064;
+    /// @dev Example decay rates in Q32.32: exactly 2 ticks/s, 1/4 tick/s, floor(0.1 * 2**32) = 0.0999999999 ticks/s,
+    /// and the slowest and fastest encodable.
+    uint64 constant DECAY_2 = 2 << 32;
+    uint64 constant DECAY_QUARTER = 1 << 30;
+    uint64 constant DECAY_TENTH = 429496729;
+    uint64 constant DECAY_MIN = 1;
+    uint64 constant DECAY_MAX = type(uint64).max;
 
     address ROUTER;
 
@@ -146,31 +117,35 @@ abstract contract FeeCurveBase is ZeroSeedLaunchBase {
     /// @dev Creates a launch with an explicit schedule through the periphery, exactly as a user would, at any rate
     /// up to and including `RATE_MAX`. The stored record is checked against the request so that no test below can
     /// pass on a substituted rate.
-    function _createCurve(bool tokenIs0, uint8 quoteDecimals, uint32 duration, uint64 initialFee, uint64 finalFee)
+    function _createCurve(bool tokenIs0, uint8 quoteDecimals, uint64 decayRateX32, uint64 initialFee, uint64 finalFee)
         internal
         returns (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p)
     {
         _quote(tokenIs0, quoteDecimals);
-        p = _parameters(quoteDecimals == 18 ? ASK_18_18 : ASK_18_6, REQUESTED_SUPPLY, duration);
+        p = _parameters(quoteDecimals == 18 ? ASK_18_18 : ASK_18_6, REQUESTED_SUPPLY, decayRateX32);
         p.initialFee = initialFee;
         p.finalFee = finalFee;
         _bind(p, creator);
         vm.prank(creator);
         inst = periphery.create(p);
         MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
-        _assertSchedule(inst.poolKey.toPoolId(), initialFee, finalFee, duration);
+        _assertSchedule(inst.poolKey.toPoolId(), initialFee, finalFee, decayRateX32);
     }
 
-    /// @dev The record holds the requested schedule and the live rate at the start is the requested initial rate.
-    function _assertSchedule(PoolId id, uint64 initialFee, uint64 finalFee, uint32 duration) internal view {
+    /// @dev The record holds the requested schedule, the live rate at the start is the requested initial rate and the
+    /// saturated rate is the requested floor.
+    function _assertSchedule(PoolId id, uint64 initialFee, uint64 finalFee, uint64 decayRateX32) internal view {
         IZeroSeedLaunch.Launch memory l = launch.getLaunch(id);
         assertEq(l.controller, address(periphery), "controller");
         assertEq(l.initialFee, initialFee, "stored initial fee");
         assertEq(l.finalFee, finalFee, "stored final fee");
-        assertEq(l.feeDuration, duration, "stored duration");
+        assertEq(l.decayRateX32, decayRateX32, "stored decay rate");
         assertEq(l.tradingStart, START, "stored start");
         assertEq(launch.feeAt(id, START), initialFee, "rate at start");
-        assertEq(launch.feeAt(id, uint256(START) + duration), finalFee, "rate at end");
+        if (decayRateX32 != 0) {
+            assertEq(launch.feeAt(id, START + _saturationSecond(decayRateX32) + 1), finalFee, "rate after saturation");
+        }
+        assertEq(launch.feeAt(id, type(uint256).max), decayRateX32 == 0 ? initialFee : finalFee, "rate at the end");
     }
 
     /// @dev Core's transient accounting for the probe's lock, read through `tload`: the current locker word (zero
@@ -246,165 +221,216 @@ abstract contract FeeCurveBase is ZeroSeedLaunchBase {
     }
 }
 
-/// @dev Pure schedule properties of the fixed-base table: generator pins, cutoffs, monotonicity, endpoints,
-/// Python-pinned digests over every second of two windows at six rates, and the deviation from the previous
-/// variable-base implementation at the canonical parameters.
+/// @dev Pure schedule properties of the tick-rate decay: the formula against the tick helper, the saturation guard
+/// before the helper's range (including the nonzero residual at the minimum tick that the guard, not a clamp,
+/// resolves), tick stepping at fractional rates, rate and fee extremes, fuzzed bounds and monotonicity over the
+/// whole uint64 rate and uint256 elapsed domain, Python-pinned values and digests, and the one-day default.
 contract FeeCurveMathTest is FeeCurveBase {
-    /// @dev `decayQ128(2**i)` is exactly the i-th generated constant; pinned to `gen-fee-decay-table.py` output.
-    function test_table_matchesGenerator() public pure {
-        uint128[17] memory table = [
-            0xffb455641fc9685643c7b57de2b93da1,
-            0xff68c125a89b955b2cec5e897ba641e0,
-            0xfed1dba68638bfb9c0cc9d0ff56a3393,
-            0xfda51be6d4b61b1517e2bfd323d3b6c2,
-            0xfb4fc3a33b08a547ec1434c8cf4ed7fc,
-            0xf6b5827c6a03777471be5bb1aa9f8ddb,
-            0xedc15778e22f2a9d19d78ab31558f4c2,
-            0xdccf8dfad4f3c2d605c01895804ca0a4,
-            0xbe75644e08659d6e11dc660f7cac0a64,
-            0x8db276b8ab1790e9ca4fea27d409af09,
-            0x4e6e1330bc54a5572bc9b369ae03cf4a,
-            0x180743063215b2baf06deaafe56f4d0f,
-            0x02415cc5e5470d1091ac784874015d70,
-            0x0005162355b2600ea2c6e0c244fa2dc5,
-            0x00000019df4b7092f48b13d2e916f37d,
-            0x000000000000029d5f80810ef0d05f8e,
-            0x0000000000000000000000000006d63c
-        ];
-        for (uint256 i; i < table.length; i++) {
-            assertEq(decayQ128(1 << i), table[i], "constant");
+    uint256 constant Q128 = 1 << 128;
+
+    /// @dev The guard constant is `(MAX_TICK_MAGNITUDE + 1) * 2**32 - 1`: the last product whose magnitude the helper
+    /// supports. The helper itself reverts one tick beyond the maximum, so saturation must precede the call.
+    function test_guard_matchesHelperRange() public {
+        assertEq(MAX_DECAY_PRODUCT, (uint256(MAX_TICK_MAGNITUDE) + 1 << 32) - 1, "guard constant");
+        assertEq(MAX_DECAY_PRODUCT >> 32, MAX_TICK_MAGNITUDE, "last supported magnitude");
+        assertEq(MAX_TICK_MAGNITUDE, 88722835, "pinned tick range");
+        assertLt(MAX_DECAY_PRODUCT, 1 << 59, "product bound");
+        probe.factor(-int32(MAX_TICK_MAGNITUDE));
+        vm.expectRevert(abi.encodeWithSelector(InvalidTick.selector, -int32(MAX_TICK_MAGNITUDE) - 1));
+        probe.factor(-int32(MAX_TICK_MAGNITUDE) - 1);
+        // Exactly 2**128 at magnitude zero: a fee below one accumulated tick is the initial fee.
+        assertEq(probe.factor(0), Q128, "unit factor");
+        // At the minimum tick the factor is still above 2**64, so a full-span excess leaves one raw unit; the guard
+        // (not a clamp to the minimum tick) is what makes the saturated schedule return exactly `finalFee`.
+        uint256 minimum = probe.factor(-int32(MAX_TICK_MAGNITUDE));
+        assertEq(minimum, 18447191164202170524, "minimum factor (Python)");
+        assertEq((uint256(RATE_MAX) * minimum) >> 128, 1, "residual at the minimum tick");
+    }
+
+    /// @dev Last supported second `S = MAX_DECAY_PRODUCT / rate`: the fee at `S` is computed, at `S + 1` and at every
+    /// larger elapsed, `type(uint256).max` included, it is the floor, with no revert and no overflow of rate * time.
+    function test_saturation_boundaries() public pure {
+        uint64[6] memory rates = [DECAY_RATE, DECAY_RATE_600, DECAY_2, DECAY_QUARTER, DECAY_MIN, DECAY_MAX];
+        uint256[6] memory saturation = [uint256(5529597), 38399, 44361417, 354891343, MAX_DECAY_PRODUCT, 0];
+        for (uint256 i; i < rates.length; i++) {
+            uint256 s = _saturationSecond(rates[i]);
+            assertEq(s, saturation[i], "saturation second (Python)");
+            // At S the magnitude is within range (<= MAX_TICK_MAGNITUDE); at S + 1 it is beyond it.
+            assertLe((uint256(rates[i]) * s) >> 32, MAX_TICK_MAGNITUDE, "S in range");
+            assertGt((uint256(rates[i]) * (s + 1)) >> 32, MAX_TICK_MAGNITUDE, "S + 1 out of range");
+            // Full-span launch: where S lands exactly on the minimum tick the residual is one raw unit (not zero);
+            // from S + 1 the fee is exactly the floor.
+            uint64 atS = decayedFee(RATE_MAX, 0, rates[i], s);
+            if ((uint256(rates[i]) * s) >> 32 == MAX_TICK_MAGNITUDE) assertEq(atS, 1, "residual at the minimum tick");
+            else if (s == 0) assertEq(atS, RATE_MAX, "fastest rate: the initial fee at the start");
+            else assertLe(atS, 1, "residual at S");
+            assertEq(decayedFee(RATE_MAX, 0, rates[i], s + 1), 0, "saturated to zero");
+            assertEq(decayedFee(RATE_MAX, FEE_03, rates[i], s + 1), FEE_03, "saturated to the floor");
+            assertEq(decayedFee(RATE_MAX, FEE_03, rates[i], type(uint64).max), FEE_03, "uint64 elapsed");
+            assertEq(decayedFee(RATE_MAX, FEE_03, rates[i], type(uint256).max), FEE_03, "uint256 elapsed");
         }
-        assertEq(DECAY_ZERO_FROM, 1 << table.length, "cutoff is the first bit without a constant");
+        // The slowest rate accumulates its first tick after 2**32 s and reaches the minimum tick exactly at S.
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_MIN, (1 << 32) - 1), RATE_50, "below one tick");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_MIN, 1 << 32), 9223367452842311500, "one tick (Python)");
+        assertEq(decayedFee(RATE_MAX, 0, DECAY_MIN, MAX_DECAY_PRODUCT), 1, "minimum tick residual");
+        // The fastest rate saturates within the first second.
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_MAX, 0), RATE_50, "start");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_MAX, 1), FEE_03, "one second");
+        // A zero rate never moves.
+        assertEq(decayedFee(RATE_50, FEE_03, 0, 1), RATE_50, "zero rate");
+        assertEq(decayedFee(RATE_50, FEE_03, 0, type(uint256).max), RATE_50, "zero rate forever");
     }
 
-    function test_decay_boundaries() public pure {
-        assertEq(decayQ128(0), Q128, "2**0 = 1");
-        // 600 s is one half-life and 3,600 s six: the floored chain sits one unit under the exact power of two.
-        assertEq(decayQ128(600), (Q128 >> 1) - 1, "half-life");
-        assertEq(decayQ128(3600), (Q128 >> 6) - 1, "six half-lives");
-        assertEq(decayQ128(76799), 1, "last nonzero second");
-        assertEq(decayQ128(76800), 0, "600 * 128 s: 2**-128");
-        assertEq(decayQ128(DECAY_ZERO_FROM - 1), 0, "zero before the cutoff");
-        assertEq(decayQ128(DECAY_ZERO_FROM), 0, "zero at the cutoff");
-        // Without the cutoff, bits above the table would be ignored and 2**17 + 1 would alias to 1 second.
-        assertEq(decayQ128(DECAY_ZERO_FROM + 1), 0, "no aliasing above the cutoff");
-        assertEq(decayQ128(type(uint32).max), 0, "uint32 duration domain");
-        assertEq(decayQ128(type(uint256).max), 0, "whole domain");
+    /// @dev Fractional rates step the fee only when a whole tick has accumulated: 1/4 tick/s moves every 4 s, floor(0.1
+    /// * 2**32) slightly below one tick per 10 s, so its first step is at 11 s. One tick of decay is exactly
+    /// `(I - F) * (2**128 - tickToSqrtRatio(-1)) / 2**128` floored.
+    function test_tickSteps_fractionalRates() public pure {
+        uint64 oneTick = 9223367452842311500;
+        uint64 twoTicks = 9223362868832139196;
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_QUARTER, 1), RATE_50, "1/4: t=1");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_QUARTER, 3), RATE_50, "1/4: t=3");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_QUARTER, 4), oneTick, "1/4: t=4");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_QUARTER, 7), oneTick, "1/4: t=7");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_QUARTER, 8), twoTicks, "1/4: t=8");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_TENTH, 10), RATE_50, "0.1: t=10 (rate rounded down)");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_TENTH, 11), oneTick, "0.1: t=11");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_TENTH, 20), oneTick, "0.1: t=20");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_TENTH, 21), twoTicks, "0.1: t=21");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_TENTH, 31), 9223358284824258897, "0.1: t=31");
+        // The floor is applied to the remaining excess, so the step down is the ceiling of the removed part.
+        uint256 excess = RATE_50 - FEE_03;
+        assertEq(oneTick, FEE_03 + ((excess * probe_factor(-1)) >> 128), "one tick");
+        assertEq(uint256(RATE_50 - oneTick), excess - ((excess * probe_factor(-1)) >> 128), "step");
+        // The default accumulates 16 whole ticks per second (16.045...), so every second steps.
+        assertEq((uint256(DECAY_RATE) * 1) >> 32, 16, "default: ticks after 1 s");
+        assertEq((uint256(DECAY_RATE) * 86400) >> 32, 1386295, "default: ticks after one day");
+        // A one-unit excess is gone after the first whole tick at any rate; flat when there is no excess.
+        assertEq(decayedFee(FEE_03 + 1, FEE_03, DECAY_RATE, 0), FEE_03 + 1, "1 unit: start");
+        assertEq(decayedFee(FEE_03 + 1, FEE_03, DECAY_RATE, 1), FEE_03, "1 unit: one second");
+        assertEq(decayedFee(FEE_03 + 1, FEE_03, DECAY_QUARTER, 3), FEE_03 + 1, "1 unit: before the first tick");
+        assertEq(decayedFee(FEE_03 + 1, FEE_03, DECAY_QUARTER, 4), FEE_03, "1 unit: first tick");
+        assertEq(decayedFee(FEE_03, FEE_03, DECAY_RATE, 1), FEE_03, "equal fees");
+        assertEq(decayedFee(RATE_MAX, RATE_MAX, DECAY_RATE, 86400), RATE_MAX, "equal at the maximum");
+        assertEq(decayedFee(0, 0, DECAY_RATE, 1), 0, "zero fees");
     }
 
-    function testFuzz_decayMonotoneAndBounded(uint32 a, uint32 b) public pure {
-        if (a > b) (a, b) = (b, a);
-        uint256 da = decayQ128(a);
-        uint256 db = decayQ128(b);
-        assertLe(da, Q128, "<= 1");
-        assertGe(da, db, "non-increasing");
+    function probe_factor(int32 tick) internal pure returns (uint256) {
+        return tickToSqrtRatio(tick).toFixed();
     }
 
-    function testFuzz_feeBoundedMonotoneEndpoints(
-        uint64 initialFee,
-        uint64 finalFee,
-        uint32 duration,
-        uint32 a,
-        uint32 b
-    ) public pure {
-        // The whole uint64 range for the initial rate, including 2**64 - 1.
+    /// @dev The default one-day half-life, 50% -> 0.3%: about 25.15% after one day (not 0.3%), the excess halves each
+    /// day, and the floor is reached by rounding well before the helper's range ends. Pinned by the Python oracle
+    /// (150-digit Decimal) against `floor(2 * ln 2 / ln 1.000001 * 2**32 / 86400)`.
+    function test_default_oneDayHalfLife() public pure {
+        assertEq(DECAY_RATE, 68913100933, "default rate");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 1), 9223298692930386783, "1 s");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 3600), 8962377276946957658, "1 h");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 43200), 6538119400055406284, "12 h");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 86399), 4639392931174751855, "1 d - 1 s");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 86400), 4639356258918185573, "1 d: 25.1500006743%");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 86401), 4639319586954996023, "1 d + 1 s");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 172800), 2347348307759775472, "2 d: 12.725%");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 7 days), 126965494298918151, "7 d: 0.688%");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 30 days), 55340240759526319, "30 d: floor + 8538397665");
+        assertGt(decayedFee(RATE_50, FEE_03, DECAY_RATE, 30 days), FEE_03, "not at the floor after 30 days");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 5529597), FEE_03, "at the floor by rounding");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_RATE, 5529598), FEE_03, "saturated");
+        assertEq(decayedFee(RATE_MAX, 0, DECAY_RATE, 86400), 9223372287116814725, "max -> 0 after one day");
+        // The rate-2 example from the design discussion: an 8.02 day excess half-life.
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_2, 86400), 8464509350746382498, "2 ticks/s, 1 d: 45.886%");
+        assertEq(decayedFee(RATE_50, FEE_03, DECAY_2, 30 days), 741753037726786584, "2 ticks/s, 30 d: 4.021%");
+        assertEq(decayedFee(RATE_999, 0, DECAY_2, 30 days), 1379731172434914028, "99.9% -> 0, 30 d: 7.4795%");
+        assertEq(_saturationSecond(DECAY_2), 44361417, "2 ticks/s last supported second");
+    }
+
+    /// @dev Whole domain: any fees with `finalFee <= initialFee`, any rate, any two elapsed values. Never reverts,
+    /// stays in `[finalFee, initialFee]`, never increases, and is exactly `initialFee` at zero elapsed.
+    function testFuzz_feeBoundedMonotone(uint64 initialFee, uint64 finalFee, uint64 decayRateX32, uint256 a, uint256 b)
+        public
+        pure
+    {
         finalFee = uint64(bound(finalFee, 0, initialFee));
-        duration = uint32(bound(duration, 1, type(uint32).max));
         if (a > b) (a, b) = (b, a);
-        assertEq(decayedFee(initialFee, finalFee, duration, 0), initialFee, "start");
-        assertEq(decayedFee(initialFee, finalFee, duration, duration), finalFee, "end");
-        assertEq(decayedFee(initialFee, finalFee, duration, uint256(duration) + 1), finalFee, "after end");
-        uint64 fa = decayedFee(initialFee, finalFee, duration, a);
-        uint64 fb = decayedFee(initialFee, finalFee, duration, b);
+        assertEq(decayedFee(initialFee, finalFee, decayRateX32, 0), initialFee, "start");
+        uint64 fa = decayedFee(initialFee, finalFee, decayRateX32, a);
+        uint64 fb = decayedFee(initialFee, finalFee, decayRateX32, b);
         assertLe(fa, initialFee, "<= initial");
         assertGe(fa, finalFee, ">= final");
         assertGe(fa, fb, "non-increasing");
+        assertEq(
+            decayedFee(initialFee, finalFee, decayRateX32, type(uint256).max),
+            decayRateX32 == 0 ? initialFee : finalFee,
+            "end"
+        );
     }
 
-    /// @dev SHA-256 chain over every second of the window, inclusive, as pinned by the Python generator.
-    function _digest(uint64 initialFee, uint64 finalFee, uint32 duration) internal pure returns (bytes32 h) {
-        for (uint256 t; t <= duration; t++) {
-            h = sha256(bytes.concat(h, bytes8(decayedFee(initialFee, finalFee, duration, t))));
+    /// @dev The wrapper equals the formula written out: the saturation check, the floored magnitude, the helper's
+    /// compact fixed value and the floored Q128 product.
+    function testFuzz_matchesWrittenOutFormula(uint64 initialFee, uint64 finalFee, uint64 decayRateX32, uint256 elapsed)
+        public
+        pure
+    {
+        finalFee = uint64(bound(finalFee, 0, initialFee));
+        uint64 expected;
+        if (decayRateX32 == 0) {
+            expected = initialFee;
+        } else if (elapsed > MAX_DECAY_PRODUCT / decayRateX32) {
+            expected = finalFee;
+        } else {
+            uint256 m = (uint256(decayRateX32) * elapsed) >> 32;
+            uint256 factor = tickToSqrtRatio(-int32(int256(m))).toFixed();
+            expected = finalFee + uint64((uint256(initialFee - finalFee) * factor) >> 128);
+        }
+        assertEq(decayedFee(initialFee, finalFee, decayRateX32, elapsed), expected, "formula");
+    }
+
+    /// @dev Non-increasing in the rate too: a faster launch is never charging more at the same elapsed time.
+    function testFuzz_fasterRateNeverHigher(uint64 initialFee, uint64 finalFee, uint64 r1, uint64 r2, uint256 elapsed)
+        public
+        pure
+    {
+        finalFee = uint64(bound(finalFee, 0, initialFee));
+        if (r1 > r2) (r1, r2) = (r2, r1);
+        assertGe(decayedFee(initialFee, finalFee, r1, elapsed), decayedFee(initialFee, finalFee, r2, elapsed), "rate");
+    }
+
+    /// @dev SHA-256 chain over the schedule at the sampled seconds, as pinned by the Python oracle.
+    function _digest(uint64 initialFee, uint64 finalFee, uint64 decayRateX32, uint256 last, uint256 step)
+        internal
+        pure
+        returns (bytes32 h)
+    {
+        for (uint256 t; t <= last; t += step) {
+            h = sha256(bytes.concat(h, bytes8(decayedFee(initialFee, finalFee, decayRateX32, t))));
         }
     }
 
-    function test_digests_allSeconds_pinned() public pure {
-        uint64[5] memory rates = [RATE_50, RATE_75, RATE_90, RATE_99, RATE_MAX];
-        bytes32[5] memory d600 = [
-            bytes32(0xa5d0666688ef4a2dd7153351cf2871a5b84a4fbf7023bbb876bc2de8c740cf23),
-            bytes32(0x8acacd858306553f71f73f15197ccf8915d3473a6a1d3ced8876ff355fd2a865),
-            bytes32(0xd29e09a6613fbd52bccbcc0e49ba74ea7469bcea65904887c67b3115603b7109),
-            bytes32(0x47a588db69ac7fe12529c7cb9b15fe91b41494195360caa9bccb939ae8133cc4),
-            bytes32(0x7c849a9c92021aa28ed2e4a32f7c33b15c2ff8513157f822229f53e85c0f9612)
-        ];
-        bytes32[5] memory d3600 = [
-            bytes32(0x9d60494802e0ebc9136779b23c27cd4a18f13b9c68102aa343908cf6d422b3f6),
-            bytes32(0x700df4fd9f07ce4eedc4ad337d17836c478b0a2b1e752ae3cbfdf72940aae60f),
-            bytes32(0x4cfbc14801fe33bef5a1c0201d2cc03a992d446efd4bacdd3883469e8dc7d5d1),
-            bytes32(0x7988ddeb4a28991a8b29a05eb9ce25763fc27d41a25a370d19f5b1364f285bfc),
-            bytes32(0x56a3f80709937290c4323f106110af97b27ec87e019266c65bd91eb3aa316e02)
-        ];
-        for (uint256 i; i < rates.length; i++) {
-            assertEq(_digest(rates[i], FEE_03, 600), d600[i], "600 s digest");
-            assertEq(_digest(rates[i], FEE_03, 3600), d3600[i], "3,600 s digest");
-        }
-    }
-
-    /// @dev The canonical 50% -> 0.3% over 3,600 s curve against the previous implementation at the factor it was
-    /// given for that window: every second within 120 units of 2**-64 (about 6.5e-18 absolute), as the generator
-    /// reports, and the first and last seconds identical.
-    function test_canonical_vsLegacyFactor() public pure {
-        uint256 worst;
-        uint256 worstAt;
-        uint64 previous = RATE_50;
-        for (uint256 t; t <= 3600; t++) {
-            uint64 fee = decayedFee(RATE_50, FEE_03, 3600, t);
-            uint64 legacy = legacyDecayedFee(RATE_50, FEE_03, LEGACY_FACTOR, 3600, t);
-            uint256 diff = fee > legacy ? fee - legacy : legacy - fee;
-            if (diff > worst) (worst, worstAt) = (diff, t);
-            assertLe(fee, previous, "non-increasing");
-            previous = fee;
-        }
-        assertEq(worst, 120, "max deviation in Q64 units");
-        assertEq(worstAt, 756, "where");
-        assertEq(decayedFee(RATE_50, FEE_03, 3600, 0), legacyDecayedFee(RATE_50, FEE_03, LEGACY_FACTOR, 3600, 0));
-        assertEq(decayedFee(RATE_50, FEE_03, 3600, 3600), legacyDecayedFee(RATE_50, FEE_03, LEGACY_FACTOR, 3600, 3600));
-        assertEq(decayedFee(RATE_50, FEE_03, 3600, 1800), 1074010432735978337, "midpoint (Python)");
-    }
-
-    /// @dev The schedule at the maximum initial rate: exact endpoints, strictly below the maximum one second in
-    /// (the decay chain is strictly below one at t = 1), non-increasing, and the duration extremes. For the longest
-    /// window the chain reaches zero at 76,800 s, so the rate is `finalFee` from there even though the window is
-    /// still open: that is the generated table's documented cutoff, not a rate ceiling.
-    function test_maxRate_scheduleEndpointsAndDurationExtremes_pure() public pure {
-        uint64[3] memory finals = [uint64(0), FEE_03, RATE_MAX];
-        uint32[4] memory durations = [uint32(1), 2, DURATION, type(uint32).max];
-        for (uint256 f; f < finals.length; f++) {
-            for (uint256 d; d < durations.length; d++) {
-                uint64 final_ = finals[f];
-                uint32 duration = durations[d];
-                assertEq(decayedFee(RATE_MAX, final_, duration, 0), RATE_MAX, "start");
-                assertEq(decayedFee(RATE_MAX, final_, duration, duration), final_, "end");
-                assertEq(decayedFee(RATE_MAX, final_, duration, uint256(duration) + 1), final_, "after end");
-                assertEq(decayedFee(RATE_MAX, final_, duration, type(uint256).max), final_, "far after end");
-                uint64 one = decayedFee(RATE_MAX, final_, duration, 1);
-                if (final_ == RATE_MAX) assertEq(one, RATE_MAX, "flat at the maximum");
-                else if (duration > 1) assertLt(one, RATE_MAX, "strictly below the maximum one second in");
-                uint64 previous = RATE_MAX;
-                uint256[8] memory samples = [uint256(1), 2, 599, 600, 1800, 3599, 76799, 76800];
-                for (uint256 s; s < samples.length; s++) {
-                    uint64 fee = decayedFee(RATE_MAX, final_, duration, samples[s]);
-                    assertLe(fee, previous, "non-increasing");
-                    assertGe(fee, final_, ">= final");
-                    previous = fee;
-                }
-                if (duration == type(uint32).max) {
-                    assertEq(decayedFee(RATE_MAX, final_, duration, DECAY_ZERO_FROM), final_, "table cutoff");
-                    assertEq(decayedFee(RATE_MAX, final_, duration, 76800), final_, "chain zero");
-                    assertGe(decayedFee(RATE_MAX, final_, duration, 76799), final_, "last nonzero second");
-                }
-            }
-        }
+    function test_digests_pinned() public pure {
+        assertEq(
+            _digest(RATE_50, FEE_03, DECAY_RATE, 3600, 1),
+            0xc3de4d91d476acc61f73455efe7fb8c750b89de3759a0c500bbde0bdf9bcd062,
+            "default 50% -> 0.3%, every second of the first hour"
+        );
+        assertEq(
+            _digest(RATE_50, FEE_03, DECAY_RATE, 30 days, 60),
+            0xb2c022f5cbbc90cedca9834bcf64f636b97c45dee08c730ab4dbf17d8d5acc74,
+            "default 50% -> 0.3%, every minute of 30 days"
+        );
+        assertEq(
+            _digest(FEE_5, FEE_03, DECAY_RATE_600, 3600, 1),
+            0xc4db35cd45f48222463cb9a940c506599715162db6c37b01428331ff5263bdc6,
+            "600 s half-life 5% -> 0.3%, every second of the first hour"
+        );
+        assertEq(
+            _digest(RATE_999, 0, DECAY_2, 30 days, 3600),
+            0x8fdefff5fe4cfb98c43bbbf6ed6f0b9a0ae398f1f810ffea0522d5504e1321da,
+            "2 ticks/s 99.9% -> 0, every hour of 30 days"
+        );
+        assertEq(
+            _digest(RATE_MAX, 0, DECAY_QUARTER, 3600, 1),
+            0x11ff0a905ab22707579e714aba31b895ed3234788a0dab10b0daa0881a9ccf36,
+            "1/4 tick/s max -> 0, every second of the first hour"
+        );
     }
 
     function test_exactOutput_helperAndSignedBounds_pure() public {
@@ -422,25 +448,25 @@ contract FeeCurveHighRateTest is FeeCurveBase {
     using CoreLib for ICore;
 
     /// @dev Ordinary creation at `2**64 - 1`: both orders, native ETH and plain ERC-20 quotes at 18 and 6 decimals,
-    /// the maximum decaying to the reference final rate, to zero, and staying flat at the maximum, over the
-    /// canonical window and both duration extremes. The emitted `LaunchCreated` parameters, the stored record and
-    /// the live schedule all carry the exact requested rate, and a first buy settles at that rate.
+    /// the maximum decaying to the reference floor at the default rate, to zero at the fastest rate, and staying
+    /// flat at the maximum at the slowest rate. The emitted `LaunchCreated` parameters, the stored record and the
+    /// live schedule all carry the exact requested rates, and a first buy settles at the maximum.
     function test_create_maxRate_bothOrders_nativeAndERC20_schedules() public {
         bool[4] memory orders = [true, false, true, false];
         uint8[4] memory decimals = [18, 18, 6, 6];
         uint64[3] memory finals = [FEE_03, RATE_MAX, 0];
-        uint32[3] memory durations = [DURATION, 1, type(uint32).max];
+        uint64[3] memory rates = [DECAY_RATE, DECAY_MIN, DECAY_MAX];
         for (uint256 o; o < orders.length; o++) {
             for (uint256 s; s < finals.length; s++) {
                 uint256 snap = vm.snapshotState();
                 vm.recordLogs();
                 (IZeroSeedLaunch.Installation memory inst,) =
-                    _createCurve(orders[o], decimals[o], durations[s], RATE_MAX, finals[s]);
+                    _createCurve(orders[o], decimals[o], rates[s], RATE_MAX, finals[s]);
                 bool native = !orders[o] && decimals[o] == 18;
                 assertEq(inst.poolKey.token0 == NATIVE_TOKEN_ADDRESS, native, "native quote is token0");
                 assertEq(inst.poolKey.token0 == inst.token, orders[o], "order");
-                _assertCreatedEvent(inst, RATE_MAX, finals[s], durations[s]);
-                _assertLiveSchedule(inst.poolKey.toPoolId(), finals[s], durations[s]);
+                _assertCreatedEvent(inst, RATE_MAX, finals[s], rates[s]);
+                _assertLiveSchedule(inst.poolKey.toPoolId(), finals[s], rates[s]);
 
                 // A first buy of one whole quote unit at the start settles at the maximum rate.
                 vm.warp(START);
@@ -462,8 +488,8 @@ contract FeeCurveHighRateTest is FeeCurveBase {
                         _ustr(decimals[o]),
                         "|final=",
                         _label(finals[s]),
-                        "|duration=",
-                        _ustr(durations[s]),
+                        "|decayRateX32=",
+                        _ustr(rates[s]),
                         "|gross=",
                         _ustr(gross),
                         "|fee=",
@@ -482,7 +508,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         IZeroSeedLaunch.Installation memory inst,
         uint64 initialFee,
         uint64 finalFee,
-        uint32 duration
+        uint64 decayRateX32
     ) internal {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bool found;
@@ -498,33 +524,34 @@ contract FeeCurveHighRateTest is FeeCurveBase {
             assertEq(liquidity, inst.liquidity, "event liquidity");
             assertEq(emitted.initialFee, initialFee, "event initial fee");
             assertEq(emitted.finalFee, finalFee, "event final fee");
-            assertEq(emitted.feeDuration, duration, "event duration");
+            assertEq(emitted.decayRateX32, decayRateX32, "event decay rate");
             assertEq(emitted.tradingStart, START, "event start");
             found = true;
         }
         assertTrue(found, "LaunchCreated emitted");
     }
 
-    /// @dev `feeAt` over the window from the maximum: exact endpoints, strictly below the maximum one second in
-    /// unless flat or a one-second window, non-increasing and bounded, `finalFee` at and after the end.
-    function _assertLiveSchedule(PoolId id, uint64 finalFee, uint32 duration) internal view {
+    /// @dev `feeAt` from the maximum: the initial fee through the start, strictly below the maximum one second in
+    /// unless flat or still below one accumulated tick, non-increasing and bounded, `finalFee` once saturated.
+    function _assertLiveSchedule(PoolId id, uint64 finalFee, uint64 decayRateX32) internal view {
         assertEq(launch.feeAt(id, START - 1), RATE_MAX, "before start");
         assertEq(launch.feeAt(id, START), RATE_MAX, "at start");
         uint64 one = launch.feeAt(id, START + 1);
         if (finalFee == RATE_MAX) assertEq(one, RATE_MAX, "flat");
-        else if (duration == 1) assertEq(one, finalFee, "one-second window");
+        else if (decayRateX32 == DECAY_MAX) assertEq(one, finalFee, "fastest rate saturates in one second");
+        else if (decayRateX32 < 1 << 32) assertEq(one, RATE_MAX, "below one tick after one second");
         else assertLt(one, RATE_MAX, "decays from the first second");
         uint64 previous = RATE_MAX;
-        uint256[6] memory samples = [uint256(1), 600, 1800, 3599, 3600, 76800];
+        uint256[6] memory samples = [uint256(1), 600, 1800, 3600, 86400, 30 days];
         for (uint256 s; s < samples.length; s++) {
             uint64 fee = launch.feeAt(id, START + samples[s]);
             assertLe(fee, previous, "non-increasing");
             assertGe(fee, finalFee, ">= final");
             previous = fee;
         }
-        assertEq(launch.feeAt(id, uint256(START) + duration), finalFee, "at end");
-        assertEq(launch.feeAt(id, uint256(START) + duration + 1), finalFee, "after end");
-        assertEq(launch.feeAt(id, type(uint256).max), finalFee, "far after end");
+        uint256 saturation = _saturationSecond(decayRateX32);
+        assertEq(launch.feeAt(id, START + saturation + 1), finalFee, "saturated");
+        assertEq(launch.feeAt(id, type(uint256).max), finalFee, "far after saturation");
     }
 
     /// @dev Exactly 100% is 2**64: not a uint64. Calldata carrying that word in either fee field fails ABI decoding
@@ -534,7 +561,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
     function test_create_exactHundredPercentRefused_maxAccepted() public {
         assertEq(RATE_MAX, MAX_CREATOR_FEE, "the ceiling is the type maximum");
         _quote(true, 18);
-        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DURATION);
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         p.initialFee = RATE_MAX;
         p.finalFee = RATE_MAX;
         _bind(p, creator);
@@ -581,7 +608,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         (bool okMax, bytes memory result) = address(periphery).call(create);
         assertTrue(okMax, "2**64 - 1 accepted");
         IZeroSeedLaunch.Installation memory inst = abi.decode(result, (IZeroSeedLaunch.Installation));
-        _assertSchedule(inst.poolKey.toPoolId(), RATE_MAX, RATE_MAX, DURATION);
+        _assertSchedule(inst.poolKey.toPoolId(), RATE_MAX, RATE_MAX, DECAY_RATE);
         // And the same payload forwarded by an arbitrary locker creates that locker's own launch at the maximum.
         bytes memory forwarded = raw.forwardRaw(address(launch), payload);
         IZeroSeedLaunch.Installation memory rawInst = abi.decode(forwarded, (IZeroSeedLaunch.Installation));
@@ -619,7 +646,8 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         for (uint256 r; r < rates.length; r++) {
             uint256 snap = vm.snapshotState();
             uint64 rate = rates[r];
-            (IZeroSeedLaunch.Installation memory inst,) = _createCurve(tokenIs0, quoteDecimals, DURATION, rate, FEE_03);
+            (IZeroSeedLaunch.Installation memory inst,) =
+                _createCurve(tokenIs0, quoteDecimals, DECAY_RATE, rate, FEE_03);
             PoolKey memory key = inst.poolKey;
             address token = inst.token;
             string memory tag = string.concat(
@@ -840,7 +868,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
     }
 
     function _exactOutBounds(bool tokenIs0) internal {
-        (IZeroSeedLaunch.Installation memory inst,) = _createCurve(tokenIs0, 18, DURATION, RATE_MAX, FEE_03);
+        (IZeroSeedLaunch.Installation memory inst,) = _createCurve(tokenIs0, 18, DECAY_RATE, RATE_MAX, FEE_03);
         PoolKey memory key = inst.poolKey;
         assertEq(key.token0 == NATIVE_TOKEN_ADDRESS, !tokenIs0, "native order");
         vm.warp(START);
@@ -911,7 +939,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
     /// order): minimum output, deadline, partial fill and insufficient balance.
     function test_router_maxRate_minOut_deadline_partial_balance() public {
         ROUTER = address(new LaunchTestRouter(ICore(CORE)));
-        (IZeroSeedLaunch.Installation memory inst,) = _createCurve(true, 18, DURATION, RATE_MAX, FEE_03);
+        (IZeroSeedLaunch.Installation memory inst,) = _createCurve(true, 18, DECAY_RATE, RATE_MAX, FEE_03);
         ERC20(activeQuote).approve(ROUTER, type(uint256).max);
         ERC20(inst.token).approve(ROUTER, type(uint256).max);
         PoolKey memory key = inst.poolKey;
@@ -960,7 +988,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
     /// sell pays ETH out net of the maximum-rate quote fee, and the partial fill beyond inventory refunds the rest.
     function test_router_maxRate_native_value_refund_minOut_partial() public {
         ROUTER = address(new LaunchTestRouter(ICore(CORE)));
-        (IZeroSeedLaunch.Installation memory inst,) = _createCurve(false, 18, DURATION, RATE_MAX, FEE_03);
+        (IZeroSeedLaunch.Installation memory inst,) = _createCurve(false, 18, DECAY_RATE, RATE_MAX, FEE_03);
         assertEq(activeQuote, NATIVE_TOKEN_ADDRESS, "native quote");
         ERC20(inst.token).approve(ROUTER, type(uint256).max);
         PoolKey memory key = inst.poolKey;
@@ -1052,7 +1080,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         for (uint256 o; o < 2; o++) {
             uint256 snap = vm.snapshotState();
             bool tokenIs0 = o == 0;
-            (IZeroSeedLaunch.Installation memory inst,) = _createCurve(tokenIs0, 18, DURATION, RATE_MAX, FEE_03);
+            (IZeroSeedLaunch.Installation memory inst,) = _createCurve(tokenIs0, 18, DECAY_RATE, RATE_MAX, FEE_03);
             PoolKey memory key = inst.poolKey;
             vm.warp(START);
             vm.recordLogs();
@@ -1102,8 +1130,8 @@ contract FeeCurveHighRateTest is FeeCurveBase {
     }
 }
 
-/// @dev Gas and bytecode: the fixed-base table against the previous variable-base exponentiation, isolated and
-/// inside forwarded swaps at the window's endpoints and interior, both token orders including native settlement.
+/// @dev Gas and bytecode: the isolated tick-rate math and forwarded swaps across the schedule, both token orders
+/// including native settlement.
 contract FeeCurveGasTest is FeeCurveBase {
     using CoreLib for ICore;
 
@@ -1116,41 +1144,17 @@ contract FeeCurveGasTest is FeeCurveBase {
     }
 
     /// @dev Isolated math as a warm external call, minus the identical identity call, so only the arithmetic
-    /// remains.
-    function test_gas_isolatedMath_tableVersusLegacy() public {
-        uint256[6] memory elapsed = [uint256(1), 7, 600, 1800, 3599, 4095];
-        // Warm the probe's code and the call targets before measuring.
-        _measure(abi.encodeCall(probe.identity, (RATE_50, FEE_03, DURATION, 1800)));
-        _measure(abi.encodeCall(probe.identityLegacy, (RATE_50, FEE_03, LEGACY_FACTOR, DURATION, 1800)));
-        _measure(abi.encodeCall(probe.fixedBase, (RATE_50, FEE_03, DURATION, 1800)));
-        _measure(abi.encodeCall(probe.legacy, (RATE_50, FEE_03, LEGACY_FACTOR, DURATION, 1800)));
-        uint256 identity = _measure(abi.encodeCall(probe.identity, (RATE_50, FEE_03, DURATION, 1800)));
-        uint256 identityLegacy =
-            _measure(abi.encodeCall(probe.identityLegacy, (RATE_50, FEE_03, LEGACY_FACTOR, DURATION, 1800)));
+    /// remains: at the start (no helper walk), across the first day, at the rounding floor and once saturated.
+    function test_gas_isolatedMath() public {
+        uint256[7] memory elapsed = [uint256(0), 1, 3600, 86400, 30 days, 5529597, 5529598];
+        _measure(abi.encodeCall(probe.identity, (RATE_50, FEE_03, DECAY_RATE, 86400)));
+        _measure(abi.encodeCall(probe.fee, (RATE_50, FEE_03, DECAY_RATE, 86400)));
+        uint256 identity = _measure(abi.encodeCall(probe.identity, (RATE_50, FEE_03, DECAY_RATE, 86400)));
         for (uint256 i; i < elapsed.length; i++) {
-            uint256 table = _measure(abi.encodeCall(probe.fixedBase, (RATE_50, FEE_03, DURATION, elapsed[i])));
-            uint256 legacy =
-                _measure(abi.encodeCall(probe.legacy, (RATE_50, FEE_03, LEGACY_FACTOR, DURATION, elapsed[i])));
-            assertGe(table, identity, "warm");
-            assertGe(legacy, identityLegacy, "warm");
-            // At or after the window both return `finalFee` before any arithmetic.
-            if (elapsed[i] < DURATION) {
-                assertLt(table - identity, legacy - identityLegacy, "table cheaper than square-and-multiply");
-            }
-            console2.log(
-                string.concat(
-                    "GAS|feeMath|elapsed=",
-                    _ustr(elapsed[i]),
-                    "|table=",
-                    _ustr(table - identity),
-                    "|legacy=",
-                    _ustr(legacy - identityLegacy)
-                )
-            );
+            uint256 used = _measure(abi.encodeCall(probe.fee, (RATE_50, FEE_03, DECAY_RATE, elapsed[i])));
+            assertGe(used, identity, "warm");
+            console2.log(string.concat("GAS|feeMath|elapsed=", _ustr(elapsed[i]), "|tickRate=", _ustr(used - identity)));
         }
-        _measure(abi.encodeCall(probe.decay, (3599)));
-        uint256 decayOnly = _measure(abi.encodeCall(probe.decay, (3599)));
-        console2.log(string.concat("GAS|decayQ128(3599)|warmCall=", _ustr(decayOnly)));
     }
 
     function test_bytecodeSizes() public view {
@@ -1197,9 +1201,9 @@ contract FeeCurveGasTest is FeeCurveBase {
         for (uint256 o; o < 2; o++) {
             uint256 snap = vm.snapshotState();
             bool tokenIs0 = o == 0;
-            (IZeroSeedLaunch.Installation memory inst,) = _createCurve(tokenIs0, 18, DURATION, RATE_50, FEE_03);
+            (IZeroSeedLaunch.Installation memory inst,) = _createCurve(tokenIs0, 18, DECAY_RATE, RATE_50, FEE_03);
             string memory tag = string.concat("GAS|swap|order=", tokenIs0 ? "t0" : "t1(native)");
-            uint256[4] memory at = [uint256(0), 1, 1800, 3600];
+            uint256[5] memory at = [uint256(0), 1, 3600, 86400, 5529598];
             vm.warp(START);
             _buy(inst.poolKey, inst.token, 1e18, false); // warm the pool and the ledger
             for (uint256 i; i < at.length; i++) {

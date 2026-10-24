@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Independent integer/Decimal checks of the local vectors; no Solidity or network.
 Run: python3 test/vectors/zero-seed-launch-reference.py [--export DIR]
---export writes every second of both windows at all rates as JSON rows
-[initial, final, duration, elapsed, fee] (all decimal strings) for other implementations.
+--export writes the sampled fee schedules behind every pinned digest as JSON rows
+[initial, final, decayRateX32, elapsed, fee] (all decimal strings) for other implementations.
 Numeric producer rules are a CTO-freeze proposal, not live parameters.
 """
 import hashlib
@@ -30,115 +30,145 @@ def check(condition):
 
 
 Q128 = 1 << 128
-TABLE = [int(c) for c in v["fixture"]["fee_decay_table_q128"]]
-ZERO_FROM = int(v["fixture"]["fee_decay_zero_from_s"])
+Q32 = 1 << 32
+MAX_TICK_MAGNITUDE = 88722835
+MAX_DECAY_PRODUCT = ((MAX_TICK_MAGNITUDE + 1) << 32) - 1
+U64_MAX = Q - 1
 
-
-def decay(elapsed):
-    """Fixed-base chain in Q128: one constant per set bit of the integer exponent, floor after every multiply; the
-    operation order is normative. Zero at and above ZERO_FROM, where the table has no constant."""
-    if elapsed >= ZERO_FROM:
-        return 0
-    result = Q128
-    for bit, constant in enumerate(TABLE):
-        if elapsed >> bit & 1:
-            result = result * constant // Q128
-    return result
-
-
-def fee_at(initial, final, duration, elapsed):
-    if elapsed <= 0:
-        return initial
-    if elapsed >= duration:
-        return final
-    end = decay(duration)
-    return final + (initial - final) * (decay(elapsed) - end) // (Q128 - end)
-
-
-def linear_at(initial, final, duration, elapsed):
-    if elapsed <= 0:
-        return initial
-    if elapsed >= duration:
-        return final
-    return initial - (initial - final) * elapsed // duration
-
-
-# Table provenance: round(2**128 * 2**(-2**bit/600)) at 250-digit precision, nonzero constants only.
-getcontext().prec = 250
-for bit, constant in enumerate(TABLE):
-    exact = Decimal(Q128) * Decimal(2) ** (-(Decimal(2) ** bit) / 600)
-    check(int(exact.to_integral_value(rounding="ROUND_HALF_EVEN")) == constant)
-check(len(TABLE) == 17 and ZERO_FROM == 1 << len(TABLE))
-check(int((Decimal(Q128) * Decimal(2) ** (-(Decimal(2) ** len(TABLE)) / 600)).to_integral_value()) == 0)
-getcontext().prec = 80
-check(decay(0) == Q128 and decay(600) == (Q128 >> 1) - 1 and decay(3600) == (Q128 >> 6) - 1)
-check(decay(int(v["fixture"]["fee_decay_first_zero_s"]) - 1) == 1 and decay(int(v["fixture"]["fee_decay_first_zero_s"])) == 0)
-check(decay(ZERO_FROM + 1) == 0)
-# Exhaustive: the chain never increases over its whole nonzero domain, so every fee schedule is non-increasing.
-previous = Q128
-for t in range(1, ZERO_FROM + 1):
-    value = decay(t)
-    check(value <= previous)
-    previous = value
-
-for r in v["fee"]:
-    t, dur = int(r["t_minus_start"]), int(r["duration"])
-    check(int(r["fee_q64"]) == fee_at(i, f, dur, t))
-
-curve = v["fee_curve"]
-rates = {k: int(x) for k, x in curve["rates_q64"].items()}
-final = int(curve["final_fee_q64"])
-check(final == f)
-export = []
-for dur, digests in curve["all_second_digests_sha256"].items():
-    dur = int(dur)
-    for label, rate in rates.items():
-        digest = bytes(32)
-        previous = rate
-        for t in range(dur + 1):
-            fee = fee_at(rate, final, dur, t)
-            check(final <= fee <= previous)
-            previous = fee
-            digest = hashlib.sha256(digest + fee.to_bytes(8, "big")).digest()
-            export.append([str(rate), str(final), str(dur), str(t), str(fee)])
-        check(fee_at(rate, final, dur, 0) == rate and fee == final)
-        check(digest.hex() == digests[label])
-
-
-def legacy_pow(factor, exponent):
-    result = Q
-    while exponent:
-        if exponent & 1:
-            result = result * factor // Q
-        exponent >>= 1
-        if exponent:
-            factor = factor * factor // Q
-    return result
-
-
-def legacy_fee(initial, final, factor, duration, elapsed):
-    if elapsed <= 0:
-        return initial
-    if elapsed >= duration:
-        return final
-    end = legacy_pow(factor, duration)
-    return final + (initial - final) * (legacy_pow(factor, elapsed) - end) // (Q - end)
-
-
-legacy = curve["legacy_comparison"]
-legacy_factor = int(legacy["legacy_factor_q64"])
-for dur, worst in legacy["max_abs_diff_q64_by_duration"].items():
-    dur = int(dur)
-    check(max(abs(fee_at(rates["50"], final, dur, t) - legacy_fee(rates["50"], final, legacy_factor, dur, t))
-              for t in range(dur + 1)) == worst)
-
-# Exact installation oracle (tick table port, Core's rounded debits, direct inverse): every creation row installs
-# the largest liquidity its requested supply pays for, in both orders.
 spec = importlib.util.spec_from_file_location(
     "installation", Path(__file__).with_name("zero-seed-launch-installation.py")
 )
 installation = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(installation)
+
+
+def factor(magnitude):
+    """toFixed(tickToSqrtRatio(-magnitude)): the exact port of src/math/ticks.sol in the installation oracle."""
+    return installation.to_fixed(installation.tick_to_sqrt_ratio(-magnitude))
+
+
+def fee_at(initial, final, rate_x32, elapsed):
+    """src/math/feeDecay.sol decayedFee with the timestamp clamp of ZeroSeedLaunch._feeAt; the operation order is
+    normative: saturation check before the helper, floor of the magnitude, floor of the Q128 product."""
+    assert 0 <= final <= initial <= U64_MAX and 0 <= rate_x32 <= U64_MAX
+    if elapsed <= 0 or rate_x32 == 0:
+        return initial
+    if elapsed > MAX_DECAY_PRODUCT // rate_x32:
+        return final
+    magnitude = (rate_x32 * elapsed) >> 32
+    return final + (((initial - final) * factor(magnitude)) >> 128)
+
+
+def ideal_fee(initial, final, rate_x32, elapsed):
+    """Real-number F + (I - F) * 1.000001**(-(rate / 2**32) * t / 2) with the exact rational rate."""
+    return Decimal(final) + Decimal(initial - final) * Decimal("1.000001") ** (-(Decimal(rate_x32) / Q32) * elapsed / 2)
+
+
+getcontext().prec = 150
+HALF_LIFE_TICKS = 2 * Decimal(2).ln() / Decimal("1.000001").ln()
+
+
+def rate_for_half_life(seconds):
+    return int((HALF_LIFE_TICKS / seconds * Q32).to_integral_value(rounding="ROUND_FLOOR"))
+
+
+def half_life_of(rate_x32):
+    return HALF_LIFE_TICKS * Q32 / rate_x32
+
+
+fx = v["fixture"]
+DEFAULT_RATE = int(fx["fee_decay_rate_x32_default"])
+check(DEFAULT_RATE == 68913100933 == rate_for_half_life(86400))
+check(int(fx["fee_decay_rates_x32"][1]) == rate_for_half_life(600))
+check(abs(half_life_of(DEFAULT_RATE) - 86400) < Decimal("0.0000011"))
+check(Decimal(DEFAULT_RATE) / Q32 == Decimal("16.04508164641447365283966064453125"))
+check(HALF_LIFE_TICKS.quantize(Decimal("1e-8")) == Decimal("1386295.05426696"))
+check((DEFAULT_RATE * 86400) >> 32 == 1386295)
+check(MAX_DECAY_PRODUCT == 381061679028371455 and MAX_DECAY_PRODUCT < 1 << 59)
+# The helper's range: MAX_TICK_MAGNITUDE is the last magnitude; one beyond is InvalidTick in Solidity.
+check(factor(0) == Q128 and factor(MAX_TICK_MAGNITUDE) == 18447191164202170524 > Q)
+check(((U64_MAX * factor(MAX_TICK_MAGNITUDE)) >> 128) == 1)
+try:
+    factor(MAX_TICK_MAGNITUDE + 1)
+    check(False)
+except AssertionError:
+    check(True)
+getcontext().prec = 80
+
+for r in v["fee"]:
+    t, rate = int(r["t_minus_start"]), int(r["decayRateX32"])
+    check(int(r["fee_q64"]) == fee_at(i, f, rate, t))
+    if r["tick_magnitude"] is not None:
+        check(int(r["tick_magnitude"]) == (rate * t) >> 32 <= MAX_TICK_MAGNITUDE)
+    else:
+        check(t <= 0 or t > MAX_DECAY_PRODUCT // rate)
+
+curve = v["fee_curve"]
+rates = {k: int(x) for k, x in curve["rates_q64"].items()}
+final = int(curve["final_fee_q64"])
+check(final == f)
+for label, rate in curve["decay_rates_x32"].items():
+    rate = int(rate)
+    if label in curve["saturation_second"]:
+        s = int(curve["saturation_second"][label])
+        check(s == MAX_DECAY_PRODUCT // rate)
+        check((rate * s) >> 32 <= MAX_TICK_MAGNITUDE < (rate * (s + 1)) >> 32)
+        check(fee_at(U64_MAX, 0, rate, s + 1) == 0 and fee_at(U64_MAX, f, rate, s + 1) == f)
+        check(fee_at(U64_MAX, f, rate, U64_MAX) == f and fee_at(U64_MAX, f, rate, (1 << 256) - 1) == f)
+        if (rate * s) >> 32 == MAX_TICK_MAGNITUDE:
+            check(fee_at(U64_MAX, 0, rate, s) == 1)
+export = []
+for d in curve["digests_sha256"]:
+    initial, fin, rate = int(d["initialFee"]), int(d["finalFee"]), int(d["decayRateX32"])
+    digest = bytes(32)
+    previous = initial
+    for t in range(0, int(d["last"]) + 1, int(d["step"])):
+        fee = fee_at(initial, fin, rate, t)
+        check(fin <= fee <= previous)
+        previous = fee
+        digest = hashlib.sha256(digest + fee.to_bytes(8, "big")).digest()
+        export.append([str(initial), str(fin), str(rate), str(t), str(fee)])
+    check(fee_at(initial, fin, rate, 0) == initial)
+    check(digest.hex() == d["digest"])
+for name, rows in curve["tables"].items():
+    initial = {"default_one_day_50_to_0.3": rates["50"], "two_ticks_per_second_50_to_0.3": rates["50"],
+               "two_ticks_per_second_99.9_to_0": rates["99.9"], "default_one_day_max_to_0": U64_MAX,
+               "min_rate_max_to_0": U64_MAX}[name]
+    fin = f if name.endswith("0.3") else 0
+    rate = {"default": DEFAULT_RATE, "two_tic": 2 << 32, "min_rat": 1}[name[:7]]
+    for r in rows:
+        t = int(r["t"])
+        check(int(r["fee_q64"]) == fee_at(initial, fin, rate, t))
+        check(Decimal(r["pct"]) == (Decimal(int(r["fee_q64"])) / Q * 100).quantize(Decimal("1e-10")))
+        if "tick_magnitude" in r:
+            check(int(r["tick_magnitude"]) == (rate * t) >> 32)
+for step in curve["tick_steps"]:
+    rate = int(step["decayRateX32"])
+    initial, fin = (f + 1, f) if "one-unit" in step["note"] else (rates["50"], f)
+    for r in step["rows"]:
+        check(int(r["fee_q64"]) == fee_at(initial, fin, rate, int(r["t"])))
+# Design-discussion figures at 2 ticks/s and the default after one day.
+check(fee_at(rates["50"], f, 2 << 32, 86400) == 8464509350746382498)
+check(fee_at(rates["50"], f, 2 << 32, 30 * 86400) == 741753037726786584)
+check(fee_at(rates["99.9"], 0, 2 << 32, 30 * 86400) == 1379731172434914028)
+check(MAX_DECAY_PRODUCT // (2 << 32) == 44361417)
+check(fee_at(rates["50"], f, DEFAULT_RATE, 86400) == 4639356258918185573)
+check((Decimal(4639356258918185573) / Q * 100).quantize(Decimal("1e-10")) == Decimal("25.1500006743"))
+# Error against the real-number formula: below one whole tick of the excess (5e-7), the quantization of m.
+getcontext().prec = 150
+bounds = curve["oracle_error_bounds"]
+worst = Decimal(0)
+worst_at = None
+for t in list(range(0, 3601)) + list(range(3600, 30 * 86400 + 1, 600)):
+    err = abs(Decimal(fee_at(rates["50"], f, DEFAULT_RATE, t)) - ideal_fee(rates["50"], f, DEFAULT_RATE, t))
+    if err > worst:
+        worst, worst_at = err, t
+check(worst.quantize(Decimal("0.001")) == Decimal(bounds["max_abs_q64"]) and worst_at == int(bounds["at_t"]))
+check(worst / Decimal(rates["50"] - f) < 1 - Decimal("1.000001") ** Decimal("-0.5"))
+getcontext().prec = 80
+
+# Exact installation oracle (tick table port, Core's rounded debits, direct inverse): every creation row installs
+# the largest liquidity its requested supply pays for, in both orders.
 for r in v["create"]:
     exact = installation.installation(
         r["order"] == "t0", int(r["ask"]), int(r["upper"]), v["fixture"]["tick_spacing"], int(r["requested"])
@@ -175,39 +205,41 @@ for r in v["trade"]:
 
 # Creator fee range: the whole uint64, no ceiling below the type; 2**64 is not encodable; schedule shape only.
 fee_range = v["creator_fee_range"]
-U64_MAX = Q - 1
 check(int(fee_range["max_q64"]) == U64_MAX and int(fee_range["min_q64"]) == 0)
 check(int(v["fixture"]["max_creator_fee_q64"]) == U64_MAX)
 check(int(fee_range["unencodable"]["value"]) == Q)
 check(int(fee_range["unencodable"]["dirty_high_bits"]["value"]) == Q | U64_MAX)
 
 
-def fee_verdict(initial, final, duration):
-    if initial > U64_MAX or final > U64_MAX:
+def fee_verdict(initial, final, rate_x32):
+    if initial > U64_MAX or final > U64_MAX or rate_x32 > U64_MAX:
         return "abi_decoding_failure"
-    if final > initial or duration == 0:
+    if final > initial:
         return "InvalidFeeSchedule"
     return "accept"
 
 
 for r in fee_range["vectors"]:
-    check(fee_verdict(int(r["initialFee"]), int(r["finalFee"]), int(r["feeDuration"])) == r["verdict"])
+    check(fee_verdict(int(r["initialFee"]), int(r["finalFee"]), int(r["decayRateX32"])) == r["verdict"])
     if r["verdict"] == "accept":
-        initial, final, duration = int(r["initialFee"]), int(r["finalFee"]), int(r["feeDuration"])
-        check(fee_at(initial, final, duration, 0) == initial and fee_at(initial, final, duration, duration) == final)
+        initial, final, rate = int(r["initialFee"]), int(r["finalFee"]), int(r["decayRateX32"])
+        check(fee_at(initial, final, rate, 0) == initial)
+        check(fee_at(initial, final, rate, (1 << 256) - 1) == (initial if rate == 0 else final))
         previous = initial
-        for t in (1, 2, 599, 600, 1800, 3599, 3600, 76799, 76800, ZERO_FROM, duration, duration + 1):
-            fee = fee_at(initial, final, duration, t)
+        for t in (1, 2, 599, 600, 1800, 3600, 86400, 30 * 86400, MAX_DECAY_PRODUCT, MAX_DECAY_PRODUCT + 1, U64_MAX):
+            fee = fee_at(initial, final, rate, t)
             check(final <= fee <= previous)
             previous = fee
-        if duration > 1 and final < initial:
-            check(fee_at(initial, final, duration, 1) < initial)
-        if duration == 0xFFFFFFFF:
-            check(fee_at(initial, final, duration, 76800) == final)
+        if rate >= Q32 and final < initial:
+            check(fee_at(initial, final, rate, 1) < initial)
+        if rate == U64_MAX:
+            check(fee_at(initial, final, rate, 1) == final)
 for label in ("fixture", "consumer_default"):
-    s = fee_range["reference_schedules"][label]
-    check(fee_verdict(int(s["initialFee"]), int(s["finalFee"]), int(s["feeDuration"])) == "accept")
-check(int(fee_range["reference_schedules"]["consumer_default"]["initialFee"]) == Q // 2)
+    s_ = fee_range["reference_schedules"][label]
+    check(fee_verdict(int(s_["initialFee"]), int(s_["finalFee"]), int(s_["decayRateX32"])) == "accept")
+    check(int(s_["decayRateX32"]) == DEFAULT_RATE)
+cd = fee_range["reference_schedules"]["consumer_default"]
+check(int(cd["initialFee"]) == Q // 2 and int(cd["fee_after_one_day_q64"]) == fee_at(Q // 2, f, DEFAULT_RATE, 86400))
 check(int(fee_range["reference_schedules"]["fixture"]["initialFee"]) == i)
 check(fee_range["removed"]["selector"] == "0xcd4e6167")
 check(int(curve["rates_q64"]["max"]) == U64_MAX)
@@ -261,7 +293,7 @@ check(late["previewed_at"] <= late["tradingStart"] < late["mined_at"])
 if len(sys.argv) == 3 and sys.argv[1] == "--export":
     out = Path(sys.argv[2])
     out.mkdir(parents=True, exist_ok=True)
-    (out / "fee-curve-all-seconds.json").write_text(json.dumps(export) + "\n")
-    print(f"exported {len(export)} rows to {out / 'fee-curve-all-seconds.json'}")
+    (out / "fee-curve-samples.json").write_text(json.dumps(export) + "\n")
+    print(f"exported {len(export)} rows to {out / 'fee-curve-samples.json'}")
 
-print(f"PASS: {checks} independent table, fee, liquidity, dust, start/expiry checks")
+print(f"PASS: {checks} independent tick-rate fee, liquidity, dust, start/expiry checks")

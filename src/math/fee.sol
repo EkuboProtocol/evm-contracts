@@ -14,9 +14,9 @@ error AmountBeforeFeeOverflow();
 // Returns the amount before the fee is applied, which is the amount minus the fee, rounded up
 function amountBeforeFee(uint128 afterFee, uint16 fee) pure returns (uint128 result) {
     assembly ("memory-safe") {
-        let v := shl(16, afterFee)
         let d := sub(0x10000, fee)
-        result := add(iszero(iszero(mod(v, d))), div(v, d))
+        // d is in [1, 2**16]; the numerator is at most 2**144 - 1.
+        result := div(add(shl(16, afterFee), sub(0xffff, fee)), d)
         if shr(128, result) {
             mstore(0, 0x0d88f526)
             revert(0x1c, 0x04)

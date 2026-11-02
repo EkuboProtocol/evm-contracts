@@ -99,7 +99,7 @@ contract FreeLPAuditTest is FullTest {
     }
 
     function test_auditExplicitRefundReturnsNativeSurplus() public {
-        PoolKey memory key = createETHPool(0, 0, 10);
+        PoolKey memory key = createETHPool(0, 0, 1);
         uint256 beforeBalance = address(this).balance;
         (,, uint128 spent,) = lp.createPosition{value: 2 ether}(key, 1000, 2000, 1 ether, 0, 1);
         lp.refundNativeToken();
@@ -112,7 +112,7 @@ contract FreeLPAuditTest is FullTest {
 
     function _nativeToken(bool mint) private returns (AuditNativeToken token) {
         token = new AuditNativeToken(address(this));
-        PoolKey memory key = PoolKey(address(0), address(token), createConcentratedPoolConfig(0, 10, address(0)));
+        PoolKey memory key = PoolKey(address(0), address(token), createConcentratedPoolConfig(0, 1, address(0), 0));
         core.initializePool(key, 0);
         token.approve(address(lp), type(uint256).max);
         token.arm(lp, key, mint);
@@ -140,7 +140,7 @@ contract FreeLPAuditTest is FullTest {
         vm.etch(target, address(new AuditDepositExtension()).code);
         AuditDepositExtension extension = AuditDepositExtension(target);
         extension.register(core);
-        PoolKey memory key = createPool(0, 0, 10, target);
+        PoolKey memory key = createPool(0, 0, 1, target);
         (uint256 id, uint128 initial,,) = lp.createPosition(key, -1000, 1000, 1 ether, 1 ether, 1);
         lp.setApprovalForAll(target, true);
         extension.arm(lp, address(this), id, mode);
@@ -152,7 +152,7 @@ contract FreeLPAuditTest is FullTest {
 
     function test_auditNestedCallerCanDepositItsOwnNativeFunds() public {
         AuditNativeToken token = new AuditNativeToken(address(this));
-        PoolKey memory key = PoolKey(address(0), address(token), createConcentratedPoolConfig(0, 10, address(0)));
+        PoolKey memory key = PoolKey(address(0), address(token), createConcentratedPoolConfig(0, 1, address(0), 0));
         core.initializePool(key, 0);
         token.approve(address(lp), type(uint256).max);
         token.arm(lp, key, true);
@@ -175,7 +175,7 @@ contract FreeLPAuditTest is FullTest {
     }
 
     function test_auditNativeDepositMayLeaveLeftoversWithoutRefund() public {
-        PoolKey memory key = createETHPool(0, 0, 10);
+        PoolKey memory key = createETHPool(0, 0, 1);
         bytes[] memory calls = new bytes[](1);
         calls[0] = abi.encodeCall(lp.createPosition, (key, 1000, 2000, 1 ether, 0, 1));
         bytes[] memory results = lp.multicall{value: 1 ether + 1}(calls);
@@ -188,7 +188,7 @@ contract FreeLPAuditTest is FullTest {
     function test_auditWholePairReadCanExceedGasWhileIndexedReadsRemainAvailable() public {
         PoolKey memory key;
         for (uint64 i; i < 128; ++i) {
-            key = createPool(0, i, 10);
+            key = createPool(0, uint16(i), 0);
             index.register(key);
         }
         vm.cool(address(index));
@@ -204,7 +204,7 @@ contract FreeLPAuditTest is FullTest {
     }
 
     function test_auditWithdrawalUsesExecutionPriceWithoutOutputBounds() public {
-        PoolKey memory key = createPool(0, 0, 10);
+        PoolKey memory key = createPool(0, 0, 1);
         (uint256 id, uint128 liquidity,,) = lp.createPosition(key, -1000, 1000, 1 ether, 1 ether, 1);
         FreeLPDataFetcher.Amounts memory beforeAmounts = reader.positionAmounts(lp, id);
         assertGt(beforeAmounts.principal1, 0);
@@ -225,7 +225,7 @@ contract FreeLPAuditTest is FullTest {
 
     function test_auditCombinedFeeAndPrincipalAboveUint128() public {
         MockExtension extension = createAndRegisterExtension(byteToCallPoints(8));
-        PoolKey memory key = createPool(0, 0, 10, address(extension));
+        PoolKey memory key = createPool(0, 0, 1, address(extension));
         (uint256 id, uint128 liquidity,,) = lp.createPosition(key, -1000, 1000, 1 ether, 1 ether, 1);
         token0.approve(address(extension), type(uint256).max);
         token1.approve(address(extension), type(uint256).max);

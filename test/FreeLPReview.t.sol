@@ -128,7 +128,7 @@ contract FreeLPReviewTest is FullTest {
         reader = new FreeLPDataFetcher(core);
         token0.approve(address(lp), type(uint256).max);
         token1.approve(address(lp), type(uint256).max);
-        key = createPool(0, 0, 10);
+        key = createPool(0, 0, 1);
     }
 
     function _create(PoolKey memory pool) private returns (uint256 id, uint128 liquidity) {
@@ -144,7 +144,7 @@ contract FreeLPReviewTest is FullTest {
         probe.register(core, points);
         probe.configure(lp, address(this), address(0xbeef), true);
         lp.setApprovalForAll(target, true);
-        pool = createPool(0, 0, 10, target);
+        pool = createPool(0, 0, 1, target);
     }
 
     function test_reviewMintAfterExtensionCallbacksAndOrderedEvents() public {
@@ -190,7 +190,7 @@ contract FreeLPReviewTest is FullTest {
         address a = address(payment);
         address b = address(token1);
         if (a > b) (a, b) = (b, a);
-        PoolKey memory pool = createPool(a, b, 0, createConcentratedPoolConfig(0, 10, address(0)));
+        PoolKey memory pool = createPool(a, b, 20, createConcentratedPoolConfig(0, 1, address(0), 0));
         (uint256 id,) = _create(pool);
         assertTrue(payment.observed());
         assertFalse(payment.nftExisted());
@@ -230,7 +230,7 @@ contract FreeLPReviewTest is FullTest {
 
     function test_reviewFailedPayoutRestoresBurnedNftAndLiquidity() public {
         vm.deal(address(this), 2 ether);
-        PoolKey memory pool = createETHPool(0, 0, 10);
+        PoolKey memory pool = createETHPool(0, 0, 1);
         (uint256 id, uint128 liquidity,,) = lp.createPosition{value: 1 ether}(pool, -1000, 1000, 1 ether, 1 ether, 1);
         lp.refundNativeToken();
         address recipient = address(new ReviewRejectNative());
@@ -284,7 +284,8 @@ contract FreeLPReviewTest is FullTest {
     }
 
     function test_reviewExplicitInitializationIsIdempotent() public {
-        PoolKey memory pool = PoolKey(address(token0), address(token1), createConcentratedPoolConfig(1, 10, address(0)));
+        PoolKey memory pool =
+            PoolKey(address(token0), address(token1), createConcentratedPoolConfig(1, 1, address(0), 0));
         vm.expectRevert(ICore.PoolNotInitialized.selector);
         _create(pool);
         (bool initialized, SqrtRatio first) = lp.maybeInitializePool(pool, 123);
@@ -354,7 +355,8 @@ contract FreeLPReviewTest is FullTest {
     }
 
     function test_reviewFailedMulticallRollsBackInitializationAndIdAllocation() public {
-        PoolKey memory pool = PoolKey(address(token0), address(token1), createConcentratedPoolConfig(2, 10, address(0)));
+        PoolKey memory pool =
+            PoolKey(address(token0), address(token1), createConcentratedPoolConfig(2, 1, address(0), 0));
         bytes[] memory calls = new bytes[](2);
         calls[0] = abi.encodeCall(lp.maybeInitializePool, (pool, 0));
         calls[1] = abi.encodeCall(lp.createPosition, (pool, -1000, 1000, 0, 0, 1));

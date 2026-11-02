@@ -452,7 +452,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                     _sqrtRatioLimit: sqrtRatioNext,
                                     _amount: int128(uint128(amount1)),
                                     _isToken1: true,
-                                    _skipAhead: 0
+                                    _skipAhead: 0,
+                                    _minFee: 0
                                 })
                             );
                         } else if (sqrtRatioNext < corePoolState.sqrtRatio()) {
@@ -463,7 +464,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                     _sqrtRatioLimit: sqrtRatioNext,
                                     _amount: int128(uint128(amount0)),
                                     _isToken1: false,
-                                    _skipAhead: 0
+                                    _skipAhead: 0,
+                                    _minFee: 0
                                 })
                             );
                         }
@@ -485,7 +487,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                     _sqrtRatioLimit: MIN_SQRT_RATIO,
                                     _amount: int128(uint128(amount0)),
                                     _isToken1: false,
-                                    _skipAhead: 0
+                                    _skipAhead: 0,
+                                    _minFee: 0
                                 })
                             );
                         } else {
@@ -496,7 +499,8 @@ contract TWAMM is ITWAMM, ExposedStorage, BaseExtension, BaseForwardee {
                                     _sqrtRatioLimit: MAX_SQRT_RATIO,
                                     _amount: int128(uint128(amount1)),
                                     _isToken1: true,
-                                    _skipAhead: 0
+                                    _skipAhead: 0,
+                                    _minFee: 0
                                 })
                             );
                         }

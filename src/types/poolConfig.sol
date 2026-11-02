@@ -1,22 +1,26 @@
 // SPDX-License-Identifier: ekubo-license-v1.eth
 pragma solidity =0.8.33;
 
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, MAX_TICK_SPACING_EXP} from "../math/constants.sol";
 
 /// @notice Pool configuration packed into a single bytes32
-/// @dev Contains extension address (20 bytes), fee (8 bytes), and pool type config (4 bytes)
-/// Pool type config (32 bits):
-///   - Bit 31: discriminator (1 = concentrated, 0 = stableswap)
-///   - For concentrated (bit 31 = 1): bits 30-0 are tick spacing
-///   - For stableswap (bit 31 = 0): bits 30-24 are amplification factor, bits 23-0 are center tick
+/// @dev Layout (bits):
+///   - [255..96]: extension address (160 bits)
+///   - [95..80]: fee (16 bits, 0.16 fixed point, i.e. `fee / 2**16` of the input)
+///   - [79..32]: salt (48 bits, free for extensions to distinguish pools sharing all other fields)
+///   - [31]: discriminator (1 = concentrated, 0 = stableswap)
+///   - concentrated: [30..23] tick spacing exponent (spacing is `1 << exp`), [22..0] reserved (must be 0)
+///   - stableswap: [30..24] amplification factor, [23..0] center tick (scaled by 16, as before)
 type PoolConfig is bytes32;
 
 using {
     fee,
+    salt,
     extension,
     isConcentrated,
     isStableswap,
     isFullRange,
+    tickSpacingExp,
     concentratedTickSpacing,
     stableswapAmplification,
     stableswapCenterTick,
@@ -28,10 +32,19 @@ using {
 
 /// @notice Extracts the fee from a pool config
 /// @param config The pool config
-/// @return r The fee
-function fee(PoolConfig config) pure returns (uint64 r) {
+/// @return r The fee as a 0.16 number
+function fee(PoolConfig config) pure returns (uint16 r) {
     assembly ("memory-safe") {
-        r := and(shr(32, config), 0xffffffffffffffff)
+        r := and(shr(80, config), 0xffff)
+    }
+}
+
+/// @notice Extracts the extension salt from a pool config
+/// @param config The pool config
+/// @return r The 48-bit salt
+function salt(PoolConfig config) pure returns (uint64 r) {
+    assembly ("memory-safe") {
+        r := and(shr(32, config), 0xffffffffffff)
     }
 }
 
@@ -51,14 +64,26 @@ function isConcentrated(PoolConfig config) pure returns (bool r) {
     r = !config.isStableswap();
 }
 
+/// @notice Extracts the tick spacing exponent from a concentrated liquidity pool config
+/// @dev Only valid for concentrated liquidity pools (isConcentrated() == true).
+///   The tick spacing itself is always a power of two: `1 << exp`
+/// @param config The pool config
+/// @return r The tick spacing exponent (0-19)
+function tickSpacingExp(PoolConfig config) pure returns (uint8 r) {
+    assembly ("memory-safe") {
+        // Extract bits 30-23
+        r := and(shr(23, config), 0xff)
+    }
+}
+
 /// @notice Extracts the tick spacing from a concentrated liquidity pool config
 /// @dev Only valid for concentrated liquidity pools (isConcentrated() == true)
 /// @param config The pool config
-/// @return r The tick spacing
+/// @return r The tick spacing, always a power of two
 function concentratedTickSpacing(PoolConfig config) pure returns (uint32 r) {
     assembly ("memory-safe") {
-        // Extract lower 31 bits (bits 30-0)
-        r := and(config, 0x7fffffff)
+        // spacing is 1 << exp
+        r := shl(and(shr(23, config), 0xff), 1)
     }
 }
 
@@ -134,48 +159,61 @@ function stableswapActiveLiquidityTickRange(PoolConfig config) pure returns (int
 }
 
 /// @notice Creates a PoolConfig for a concentrated liquidity pool
-/// @param _fee The fee for the pool
-/// @param _tickSpacing The tick spacing for the pool
+/// @param _fee The fee for the pool, as a 0.16 number
+/// @param _tickSpacingExp The tick spacing exponent: spacing is `1 << _tickSpacingExp`, at most MAX_TICK_SPACING_EXP
 /// @param _extension The extension address for the pool
+/// @param _salt Free 48-bit salt distinguishing pools that share all other fields
 /// @return c The packed configuration
-function createConcentratedPoolConfig(uint64 _fee, uint32 _tickSpacing, address _extension)
+function createConcentratedPoolConfig(uint16 _fee, uint8 _tickSpacingExp, address _extension, uint64 _salt)
     pure
     returns (PoolConfig c)
 {
     assembly ("memory-safe") {
-        // Set bit 31 to 1 for concentrated liquidity, then OR with tick spacing (bits 30-0)
-        let typeConfig := or(0x80000000, and(_tickSpacing, 0x7fffffff))
-        c := or(or(shl(96, _extension), shl(32, and(_fee, 0xffffffffffffffff))), typeConfig)
+        // Set bit 31 to 1 for concentrated liquidity, then OR with the exponent in bits 30-23.
+        // Bits 22-0 stay zero (reserved).
+        let typeConfig := or(0x80000000, shl(23, and(_tickSpacingExp, 0xff)))
+        c := or(
+            or(shl(96, _extension), shl(80, and(_fee, 0xffff))),
+            or(shl(32, and(_salt, 0xffffffffffff)), typeConfig)
+        )
     }
 }
 
 /// @notice Creates a PoolConfig for a stableswap pool
-/// @param _fee The fee for the pool
+/// @param _fee The fee for the pool, as a 0.16 number
 /// @param _amplification The amplification factor (0-127)
 /// @param _centerTick The center tick (will be divided by 16 and stored as 24-bit value)
 /// @param _extension The extension address for the pool
+/// @param _salt Free 48-bit salt distinguishing pools that share all other fields
 /// @return c The packed configuration
-function createStableswapPoolConfig(uint64 _fee, uint8 _amplification, int32 _centerTick, address _extension)
-    pure
-    returns (PoolConfig c)
-{
+function createStableswapPoolConfig(
+    uint16 _fee,
+    uint8 _amplification,
+    int32 _centerTick,
+    address _extension,
+    uint64 _salt
+) pure returns (PoolConfig c) {
     assembly ("memory-safe") {
         // Divide center tick by 16 to get 24-bit representation
         let stableswapCenterTick24 := sdiv(_centerTick, 16)
         // Pack: bit 31 = 0 (stableswap), bits 30-24 = amplification, bits 23-0 = center tick
         let typeConfig := or(shl(24, and(_amplification, 0x7f)), and(stableswapCenterTick24, 0xffffff))
-        c := or(or(shl(96, _extension), shl(32, and(_fee, 0xffffffffffffffff))), typeConfig)
+        c := or(
+            or(shl(96, _extension), shl(80, and(_fee, 0xffff))),
+            or(shl(32, and(_salt, 0xffffffffffff)), typeConfig)
+        )
     }
 }
 
 /// @notice Creates a PoolConfig for a full range pool (stableswap with amplification=0, center=0)
-/// @param _fee The fee for the pool
+/// @param _fee The fee for the pool, as a 0.16 number
 /// @param _extension The extension address for the pool
+/// @param _salt Free 48-bit salt distinguishing pools that share all other fields
 /// @return c The packed configuration
-function createFullRangePoolConfig(uint64 _fee, address _extension) pure returns (PoolConfig c) {
+function createFullRangePoolConfig(uint16 _fee, address _extension, uint64 _salt) pure returns (PoolConfig c) {
     assembly ("memory-safe") {
         // All 32 bits of type config are 0 (discriminator=0, amplification=0, center=0)
-        c := or(shl(96, _extension), shl(32, and(_fee, 0xffffffffffffffff)))
+        c := or(or(shl(96, _extension), shl(80, and(_fee, 0xffff))), shl(32, and(_salt, 0xffffffffffff)))
     }
 }
 
@@ -190,11 +228,18 @@ function concentratedMaxLiquidityPerTick(PoolConfig config) pure returns (uint12
     assembly ("memory-safe") {
         // Calculate total number of usable ticks: 1 + (MAX_TICK_MAGNITUDE / tickSpacing) * 2
         // This represents all ticks from -MAX_TICK_MAGNITUDE to +MAX_TICK_MAGNITUDE, and tick 0
+        // tickSpacing is a power of two, so the division is exact for the bound computation
         let numTicks := add(1, mul(div(MAX_TICK, _tickSpacing), 2))
 
         maxLiquidity := div(sub(shl(128, 1), 1), numTicks)
     }
 }
+
+/// @notice Thrown when tick spacing exponent exceeds the maximum allowed value
+error InvalidTickSpacingExp();
+
+/// @notice Thrown when the reserved low bits of a concentrated pool config are nonzero
+error InvalidPoolConfigReservedBits();
 
 /// @notice Thrown when tick spacing exceeds the maximum allowed value
 error InvalidTickSpacing();
@@ -209,8 +254,11 @@ error InvalidCenterTick();
 /// @param config The config to validate
 function validate(PoolConfig config) pure {
     if (config.isConcentrated()) {
-        if (config.concentratedTickSpacing() > MAX_TICK_SPACING || config.concentratedTickSpacing() == 0) {
-            revert InvalidTickSpacing();
+        if (config.tickSpacingExp() > MAX_TICK_SPACING_EXP) {
+            revert InvalidTickSpacingExp();
+        }
+        if ((PoolConfig.unwrap(config) & bytes32(uint256(0x7fffff))) != bytes32(0)) {
+            revert InvalidPoolConfigReservedBits();
         }
     } else {
         // Stableswap pool: validate amplification factor <= 26

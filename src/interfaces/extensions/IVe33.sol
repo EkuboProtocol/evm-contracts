@@ -74,7 +74,7 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     /// @param votedSwapFee Swap fee selected by the stake.
     /// @param swapFee Effective pool swap fee after applying the weight change.
     event VoteWeightApplied(
-        address owner, StakeId stakeId, PoolId poolId, uint128 weight, uint64 votedSwapFee, uint64 swapFee
+        address owner, StakeId stakeId, PoolId poolId, uint128 weight, uint16 votedSwapFee, uint16 swapFee
     );
 
     /// @notice Emitted when a swap accounts fees to voters.
@@ -99,7 +99,7 @@ interface IVe33 is IExposedStorage, IExtension, IForwardee {
     /// @param stakeId Stake whose votes are being updated.
     /// @param poolKey Pool receiving the stake's full active voting power.
     /// @param swapFee Explicit swap fee vote for the pool.
-    function vote(StakeId stakeId, PoolKey calldata poolKey, uint64 swapFee) external;
+    function vote(StakeId stakeId, PoolKey calldata poolKey, uint16 swapFee) external;
 
     /// @notice Clears the active vote for a stake owned by the caller.
     /// @param stakeId Stake whose vote is cleared.

@@ -6,22 +6,19 @@ import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {FlashAccountantLib} from "../../src/libraries/FlashAccountantLib.sol";
 import {PoolKey} from "../../src/types/poolKey.sol";
-import {PoolId} from "../../src/types/poolId.sol";
 import {PoolState} from "../../src/types/poolState.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../../src/types/poolBalanceUpdate.sol";
 import {PositionId} from "../../src/types/positionId.sol";
-import {SqrtRatio, BIT_MASK, TWO_POW_62, TWO_POW_94, isValid} from "../../src/types/sqrtRatio.sol";
+import {SqrtRatio} from "../../src/types/sqrtRatio.sol";
 import {SwapParameters, createSwapParameters} from "../../src/types/swapParameters.sol";
 import {tickToSqrtRatio} from "../../src/math/ticks.sol";
 import {exp2} from "../../src/math/exp2.sol";
-import {computeFee, amountBeforeFee} from "../../src/math/fee.sol";
 import {MIN_TICK, MAX_TICK} from "../../src/math/constants.sol";
 import {MEVCaptureV21, bitLength} from "../../src/extensions/MEVCaptureV21.sol";
 import {MEVCaptureV21PoolState} from "../../src/types/mevCaptureV21PoolState.sol";
 
-/// @notice Independent reference model of the MEVCapture v2.1 rules for the current Core (EKU-946 rev 10 §(b-main)),
-///   written directly from the spec text in original (not mirrored) coordinates, with naive loops instead of closed
-///   forms.
+/// @notice Independent reference model of the MEVCapture v2.1 rules (EKU-946 rev 5 §(b)), written directly from the
+///   spec text in original (not mirrored) coordinates, with naive loops instead of closed forms.
 library V21Ref {
     struct Cfg {
         uint256 tau;
@@ -44,7 +41,7 @@ library V21Ref {
     }
 
     function defaults() internal pure returns (Cfg memory) {
-        return Cfg({tau: 120, slopeK: 4, segExp: 0, jLin: 16, maxFee: 1 << 63, clamp: 2500, mGate: 3});
+        return Cfg({tau: 120, slopeK: 4, segExp: 0, jLin: 16, maxFee: 1 << 15, clamp: 2500, mGate: 3});
     }
 
     function bitlen(uint256 x) internal pure returns (uint256 n) {
@@ -101,8 +98,7 @@ library V21Ref {
             mag = halvings >= 256 ? 0 : mag / (uint256(1) << halvings);
             mag = mag * (uint256(1) << 64) / exp2(((dt % c.tau) * (uint256(1) << 64)) / c.tau);
             int256 offNew = off < 0 ? -int256(mag) : int256(mag);
-            // rounded up (F-13): a consumed interval always grants at least one unit
-            int256 lim = int256((c.clamp * 65536 * (dt < c.tau ? dt : c.tau) + c.tau - 1) / c.tau);
+            int256 lim = int256(c.clamp * 65536 * (dt < c.tau ? dt : c.tau) / c.tau);
             int256 mv = offNew - off;
             if (mv > lim) mv = lim;
             if (mv < -lim) mv = -lim;
@@ -150,19 +146,17 @@ library V21Ref {
         }
     }
 
-    /// @notice Surcharge rate of a segment (0.64), additional to the pool fee and capped at `maxFee - poolFee`
-    function surcharge(Cfg memory c, uint256 poolFee, uint256 spacing, int256 lo, int256 hi, int256 anchorX16)
+    function segmentFee(Cfg memory c, uint256 poolFee, uint256 spacing, int256 lo, int256 hi, int256 anchorX16)
         internal
         pure
-        returns (uint256 sur)
+        returns (uint256 fee)
     {
         int256 twice = lo + hi - 2 * anchorX16;
         uint256 d = twice < 0 ? uint256(-twice) : uint256(twice);
         uint256 den = 4 * spacing * 65536;
         uint256 num = c.slopeK * poolFee * d;
-        sur = (num + den - 1) / den;
-        uint256 cap = c.maxFee - poolFee;
-        if (sur > cap) sur = cap;
+        fee = poolFee + (num + den - 1) / den;
+        if (fee > c.maxFee) fee = c.maxFee;
     }
 
     function clampTick(int256 t) internal pure returns (int32) {
@@ -170,47 +164,10 @@ library V21Ref {
         if (t > MAX_TICK) return MAX_TICK;
         return int32(t);
     }
-
-    /// @notice The adjacent valid sqrt ratio below `x`, found by stepping the raw value and jumping the region when
-    ///   the result is not a valid value (the spec's closed form is checked against this in test 25)
-    function pred(SqrtRatio x) internal pure returns (SqrtRatio r) {
-        uint96 raw = SqrtRatio.unwrap(x) - 1;
-        r = SqrtRatio.wrap(raw);
-        if (!isValid(r)) {
-            uint96 region = raw & BIT_MASK;
-            r = SqrtRatio.wrap((region - TWO_POW_94) | (uint96(TWO_POW_94) - 1));
-        }
-    }
-
-    function succ(SqrtRatio x) internal pure returns (SqrtRatio r) {
-        uint96 raw = SqrtRatio.unwrap(x) + 1;
-        r = SqrtRatio.wrap(raw);
-        if (!isValid(r)) {
-            uint96 region = raw & BIT_MASK;
-            r = SqrtRatio.wrap((region + TWO_POW_94) | TWO_POW_62);
-        }
-    }
-
-    /// @notice The amount rule (v1 convention): exact-in takes the surcharge from the output, exact-out grosses up the
-    ///   net input. Returns the fee on the calculated token.
-    function chargeFor(PoolBalanceUpdate u, bool isToken1, bool exactOut, uint64 poolFee, uint64 sur)
-        internal
-        pure
-        returns (uint128 fee)
-    {
-        int256 calculated = isToken1 ? u.delta0() : u.delta1();
-        if (exactOut) {
-            uint128 input = uint128(uint256(calculated));
-            uint128 net = input - computeFee(input, poolFee);
-            fee = amountBeforeFee(net, sur) - net;
-        } else {
-            fee = computeFee(uint128(uint256(-calculated)), sur);
-        }
-    }
 }
 
 /// @notice Test locker: executes arbitrary action lists in one lock (flash-liquidity scenarios) and runs the reference
-///   state machine against a twin pool without the extension.
+///   segment schedule against a twin pool without the extension.
 contract V21Actor is BaseLocker {
     using CoreLib for *;
     using FlashAccountantLib for *;
@@ -219,9 +176,6 @@ contract V21Actor is BaseLocker {
     uint8 internal constant FORWARD_SWAP = 1;
     uint8 internal constant CORE_SWAP = 2;
     uint8 internal constant COLLECT = 3;
-    uint8 internal constant REVERT = 4;
-
-    error Forced();
 
     struct Action {
         uint8 kind;
@@ -231,15 +185,11 @@ contract V21Actor is BaseLocker {
         address target;
     }
 
-    /// @notice Record of one Core swap call the reference made, and the surcharge it charged right after
+    /// @notice Record of one Core call the reference made
     struct RefCall {
         SqrtRatio limit;
+        uint16 fee;
         int128 amount;
-        /// @notice 0 = charged (possibly with a zero fee), 1 = toward, 2 = bridge
-        uint8 kind;
-        uint64 sur;
-        uint128 fee0;
-        uint128 fee1;
     }
 
     ICore internal immutable core;
@@ -303,8 +253,6 @@ contract V21Actor is BaseLocker {
                     (uint128 f0, uint128 f1) = core.collectFees(act.poolKey, PositionId.wrap(act.a));
                     results[i] = abi.encode(f0, f1);
                     _settle(act.poolKey, -int128(f0), -int128(f1));
-                } else if (act.kind == REVERT) {
-                    revert Forced();
                 }
             }
             result = abi.encode(results);
@@ -317,10 +265,8 @@ contract V21Actor is BaseLocker {
                 uint256 poolFee,
                 uint256 spacing
             ) = abi.decode(inner, (V21Ref.Cfg, PoolKey, SwapParameters, int256, uint256, uint256));
-            (PoolBalanceUpdate total, PoolState st, int256 raw0, int256 raw1) =
-                _reference(c, twin, params, anchorX16, poolFee, spacing);
-            // the twin owes Core's deltas only: the surcharge is not credited there
-            _settle(twin, int128(raw0), int128(raw1));
+            (PoolBalanceUpdate total, PoolState st) = _reference(c, twin, params, anchorX16, poolFee, spacing);
+            _settle(twin, total.delta0(), total.delta1());
             result = abi.encode(total, st);
         }
     }
@@ -332,57 +278,37 @@ contract V21Actor is BaseLocker {
         else if (d1 < 0) ACCOUNTANT.withdraw(poolKey.token1, payer, uint128(-d1));
     }
 
-    function _call(PoolKey memory twin, SwapParameters params, SqrtRatio limit, int128 amount, uint8 kind, uint64 sur)
+    function _call(PoolKey memory twin, SwapParameters params, SqrtRatio limit, int128 amount, uint256 fee)
         internal
         returns (PoolBalanceUpdate u, PoolState st)
     {
+        lastRefCalls.push(RefCall({limit: limit, fee: uint16(fee), amount: amount}));
         (u, st) = core.swap(
             0,
             twin,
             createSwapParameters({
-                _sqrtRatioLimit: limit, _amount: amount, _isToken1: params.isToken1(), _skipAhead: params.skipAhead()
+                _sqrtRatioLimit: limit,
+                _amount: amount,
+                _isToken1: params.isToken1(),
+                _skipAhead: params.skipAhead(),
+                _minFee: uint16(fee)
             })
         );
-        lastRefCalls.push(RefCall({limit: limit, amount: amount, kind: kind, sur: sur, fee0: 0, fee1: 0}));
     }
 
     struct Loop {
         bool increasing;
-        bool isToken1;
-        bool exactOut;
         SqrtRatio userLimit;
         SqrtRatio current;
-        int32 tick;
         int128 remaining;
         int256 sum0;
         int256 sum1;
-        int256 raw0;
-        int256 raw1;
-        uint256 k;
+        uint256 n;
+        uint256 maxSegments;
     }
 
-    function _nearer(bool increasing, SqrtRatio a, SqrtRatio b) internal pure returns (SqrtRatio) {
-        return increasing ? a.min(b) : a.max(b);
-    }
-
-    function _beyond(bool increasing, SqrtRatio x, SqrtRatio current) internal pure returns (bool) {
-        return increasing ? x > current : x < current;
-    }
-
-    function _event(PoolId twinId, int32 fromTick, uint256 spacing, uint256 skipAhead, bool increasing)
-        internal
-        view
-        returns (int32 t, bool init)
-    {
-        (t, init) = increasing
-            ? core.nextInitializedTick(twinId, fromTick, uint32(spacing), skipAhead)
-            : core.prevInitializedTick(twinId, fromTick, uint32(spacing), skipAhead);
-    }
-
-    /// @dev The state machine straight from the spec: one uncut toward call to the rounded anchor, then away calls
-    ///   cut before the next rate boundary and one step short of the next initialized tick (or on an uninitialized
-    ///   endpoint), with an uncharged bridge over each initialized tick. The surcharge of a charged call is computed
-    ///   by the amount rule and added to the sums; it is not credited on the twin.
+    /// @dev The schedule straight from the spec: one toward call to the rounded anchor, then away segments by index,
+    ///   skipping any whose end is not strictly beyond the current sqrt ratio, merging at MAX_FEE or the budget.
     function _reference(
         V21Ref.Cfg memory c,
         PoolKey memory twin,
@@ -390,107 +316,67 @@ contract V21Actor is BaseLocker {
         int256 anchorX16,
         uint256 poolFee,
         uint256 spacing
-    ) internal returns (PoolBalanceUpdate, PoolState st, int256, int256) {
+    ) internal returns (PoolBalanceUpdate, PoolState st) {
         params = params.withDefaultSqrtRatioLimit();
         Loop memory l;
         l.increasing = params.isPriceIncreasing();
-        l.isToken1 = params.isToken1();
-        l.exactOut = params.isExactOut();
         l.userLimit = params.sqrtRatioLimit();
         l.remaining = params.amount();
+        l.maxSegments = c.jLin + 24;
         st = core.poolState(twin.toPoolId());
-        (l.current, l.tick,) = st.parse();
+        l.current = st.sqrtRatio();
         if (l.remaining == 0 || l.current == l.userLimit) {
             PoolBalanceUpdate u0;
-            (u0, st) = _call(twin, params, l.userLimit, l.remaining, 1, 0);
-            return (u0, st, u0.delta0(), u0.delta1());
+            (u0, st) = core.swap(0, twin, params);
+            return (u0, st);
         }
 
         SqrtRatio anchorSqrt = tickToSqrtRatio(
             V21Ref.clampTick(l.increasing ? V21Ref.floorDiv(anchorX16, 65536) : V21Ref.ceilDiv(anchorX16, 65536))
         );
-        if (_beyond(l.increasing, anchorSqrt, l.current)) {
-            SqrtRatio lim = _nearer(l.increasing, anchorSqrt, l.userLimit);
+        if (l.increasing ? l.current < anchorSqrt : l.current > anchorSqrt) {
+            SqrtRatio lim = l.increasing ? anchorSqrt.min(l.userLimit) : anchorSqrt.max(l.userLimit);
             PoolBalanceUpdate u;
-            (u, st) = _call(twin, params, lim, l.remaining, 1, 0);
+            (u, st) = _call(twin, params, lim, l.remaining, params.minFee());
             l.sum0 += u.delta0();
             l.sum1 += u.delta1();
-            l.raw0 += u.delta0();
-            l.raw1 += u.delta1();
-            l.remaining -= l.isToken1 ? u.delta1() : u.delta0();
+            l.remaining -= params.isToken1() ? u.delta1() : u.delta0();
             if (l.remaining == 0 || lim == l.userLimit || st.sqrtRatio() != lim) {
-                return (createPoolBalanceUpdate(int128(l.sum0), int128(l.sum1)), st, l.raw0, l.raw1);
+                return (createPoolBalanceUpdate(int128(l.sum0), int128(l.sum1)), st);
             }
-            (l.current, l.tick,) = st.parse();
+            l.current = lim;
         }
 
-        PoolId twinId = twin.toPoolId();
-        l.k = 1;
-        while (true) {
-            // (2) rate boundary of the segment containing the current price
-            int256 lo = l.k == 1 ? anchorX16 : V21Ref.boundary(c, spacing, anchorX16, l.increasing, l.k - 1);
-            int256 hi = V21Ref.boundary(c, spacing, anchorX16, l.increasing, l.k);
-            uint256 sur = V21Ref.surcharge(c, poolFee, spacing, lo, hi, anchorX16);
+        for (uint256 k = 1;; k++) {
+            int256 lo = k == 1 ? anchorX16 : V21Ref.boundary(c, spacing, anchorX16, l.increasing, k - 1);
+            int256 hi = V21Ref.boundary(c, spacing, anchorX16, l.increasing, k);
+            uint256 fee = V21Ref.segmentFee(c, poolFee, spacing, lo, hi, anchorX16);
             SqrtRatio lim = l.userLimit;
-            if (sur != c.maxFee - poolFee) {
+            if (fee != c.maxFee && l.n + 1 != l.maxSegments) {
                 int256 hiTick = hi / 65536;
                 if (hiTick >= MIN_TICK && hiTick <= MAX_TICK) {
                     SqrtRatio b = tickToSqrtRatio(int32(hiTick));
-                    if (!_beyond(l.increasing, b, l.current)) {
-                        l.k++;
-                        continue;
-                    }
-                    lim = _nearer(l.increasing, b, l.userLimit);
+                    if (l.increasing ? b <= l.current : b >= l.current) continue;
+                    lim = l.increasing ? b.min(l.userLimit) : b.max(l.userLimit);
                 }
             }
-
-            // (1) tick event: Core's first search of the next call, past an exact-tick crossing
-            (int32 t, bool init) = _event(twinId, l.tick, spacing, params.skipAhead(), l.increasing);
-            SqrtRatio tS = tickToSqrtRatio(t);
-            if (tS == l.current) {
-                (t, init) = _event(twinId, l.increasing ? t : t - 1, spacing, params.skipAhead(), l.increasing);
-                tS = tickToSqrtRatio(t);
-            }
-            require(_beyond(l.increasing, tS, l.current), "ref: event not beyond");
-
-            // (3) choose the call
+            uint256 minFee = params.minFee();
             PoolBalanceUpdate u;
-            SqrtRatio cut = init ? (l.increasing ? V21Ref.pred(tS) : V21Ref.succ(tS)) : tS;
-            if (init && cut == l.current) {
-                lim = _nearer(l.increasing, tS, l.userLimit);
-                require(_beyond(l.increasing, lim, l.current), "ref: zero-length bridge");
-                (u, st) = _call(twin, params, lim, l.remaining, 2, 0);
-                l.sum0 += u.delta0();
-                l.sum1 += u.delta1();
-            } else {
-                lim = _nearer(l.increasing, cut, lim);
-                require(_beyond(l.increasing, lim, l.current), "ref: zero-length call");
-                (u, st) = _call(twin, params, lim, l.remaining, 0, uint64(sur));
-                uint128 fee = V21Ref.chargeFor(u, l.isToken1, l.exactOut, uint64(poolFee), uint64(sur));
-                RefCall storage r = lastRefCalls[lastRefCalls.length - 1];
-                if (l.isToken1) {
-                    r.fee0 = fee;
-                    l.sum0 += u.delta0() + int256(uint256(fee));
-                    l.sum1 += u.delta1();
-                } else {
-                    r.fee1 = fee;
-                    l.sum0 += u.delta0();
-                    l.sum1 += u.delta1() + int256(uint256(fee));
-                }
-            }
-            l.raw0 += u.delta0();
-            l.raw1 += u.delta1();
-            l.remaining -= l.isToken1 ? u.delta1() : u.delta0();
-            (l.current, l.tick,) = st.parse();
-            if (l.remaining == 0 || l.current == l.userLimit) break;
+            (u, st) = _call(twin, params, lim, l.remaining, fee > minFee ? fee : minFee);
+            l.sum0 += u.delta0();
+            l.sum1 += u.delta1();
+            l.remaining -= params.isToken1() ? u.delta1() : u.delta0();
+            l.n++;
+            if (l.remaining == 0 || lim == l.userLimit || st.sqrtRatio() != lim) break;
+            l.current = lim;
         }
-        return (createPoolBalanceUpdate(int128(l.sum0), int128(l.sum1)), st, l.raw0, l.raw1);
+        return (createPoolBalanceUpdate(int128(l.sum0), int128(l.sum1)), st);
     }
 }
 
 /// @notice Deployable anywhere (skips Core registration) to test constructor validation
 contract MEVCaptureV21Unregistered is MEVCaptureV21 {
-    constructor(ICore core, uint32 a, uint8 b, uint8 c, uint8 d, uint64 e, uint32 f, uint8 g)
+    constructor(ICore core, uint32 a, uint8 b, uint8 c, uint8 d, uint16 e, uint32 f, uint8 g)
         MEVCaptureV21(core, a, b, c, d, e, f, g)
     {}
 
@@ -501,7 +387,7 @@ contract MEVCaptureV21Unregistered is MEVCaptureV21 {
 
 /// @notice Exposes the extension's internal rules for vector tests
 contract MEVCaptureV21Harness is MEVCaptureV21Unregistered {
-    constructor(ICore core, uint32 a, uint8 b, uint8 c, uint8 d, uint64 e, uint32 f, uint8 g)
+    constructor(ICore core, uint32 a, uint8 b, uint8 c, uint8 d, uint16 e, uint32 f, uint8 g)
         MEVCaptureV21Unregistered(core, a, b, c, d, e, f, g)
     {}
 
@@ -526,28 +412,26 @@ contract MEVCaptureV21Harness is MEVCaptureV21Unregistered {
     }
 
     /// @notice `count` away segments in original coordinates starting with the first boundary beyond Core tick `tick`
-    ///   (before the sqrt-ratio check that skips a boundary the price sits on): (hiX16, surcharge) pairs
-    function segments(int64 anchorX16, bool increasing, int32 tick, uint64 poolFee, uint32 spacing, uint256 count)
+    ///   (before the sqrt-ratio check that skips a boundary the price sits on): (hiX16, fee) pairs
+    function segments(int64 anchorX16, bool increasing, int32 tick, uint256 poolFee, uint8 spacingExp, uint256 count)
         external
         view
-        returns (int256[] memory his, uint256[] memory surs, uint256 firstK)
+        returns (int256[] memory his, uint256[] memory fees, uint256 firstK)
     {
         int256 a = increasing ? int256(anchorX16) : -int256(anchorX16);
-        int256 w16 = int256(uint256(spacing) << (SEGMENT_EXP + 16));
-        int256 q = a / w16;
-        if (a < 0 && a % w16 != 0) q -= 1;
-        int256 g1 = (q + 1) * w16;
-        int256 gJ = g1 + int256(J_LIN - 1) * w16;
+        uint256 wShift = uint256(spacingExp) + SEGMENT_EXP + 16;
+        int256 g1 = ((a >> wShift) + 1) << wShift;
+        int256 gJ = g1 + (int256(J_LIN - 1) << wShift);
         int256 p = increasing ? int256(tick) : -int256(tick) - 1;
-        firstK = _firstSegment(p, g1, gJ, w16);
+        firstK = _firstSegment(p, g1, gJ, wShift);
         his = new int256[](count);
-        surs = new uint256[](count);
+        fees = new uint256[](count);
         for (uint256 i; i < count; i++) {
             uint256 k = firstK + i;
-            int256 hi = _boundary(k, g1, gJ, w16);
-            int256 lo = k == 1 ? a : _boundary(k - 1, g1, gJ, w16);
+            int256 hi = _boundary(k, g1, gJ, wShift);
+            int256 lo = k == 1 ? a : _boundary(k - 1, g1, gJ, wShift);
             his[i] = increasing ? hi : -hi;
-            surs[i] = _surcharge(poolFee, uint256(lo + hi - 2 * a), spacing);
+            fees[i] = _segmentFee(poolFee, uint256(lo + hi - 2 * a), spacingExp);
         }
     }
 

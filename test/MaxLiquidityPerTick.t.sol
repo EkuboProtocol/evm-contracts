@@ -32,29 +32,35 @@ contract MaxLiquidityPerTickTest is Test {
 
     function test_maxLiquidityPerTick_calculation() public pure {
         // Test with tick spacing of 1
-        PoolConfig config1 = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        PoolConfig config1 =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 0, _extension: address(0), _salt: 0});
         uint256 numTicks1 = 1 + (MAX_TICK_MAGNITUDE / 1) * 2;
         uint128 expected1 = uint128(type(uint128).max / numTicks1);
         assertEq(config1.concentratedMaxLiquidityPerTick(), expected1, "tick spacing 1");
 
-        // Test with tick spacing of 10
-        PoolConfig config10 = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 10, _extension: address(0)});
-        uint256 numTicks10 = 1 + (MAX_TICK_MAGNITUDE / 10) * 2;
+        // Test with tick spacing of 2
+        PoolConfig config10 =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 1, _extension: address(0), _salt: 0});
+        uint256 numTicks10 = 1 + (MAX_TICK_MAGNITUDE / 2) * 2;
         uint128 expected10 = uint128(type(uint128).max / numTicks10);
         assertEq(config10.concentratedMaxLiquidityPerTick(), expected10, "tick spacing 10");
 
-        // Test with tick spacing of 100
-        PoolConfig config100 = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 100, _extension: address(0)});
-        uint256 numTicks100 = 1 + (MAX_TICK_MAGNITUDE / 100) * 2;
+        // Test with tick spacing of 20
+        PoolConfig config100 =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 2, _extension: address(0), _salt: 0});
+        uint256 numTicks100 = 1 + (MAX_TICK_MAGNITUDE / 4) * 2;
         uint128 expected100 = uint128(type(uint128).max / numTicks100);
         assertEq(config100.concentratedMaxLiquidityPerTick(), expected100, "tick spacing 100");
     }
 
     function test_maxLiquidityPerTick_increases_with_concentratedTickSpacing() public pure {
         // Larger tick spacing should allow more liquidity per tick
-        PoolConfig config1 = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
-        PoolConfig config10 = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 10, _extension: address(0)});
-        PoolConfig config100 = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 100, _extension: address(0)});
+        PoolConfig config1 =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 0, _extension: address(0), _salt: 0});
+        PoolConfig config10 =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 1, _extension: address(0), _salt: 0});
+        PoolConfig config100 =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 2, _extension: address(0), _salt: 0});
 
         uint128 max1 = config1.concentratedMaxLiquidityPerTick();
         uint128 max10 = config10.concentratedMaxLiquidityPerTick();

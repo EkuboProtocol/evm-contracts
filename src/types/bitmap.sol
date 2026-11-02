@@ -67,7 +67,7 @@ function leSetBit(Bitmap bitmap, uint8 index) pure returns (uint256 v) {
  */
 function geSetBit(Bitmap bitmap, uint8 index) pure returns (uint256 v) {
     assembly ("memory-safe") {
-        let masked := and(bitmap, not(sub(shl(index, 1), 1)))
+        let masked := and(bitmap, shl(index, not(0)))
         v := sub(256, clz(and(masked, sub(0, masked))))
     }
 }

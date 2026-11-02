@@ -11,7 +11,7 @@ import {BaseRouter} from "../src/base/BaseRouter.sol";
 import {Router} from "../src/Router.sol";
 import {isPriceIncreasing} from "../src/math/isPriceIncreasing.sol";
 import {Amount0DeltaOverflow, Amount1DeltaOverflow} from "../src/math/delta.sol";
-import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
+import {MAX_TICK, MIN_TICK, MAX_TICK_SPACING_EXP} from "../src/math/constants.sol";
 import {AmountBeforeFeeOverflow} from "../src/math/fee.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {StdUtils} from "forge-std/StdUtils.sol";
@@ -84,21 +84,20 @@ contract Handler is StdUtils, StdAssertions {
         positionId = positions.mint();
     }
 
-    function createNewPool(uint64 fee, uint32 tickSpacing, int32 tick, bool withExtension) public {
-        // Concentrated pools need tick spacing >= 1 to avoid division by zero
-        tickSpacing = uint32(bound(tickSpacing, 1, MAX_TICK_SPACING));
+    function createNewPool(uint16 fee, uint8 tickSpacingExp, int32 tick, bool withExtension) public {
+        tickSpacingExp = uint8(bound(tickSpacingExp, 0, MAX_TICK_SPACING_EXP));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
         PoolKey memory poolKey = PoolKey(
             address(token0),
             address(token1),
-            createConcentratedPoolConfig(fee, tickSpacing, withExtension ? address(fae) : address(0))
+            createConcentratedPoolConfig(fee, tickSpacingExp, withExtension ? address(fae) : address(0), 0)
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
         if (initialized) allPoolKeys.push(poolKey);
     }
 
-    function createNewStableswapPool(uint64 fee, int32 tick, uint8 amplification, int32 centerTick, bool withExtension)
+    function createNewStableswapPool(uint16 fee, int32 tick, uint8 amplification, int32 centerTick, bool withExtension)
         public
     {
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
@@ -107,7 +106,7 @@ contract Handler is StdUtils, StdAssertions {
         PoolKey memory poolKey = PoolKey(
             address(token0),
             address(token1),
-            createStableswapPoolConfig(fee, amplification, centerTick, withExtension ? address(fae) : address(0))
+            createStableswapPoolConfig(fee, amplification, centerTick, withExtension ? address(fae) : address(0), 0)
         );
         (bool initialized, SqrtRatio sqrtRatio) = positions.maybeInitializePool(poolKey, tick);
         assertNotEq(SqrtRatio.unwrap(sqrtRatio), 0);
@@ -249,6 +248,11 @@ contract Handler is StdUtils, StdAssertions {
             poolBalances[poolId].amount0 += balanceUpdate.delta0();
             poolBalances[poolId].amount1 += balanceUpdate.delta1();
         } catch (bytes memory err) {
+            // Empty revert data is an accepted EVM error (e.g. the explicit
+            // swap gas cap). It has no selector: reading past its length can
+            // observe unrelated memory rather than zero on another compiler.
+            if (err.length == 0) return;
+
             bytes4 sig;
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
@@ -286,6 +290,29 @@ contract Handler is StdUtils, StdAssertions {
             assertGe(tick, MIN_TICK - 1);
             assertLe(tick, MAX_TICK);
         }
+    }
+}
+
+contract SolvencyHandlerTest is FullTest {
+    Handler handler;
+
+    function setUp() public override {
+        FullTest.setUp();
+        handler = new Handler(core, createAndRegisterExtension(), positions, router, token0, token1);
+        handler.createNewPool(0, 0, 0, false);
+    }
+
+    function test_swap_accepts_empty_revert_data() public {
+        vm.mockCallRevert(address(router), bytes(""), bytes(""));
+        handler.swap(0, 1, true, MAX_SQRT_RATIO, 0);
+        handler.checkAllPoolsHavePositiveBalance();
+        handler.checkAllPoolsHaveValidPriceAndTick();
+    }
+
+    function test_swap_rejects_unknown_revert_data() public {
+        vm.mockCallRevert(address(router), bytes(""), hex"deadbeef");
+        vm.expectRevert(abi.encodeWithSelector(Handler.UnexpectedError.selector, hex"deadbeef"));
+        handler.swap(0, 1, true, MAX_SQRT_RATIO, 0);
     }
 }
 

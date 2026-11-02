@@ -106,12 +106,13 @@ contract QuoteDataFetcher is UsesCore {
         assert(toTick >= fromTick);
 
         if (!config.isFullRange()) {
+            uint8 tickSpacingExp = config.tickSpacingExp();
             uint32 tickSpacing = config.concentratedTickSpacing();
             DynamicArrayLib.DynamicArray memory packedTicks;
 
             while (toTick >= fromTick) {
                 (int32 tick, bool initialized) = CORE.prevInitializedTick(
-                    poolId, toTick, tickSpacing, uint256(uint32(toTick - fromTick)) / (uint256(tickSpacing) * 256)
+                    poolId, toTick, tickSpacingExp, uint256(uint32(toTick - fromTick)) / (uint256(tickSpacing) * 256)
                 );
 
                 if (initialized && tick >= fromTick) {

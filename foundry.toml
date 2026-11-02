@@ -17,12 +17,17 @@ optimizer = true
 optimizer_runs = 9999999
 via_ir = true
 ignored_error_codes = [2394, 6321, 3860, 5574, 2424, 8429, 4591]
-fs_permissions = [{ access = "read", path = "./snapshots" }]
+fs_permissions = [{ access = "read", path = "./snapshots" }, { access = "read", path = "./test/data" }]
 
 # Explicit opt-in for regenerating NFT artwork fixtures.
 # UPDATE_SNAPSHOTS=true FOUNDRY_PROFILE=snapshots forge test --offline --match-contract FreeLPMetadataTest
 [profile.snapshots]
 fs_permissions = [{ access = "read-write", path = "./snapshots" }]
+
+# Regenerates the MEVCapture v2.1 end-to-end swap vectors:
+# FOUNDRY_PROFILE=v21vectors WRITE_V21_VECTORS=true forge test --offline --match-contract MEVCaptureV21SwapVectorsTest
+[profile.v21vectors]
+fs_permissions = [{ access = "read", path = "./snapshots" }, { access = "read-write", path = "./test/data/mevcapture-v21" }]
 
 [invariant]
 fail_on_revert = true

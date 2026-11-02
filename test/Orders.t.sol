@@ -48,7 +48,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.warp(time);
 
         // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -79,7 +79,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.warp(time);
 
         // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -110,7 +110,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.warp(time);
 
         // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -145,7 +145,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.warp(time);
 
         // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -171,7 +171,7 @@ contract OrdersTest is BaseOrdersTest {
         advanceTime(255);
 
         // both get a better price!
-        assertEq(orders.collectProceeds(id0, key0, address(this)), 1999999999999995636);
+        assertEq(orders.collectProceeds(id0, key0, address(this)), 1999999999999995637);
         assertEq(orders.collectProceeds(id1, key1, address(this)), 1000000000000002926);
     }
 
@@ -180,7 +180,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.warp(time);
 
         // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -216,7 +216,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.warp(time);
 
         // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -234,7 +234,7 @@ contract OrdersTest is BaseOrdersTest {
 
         advanceTime(383);
 
-        assertEq(orders.collectProceeds(id, key, address(this)), 0.322033898305084744e18);
+        assertEq(orders.collectProceeds(id, key, address(this)), 322036703701404836);
 
         advanceTime(128);
 
@@ -242,7 +242,7 @@ contract OrdersTest is BaseOrdersTest {
             orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
         assertEq(saleRateAfter, (1e18 << 32) / 256);
         assertEq(remainingSellAmount, 0);
-        assertEq(purchasedAmount, 0.165145588874402432e18);
+        assertEq(purchasedAmount, 165145993722614692);
         assertEq(amountSold, 1e18);
 
         advanceTime(1);
@@ -252,7 +252,7 @@ contract OrdersTest is BaseOrdersTest {
             orders.executeVirtualOrdersAndGetCurrentOrderInfo(id, key);
         assertEq(saleRateAfter, (1e18 << 32) / 256);
         assertEq(remainingSellAmount, 0);
-        assertEq(purchasedAmount, 0.165145588874402432e18);
+        assertEq(purchasedAmount, 165145993722614692);
         assertEq(amountSold, 1e18);
     }
 
@@ -261,7 +261,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.warp(time);
 
         // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -291,13 +291,13 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(saleRate0, (uint112(1e18) << 32) / 255, "saleRate0");
         assertEq(amountSold0, 1e18 - 1, "amountSold0");
         assertEq(remainingSellAmount0, 0, "remainingSellAmount0");
-        assertEq(purchasedAmount0, 0.813504183026142394e18, "purchasedAmount0");
+        assertEq(purchasedAmount0, 813504915375969427, "purchasedAmount0");
         (uint256 saleRate1, uint256 amountSold1, uint256 remainingSellAmount1, uint256 purchasedAmount1) =
             orders.executeVirtualOrdersAndGetCurrentOrderInfo(id1, key1);
         assertEq(saleRate1, (uint112(2e18) << 32) / 767, "saleRate1");
         assertEq(amountSold1, 0.664928292046936114e18, "amountSold1");
         assertEq(remainingSellAmount1, 1.335071707953063886e18, "remainingSellAmount1");
-        assertEq(purchasedAmount1, 0.816312842145353856e18, "purchasedAmount1");
+        assertEq(purchasedAmount1, 816314139001361956, "purchasedAmount1");
 
         // advanced to the last time that this function should work (2**32 + start time - 1)
         advanceTime(type(uint32).max - 256);
@@ -307,14 +307,14 @@ contract OrdersTest is BaseOrdersTest {
         assertEq(saleRate0, (uint112(1e18) << 32) / 255, "saleRate0");
         assertEq(amountSold0, 1e18 - 1, "amountSold0");
         assertEq(remainingSellAmount0, 0, "remainingSellAmount0");
-        assertEq(purchasedAmount0, 0.813504183026142394e18, "purchasedAmount0");
+        assertEq(purchasedAmount0, 813504915375969427, "purchasedAmount0");
 
         (saleRate1, amountSold1, remainingSellAmount1, purchasedAmount1) =
             orders.executeVirtualOrdersAndGetCurrentOrderInfo(id1, key1);
         assertEq(saleRate1, (uint112(2e18) << 32) / 767, "saleRate1");
         assertEq(amountSold1, 2e18 - 1, "amountSold1");
         assertEq(remainingSellAmount1, 0, "remainingSellAmount1");
-        assertEq(purchasedAmount1, 1.519060168680474214e18, "purchasedAmount1");
+        assertEq(purchasedAmount1, 1519065939778325340, "purchasedAmount1");
     }
 
     function test_createOrder_sell_both_tokens_liquidity_dominated(uint64 time) public {
@@ -322,7 +322,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.warp(time);
 
         // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -357,7 +357,7 @@ contract OrdersTest is BaseOrdersTest {
         vm.warp(time);
 
         // 5% fee pool
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -386,7 +386,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -423,7 +423,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_collectProceeds_non_existent_pool(uint64 time) public {
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
 
         token0.approve(address(orders), type(uint256).max);
 
@@ -452,7 +452,7 @@ contract OrdersTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(token1),
-            config: createFullRangePoolConfig({_extension: address(twamm), _fee: 6969})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: 0, _salt: 0})
         });
         PoolId poolId = poolKey.toPoolId();
         positions.maybeInitializePool(poolKey, -18135370); // 0.000000013301874 token1/token0
@@ -498,7 +498,7 @@ contract OrdersTest is BaseOrdersTest {
             positions.deposit(pID, poolKey, MIN_TICK, MAX_TICK, 229636410600502050710229286961, 502804080817310396, 0);
         (sqrtRatio, tick, liquidity) = core.poolState(poolId).parse();
 
-        assertEq(sqrtRatio.toFixed(), 13485562298671080879303606629460147559991345152);
+        assertEq(sqrtRatio.toFixed(), 13485562298671085974017518645579781119181586432);
         assertEq(tick, 34990236); // ~=1570575495728187 token1/token0
         assertEq(liquidity, liquidity0 + liquidity1);
 
@@ -555,7 +555,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_gas_costs_no_orders() public {
         vm.warp(1);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -575,7 +575,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_gas_costs_single_sided() public {
         vm.warp(1);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -604,7 +604,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_gas_costs_double_sided() public {
         vm.warp(1);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -640,7 +640,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_gas_costs_double_sided_order_crossed() public {
         vm.warp(1);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -673,7 +673,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_lockAndExecuteVirtualOrders_maximum_gas_cost() public {
         vm.warp(1);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -730,7 +730,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -774,7 +774,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -811,7 +811,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -866,7 +866,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -922,7 +922,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -979,7 +979,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -1036,7 +1036,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -1090,7 +1090,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -1136,7 +1136,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -1174,7 +1174,7 @@ contract OrdersTest is BaseOrdersTest {
         startingTime = uint64(bound(startingTime, 0, type(uint64).max - type(uint32).max));
         vm.warp(startingTime);
 
-        uint64 fee = 0;
+        uint16 fee = 0;
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -1222,7 +1222,7 @@ contract OrdersTest is BaseOrdersTest {
         time = boundTime(time, 1);
         vm.warp(time);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -1257,7 +1257,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_collectProceeds_before_stop_order_correct() public {
         vm.warp(1);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -1300,7 +1300,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_collectProceeds_after_stop_order_loses_proceeds() public {
         vm.warp(1);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -1339,7 +1339,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_proceeds_lost_comparison() public {
         vm.warp(1);
 
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});
@@ -1388,7 +1388,7 @@ contract OrdersTest is BaseOrdersTest {
     function test_gas_costs_execute_virtual_orders_switch_sell_direction() public {
         vm.warp(0);
 
-        uint64 fee = 0;
+        uint16 fee = 0;
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: 0});
 
         {
@@ -1418,7 +1418,7 @@ contract OrdersTest is BaseOrdersTest {
     }
 
     function test_no_dos_rounding_error_decrease_sale_rate() public {
-        uint64 fee = uint64((uint256(5) << 64) / 100);
+        uint16 fee = uint16((uint256(5) << 16) / 100);
         int32 tick = 0;
 
         PoolKey memory poolKey = createTwammPool({fee: fee, tick: tick});

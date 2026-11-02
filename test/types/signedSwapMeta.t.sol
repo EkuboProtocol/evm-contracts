@@ -7,7 +7,7 @@ import {Locker} from "../../src/types/locker.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 contract SignedSwapMetaTest is Test {
-    function test_pack_unpack(address authorized, uint32 deadlineValue, uint32 feeValue, uint64 nonceValue)
+    function test_pack_unpack(address authorized, uint32 deadlineValue, uint16 feeValue, uint64 nonceValue)
         public
         pure
     {

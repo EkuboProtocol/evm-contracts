@@ -64,7 +64,7 @@ contract TWAMMDataFetcherTest is BaseOrdersTest {
         assertEq(result.saleRateDeltas.length, 0);
     }
 
-    function test_getPoolState_returns_all_valid_times(uint64 fee, int32 startingTick, uint256 time) public {
+    function test_getPoolState_returns_all_valid_times(uint16 fee, int32 startingTick, uint256 time) public {
         time = boundTime(time, 1);
         vm.warp(time);
 

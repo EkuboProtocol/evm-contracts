@@ -49,7 +49,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         }
     }
 
-    function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint64 fee) internal {
+    function configure(address token, uint32 targetOrderDuration, uint32 minOrderDuration, uint16 fee) internal {
         rb.configure(token, targetOrderDuration, minOrderDuration, fee);
     }
 
@@ -91,7 +91,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(state.lastOrderDuration(), 0);
         assertEq(state.lastFee(), 0);
 
-        uint64 nextFee = uint64((uint256(1) << 64) / 100);
+        uint16 nextFee = uint16((uint256(1) << 16) / 100);
         configure(address(token0), 3600, 1800, nextFee);
 
         state = rb.state(address(token0));
@@ -118,7 +118,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_deconfigure() public {
-        configure(address(token0), 3600, 1800, uint64((uint256(1) << 64) / 100));
+        configure(address(token0), 3600, 1800, uint16((uint256(1) << 16) / 100));
 
         configure(address(token0), 0, 0, 0);
 
@@ -129,7 +129,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_roll_token_not_configured() public {
-        configure(address(token0), 3600, 1800, uint64((uint256(1) << 64) / 100));
+        configure(address(token0), 3600, 1800, uint16((uint256(1) << 16) / 100));
 
         configure(address(token0), 0, 0, 0);
 
@@ -139,7 +139,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_roll_token() public {
-        uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
+        uint16 poolFee = uint16((uint256(1) << 16) / 100); // 1%
 
         configure(address(token0), 3600, 1800, poolFee);
 
@@ -148,7 +148,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(token0),
             token1: address(buybacksToken),
-            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee, _salt: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -162,7 +162,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(token0.allowance(address(rb), address(orders)), 0);
 
         advanceTime(1800);
-        assertEq(rb.collect(address(token0), poolFee, endTime), 317025440313111544);
+        assertEq(rb.collect(address(token0), poolFee, endTime), 317026641706542137);
 
         (endTime, saleRate) = rb.roll(address(token0));
         assertEq(endTime, 3840);
@@ -176,7 +176,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
     }
 
     function test_roll_eth() public {
-        uint64 poolFee = uint64((uint256(1) << 64) / 100); // 1%
+        uint16 poolFee = uint16((uint256(1) << 16) / 100); // 1%
 
         configure(address(0), 3600, 1800, poolFee);
 
@@ -185,7 +185,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: address(0),
             token1: address(buybacksToken),
-            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee, _salt: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);
@@ -197,7 +197,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         assertEq(saleRate, 1118772413649387861422245);
 
         advanceTime(1800);
-        assertEq(rb.collect(address(0), poolFee, endTime), 317025440313111544);
+        assertEq(rb.collect(address(0), poolFee, endTime), 317026641706542137);
 
         (endTime, saleRate) = rb.roll(address(0));
         assertEq(endTime, 3840);
@@ -222,7 +222,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         uint64 startTime,
         uint32 targetOrderDuration,
         uint32 minOrderDuration,
-        uint64 poolFee
+        uint16 poolFee
     ) public {
         startTime = uint64(bound(startTime, 0, type(uint64).max / 2));
         targetOrderDuration = uint32(bound(targetOrderDuration, 1, type(uint16).max));
@@ -238,7 +238,7 @@ contract RevenueBuybacksTest is BaseOrdersTest {
         PoolKey memory poolKey = PoolKey({
             token0: token,
             token1: address(buybacksToken),
-            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee})
+            config: createFullRangePoolConfig({_extension: address(twamm), _fee: poolFee, _salt: 0})
         });
 
         positions.maybeInitializePool(poolKey, 0);

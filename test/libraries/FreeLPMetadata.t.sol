@@ -91,7 +91,7 @@ contract FreeLPMetadataTest is Test {
         _case(
             "Concentrated",
             1,
-            PoolKey(address(0x1111), address(0x2222), createConcentratedPoolConfig(1 << 60, 10, address(0))),
+            PoolKey(address(0x1111), address(0x2222), createConcentratedPoolConfig(4096, 1, address(0), 0)),
             -20000000,
             -19800000
         );
@@ -100,7 +100,7 @@ contract FreeLPMetadataTest is Test {
     function test_nativeStableswapSnapshot() public {
         vm.chainId(8453);
         _metadata(address(0x3333), "WETH", "Wrapped Ether", 18);
-        PoolKey memory key = PoolKey(address(0), address(0x3333), createStableswapPoolConfig(0, 10, 0, address(0)));
+        PoolKey memory key = PoolKey(address(0), address(0x3333), createStableswapPoolConfig(0, 10, 0, address(0), 0));
         (int32 lower, int32 upper) = key.config.stableswapActiveLiquidityTickRange();
         _case("NativeStableswap", 42, key, lower, upper);
     }
@@ -115,7 +115,7 @@ contract FreeLPMetadataTest is Test {
             PoolKey(
                 address(0x1111),
                 address(type(uint160).max),
-                createConcentratedPoolConfig(type(uint64).max, 1, address(type(uint160).max))
+                createConcentratedPoolConfig(type(uint16).max, 0, address(type(uint160).max), 0)
             ),
             MIN_TICK,
             MAX_TICK
@@ -125,8 +125,7 @@ contract FreeLPMetadataTest is Test {
     function test_metadataAndPriceFormatting() public {
         MetadataToken weth = new MetadataToken("WETH", "Wrapped Ether", 18);
         MetadataToken usdc = new MetadataToken("USDC", "USD Coin", 6);
-        PoolKey memory key =
-            PoolKey(address(weth), address(usdc), createConcentratedPoolConfig(1 << 60, 10, address(0)));
+        PoolKey memory key = PoolKey(address(weth), address(usdc), createConcentratedPoolConfig(4096, 1, address(0), 0));
         string memory svg = FreeLPMetadata.tokenSvg(7, key, -20000000, -19800000);
         assertTrue(LibString.contains(svg, "USDC / WETH"));
         assertTrue(LibString.contains(svg, "Wrapped Ether"));
@@ -145,7 +144,7 @@ contract FreeLPMetadataTest is Test {
         Bytes32MetadataToken bytes32Token = new Bytes32MetadataToken();
         BrokenMetadataToken broken = new BrokenMetadataToken();
         PoolKey memory key =
-            PoolKey(address(bytes32Token), address(broken), createConcentratedPoolConfig(1 << 60, 10, address(0)));
+            PoolKey(address(bytes32Token), address(broken), createConcentratedPoolConfig(4096, 1, address(0), 0));
         string memory svg = FreeLPMetadata.tokenSvg(8, key, -1, 1);
         assertTrue(LibString.contains(svg, " / B32"));
         assertTrue(LibString.contains(svg, "Bytes32 token"));
@@ -168,7 +167,7 @@ contract FreeLPMetadataTest is Test {
         _case(
             "LongNames",
             123,
-            PoolKey(address(0x1111), address(0x2222), createConcentratedPoolConfig(0, 10, address(0))),
+            PoolKey(address(0x1111), address(0x2222), createConcentratedPoolConfig(0, 1, address(0), 0)),
             -20000000,
             -19800000
         );

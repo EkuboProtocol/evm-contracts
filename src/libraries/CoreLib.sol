@@ -113,11 +113,13 @@ library CoreLib {
     }
 
     /// @notice Executes a swap against the core contract using assembly optimization
-    /// @dev Uses assembly to make direct call to core contract for gas efficiency
+    /// @dev Uses assembly to make direct call to core contract for gas efficiency.
+    ///   The minimum fee travels inside `params`: the swap is charged the greater of the pool's
+    ///   configured fee and that minimum, on the input token, accruing to liquidity providers.
     /// @param core The core contract instance
     /// @param value Native token value to send with the swap
     /// @param poolKey Pool key identifying the pool
-    /// @param params The swap parameters to use
+    /// @param params The swap parameters to use, including the minimum fee
     /// @return balanceUpdate Change to the pool balances that resulted from the swap
     /// @return stateAfter The pool state after the swap
     function swap(ICore core, uint256 value, PoolKey memory poolKey, SwapParameters params)

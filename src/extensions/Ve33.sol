@@ -161,7 +161,7 @@ abstract contract Ve33Storage {
 
     function _setPoolVoteState(PoolId poolId, uint192 feeWeightSum, uint128 totalWeight)
         internal
-        returns (uint64 swapFee)
+        returns (uint16 swapFee)
     {
         assembly ("memory-safe") {
             swapFee := div(feeWeightSum, totalWeight)
@@ -381,7 +381,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     /// @param stakeId Stake whose votes are being updated.
     /// @param poolKey Pool receiving the stake's full active voting power.
     /// @param swapFee Explicit swap fee vote for the pool.
-    function vote(StakeId stakeId, PoolKey calldata poolKey, uint64 swapFee) external {
+    function vote(StakeId stakeId, PoolKey calldata poolKey, uint16 swapFee) external {
         checkValidPoolKey(poolKey);
 
         uint128 power = _votingPower(msg.sender, stakeId);
@@ -406,7 +406,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             feeWeightSum += uint192(uint256(power) * swapFee);
             _setTotalVoteWeight(_totalVoteWeight() + power);
         }
-        uint64 currentSwapFee = _setPoolVoteState(poolId, feeWeightSum, totalWeight);
+        uint16 currentSwapFee = _setPoolVoteState(poolId, feeWeightSum, totalWeight);
 
         _setVotedPoolId(msg.sender, stakeId, poolId);
         _setVePoolVote(msg.sender, stakeId, createVePoolVote(power, swapFee, uint64(block.timestamp)));
@@ -538,7 +538,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
             _maybeAccumulatePoolRewards(poolId, stateBefore.liquidity());
 
             VePoolSwapFeeState swapFeeState = _poolSwapFeeState(poolId);
-            uint64 swapFee = swapFeeState.swapFee();
+            uint16 swapFee = swapFeeState.swapFee();
             uint128 feeAmount;
             bool feeIsToken1 = !params.isToken1();
             bool exactOut = params.isExactOut();
@@ -586,11 +586,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
 
             if (poolKey.config.isConcentrated()) {
                 _updateCrossedTicks(
-                    poolId,
-                    stateBefore.tick(),
-                    stateAfter.tick(),
-                    poolKey.config.concentratedTickSpacing(),
-                    params.skipAhead()
+                    poolId, stateBefore.tick(), stateAfter.tick(), poolKey.config.tickSpacingExp(), params.skipAhead()
                 );
             }
         }
@@ -836,7 +832,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
                 + uint192(uint256(nextWeight) * veVote.swapFee());
             _setTotalVoteWeight(_totalVoteWeight() - previousWeight + nextWeight);
         }
-        uint64 currentSwapFee = _setPoolVoteState(poolId, feeWeightSum, totalWeight);
+        uint16 currentSwapFee = _setPoolVoteState(poolId, feeWeightSum, totalWeight);
 
         if (nextWeight == 0) {
             _setVotedPoolId(owner, stakeId, PoolId.wrap(bytes32(0)));
@@ -950,13 +946,13 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
     /// @param poolId Id of `poolKey`.
     /// @param tickBefore Tick before the swap.
     /// @param tickAfter Tick after the swap.
-    /// @param tickSpacing Concentrated tick spacing for the pool.
+    /// @param tickSpacingExp Concentrated tick spacing exponent for the pool.
     /// @param skipAhead Tick-bitmap skip-ahead hint supplied to the swap.
     function _updateCrossedTicks(
         PoolId poolId,
         int32 tickBefore,
         int32 tickAfter,
-        uint32 tickSpacing,
+        uint8 tickSpacingExp,
         uint256 skipAhead
     ) private {
         if (tickBefore == tickAfter) return;
@@ -968,7 +964,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         if (tickAfter < tickBefore) {
             while (true) {
                 bool initialized;
-                (tick, initialized) = CORE.prevInitializedTick(poolId, tick, tickSpacing, skipAhead);
+                (tick, initialized) = CORE.prevInitializedTick(poolId, tick, tickSpacingExp, skipAhead);
                 if (tick <= tickAfter) break;
                 unchecked {
                     if (initialized) {
@@ -987,7 +983,7 @@ contract Ve33 is IVe33, BaseExtension, BaseForwardee, ExposedStorage, Ve33Storag
         } else {
             while (true) {
                 bool initialized;
-                (tick, initialized) = CORE.nextInitializedTick(poolId, tick, tickSpacing, skipAhead);
+                (tick, initialized) = CORE.nextInitializedTick(poolId, tick, tickSpacingExp, skipAhead);
                 if (tick > tickAfter) break;
                 unchecked {
                     if (initialized) {

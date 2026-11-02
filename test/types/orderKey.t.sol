@@ -12,7 +12,7 @@ contract OrderKeyTest is Test {
     function test_buyToken_whenIsToken1False(
         address token0,
         address token1,
-        uint64 _fee,
+        uint16 _fee,
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
@@ -27,7 +27,7 @@ contract OrderKeyTest is Test {
     function test_buyToken_whenIsToken1True(
         address token0,
         address token1,
-        uint64 _fee,
+        uint16 _fee,
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
@@ -43,7 +43,7 @@ contract OrderKeyTest is Test {
     function test_sellToken_whenIsToken1False(
         address token0,
         address token1,
-        uint64 _fee,
+        uint16 _fee,
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
@@ -58,7 +58,7 @@ contract OrderKeyTest is Test {
     function test_sellToken_whenIsToken1True(
         address token0,
         address token1,
-        uint64 _fee,
+        uint16 _fee,
         uint64 _startTime,
         uint64 _endTime
     ) public pure {
@@ -71,7 +71,7 @@ contract OrderKeyTest is Test {
     }
 
     // Test that fee extraction works correctly
-    function test_fee(address token0, address token1, uint64 _fee, bool _isToken1, uint64 _startTime, uint64 _endTime)
+    function test_fee(address token0, address token1, uint16 _fee, bool _isToken1, uint64 _startTime, uint64 _endTime)
         public
         pure
     {
@@ -86,7 +86,7 @@ contract OrderKeyTest is Test {
     function test_isToken1(
         address token0,
         address token1,
-        uint64 _fee,
+        uint16 _fee,
         bool _isToken1,
         uint64 _startTime,
         uint64 _endTime
@@ -102,7 +102,7 @@ contract OrderKeyTest is Test {
     function test_startTime(
         address token0,
         address token1,
-        uint64 _fee,
+        uint16 _fee,
         bool _isToken1,
         uint64 _startTime,
         uint64 _endTime
@@ -118,7 +118,7 @@ contract OrderKeyTest is Test {
     function test_endTime(
         address token0,
         address token1,
-        uint64 _fee,
+        uint16 _fee,
         bool _isToken1,
         uint64 _startTime,
         uint64 _endTime
@@ -134,7 +134,7 @@ contract OrderKeyTest is Test {
     function test_toPoolKey_tokensMatch(
         address token0,
         address token1,
-        uint64 _fee,
+        uint16 _fee,
         bool _isToken1,
         uint64 _startTime,
         uint64 _endTime,

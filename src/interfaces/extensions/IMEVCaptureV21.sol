@@ -7,14 +7,11 @@ import {IExposedStorage} from "../IExposedStorage.sol";
 import {PoolId} from "../../types/poolId.sol";
 
 /// @title MEV Capture v2.1 Interface
-/// @notice Interface for the Ekubo MEV Capture v2.1 extension on the current Core
-/// @dev Swaps pay an away-from-anchor surcharge, segment by segment, charged by the extension through
-///   `Core.accumulateAsFees` immediately after each charged Core call inside `forward`. Every charged Core call is
-///   cut to stop before the next rate boundary and before the next initialized tick; each initialized tick is then
-///   crossed by its own uncharged bridge call. The anchor decays toward the pool tick with half-life `HALF_LIFE`,
-///   moves at most `CLAMP_TICKS` per `HALF_LIFE` plus one 2^-16 tick per updated timestamp (the per-update allowance
-///   rounds up, so frequent updates never slow it), and only moves when the active liquidity passes a gate against a
-///   reference that rises and falls by at most one bit per `HALF_LIFE`.
+/// @notice Interface for the Ekubo MEV Capture v2.1 extension
+/// @dev Swaps pay an away-from-anchor surcharge charged inside the swap by Core through `SwapParameters.minFee`,
+///   segment by segment. The anchor decays toward the pool tick with half-life `HALF_LIFE`, moves at most
+///   `CLAMP_TICKS` per `HALF_LIFE`, and only moves when the active liquidity passes a gate against a reference that
+///   rises and falls by at most one bit per `HALF_LIFE`.
 interface IMEVCaptureV21 is IExposedStorage, IForwardee, IExtension {
     /// @notice The immutable configuration of the extension
     struct Config {
@@ -22,18 +19,18 @@ interface IMEVCaptureV21 is IExposedStorage, IForwardee, IExtension {
         uint32 halfLife;
         /// @notice Twice the surcharge slope k, so the slope is `slopeK / 2`
         uint8 slopeK;
-        /// @notice Segment width exponent: the segment width is `tickSpacing * segmentWidthMultiplier`
+        /// @notice Segment width exponent: the segment width is `tickSpacing << segmentExp`
         uint8 segmentExp;
-        /// @notice Segment width multiplier, `2 ** segmentExp`
-        uint32 segmentWidthMultiplier;
         /// @notice Number of equal-width away segments before the widths double
         uint8 jLin;
-        /// @notice Cap on the total fee (pool fee plus surcharge) of a segment, as a 0.64 number
-        uint64 maxFee;
+        /// @notice Cap on the total fee of a segment, as a 0.16 number
+        uint16 maxFee;
         /// @notice Maximum anchor movement per half-life, in ticks
         uint32 clampTicks;
         /// @notice Gate tolerance in bits
         uint8 mGate;
+        /// @notice Maximum number of Core swap calls spent on away segments, `jLin + 24`
+        uint8 maxSegments;
     }
 
     /// @notice Emitted when the anchor update of a timestamp fails the liquidity gate and the anchor does not move
@@ -56,6 +53,9 @@ interface IMEVCaptureV21 is IExposedStorage, IForwardee, IExtension {
 
     /// @notice Thrown by the constructor when an immutable is out of range
     error InvalidConfig();
+
+    /// @notice Thrown by the constructor when the segment budget does not provably reach `MAX_FEE`
+    error SegmentBudgetTooSmall();
 
     /// @notice Returns the decoded per-pool state
     function getAnchor(PoolId poolId)

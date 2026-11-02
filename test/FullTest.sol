@@ -192,43 +192,47 @@ abstract contract FullTest is Test {
         return MockExtension(actual);
     }
 
-    function createPool(int32 tick, uint64 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(tick, fee, tickSpacing, CallPoints(false, false, false, false, false, false, false, false));
+    function createPool(int32 tick, uint16 fee, uint8 tickSpacingExp) internal returns (PoolKey memory poolKey) {
+        poolKey =
+            createPool(tick, fee, tickSpacingExp, CallPoints(false, false, false, false, false, false, false, false));
     }
 
-    function createFullRangePool(int32 tick, uint64 fee) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(address(token0), address(token1), tick, createFullRangePoolConfig(fee, address(0)));
+    function createFullRangePool(int32 tick, uint16 fee) internal returns (PoolKey memory poolKey) {
+        poolKey = createPool(address(token0), address(token1), tick, createFullRangePoolConfig(fee, address(0), 0));
     }
 
-    function createFullRangePool(int32 tick, uint64 fee, address extension) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(address(token0), address(token1), tick, createFullRangePoolConfig(fee, extension));
+    function createFullRangePool(int32 tick, uint16 fee, address extension) internal returns (PoolKey memory poolKey) {
+        poolKey = createPool(address(token0), address(token1), tick, createFullRangePoolConfig(fee, extension, 0));
     }
 
-    function createPool(int32 tick, uint64 fee, uint32 tickSpacing, CallPoints memory callPoints)
+    function createPool(int32 tick, uint16 fee, uint8 tickSpacingExp, CallPoints memory callPoints)
         internal
         returns (PoolKey memory poolKey)
     {
         address extension = callPoints.isValid() ? address(createAndRegisterExtension(callPoints)) : address(0);
-        poolKey = createPool(tick, fee, tickSpacing, address(extension));
+        poolKey = createPool(tick, fee, tickSpacingExp, address(extension));
     }
 
-    function createFullRangeETHPool(int32 tick, uint64 fee) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), tick, createFullRangePoolConfig(fee, address(0)));
+    function createFullRangeETHPool(int32 tick, uint16 fee) internal returns (PoolKey memory poolKey) {
+        poolKey = createPool(NATIVE_TOKEN_ADDRESS, address(token1), tick, createFullRangePoolConfig(fee, address(0), 0));
     }
 
     // creates a pool of token1/ETH
-    function createETHPool(int32 tick, uint64 fee, uint32 tickSpacing) internal returns (PoolKey memory poolKey) {
+    function createETHPool(int32 tick, uint16 fee, uint8 tickSpacingExp) internal returns (PoolKey memory poolKey) {
         poolKey = createPool(
-            NATIVE_TOKEN_ADDRESS, address(token1), tick, createConcentratedPoolConfig(fee, tickSpacing, address(0))
+            NATIVE_TOKEN_ADDRESS,
+            address(token1),
+            tick,
+            createConcentratedPoolConfig(fee, tickSpacingExp, address(0), 0)
         );
     }
 
-    function createPool(int32 tick, uint64 fee, uint32 tickSpacing, address extension)
+    function createPool(int32 tick, uint16 fee, uint8 tickSpacingExp, address extension)
         internal
         returns (PoolKey memory poolKey)
     {
         poolKey = createPool(
-            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, tickSpacing, extension)
+            address(token0), address(token1), tick, createConcentratedPoolConfig(fee, tickSpacingExp, extension, 0)
         );
     }
 

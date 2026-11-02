@@ -10,7 +10,7 @@ import {PoolKey} from "../src/types/poolKey.sol";
 import {createConcentratedPoolConfig} from "../src/types/poolConfig.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 import {CallPoints, byteToCallPoints} from "../src/types/callPoints.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING} from "../src/math/constants.sol";
+import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING_EXP} from "../src/math/constants.sol";
 import {tickToSqrtRatio} from "../src/math/ticks.sol";
 
 contract CoreTest is FullTest {
@@ -83,19 +83,20 @@ contract CoreTest is FullTest {
     function test_initializePool(
         address token0,
         address token1,
-        uint64 fee,
+        uint16 fee,
         int32 tick,
-        uint32 tickSpacing,
+        uint8 tickSpacingExp,
+        uint64 salt,
         CallPoints memory callPoints
     ) public {
         token0 = address(uint160(bound(uint160(token0), 1, type(uint160).max - 1)));
         token1 = address(uint160(bound(uint160(token1), uint160(token0) + 1, type(uint160).max)));
-        tickSpacing = uint32(bound(tickSpacing, uint256(1), uint256(MAX_TICK_SPACING)));
+        tickSpacingExp = uint8(bound(tickSpacingExp, 0, MAX_TICK_SPACING_EXP));
         tick = int32(bound(tick, MIN_TICK, MAX_TICK));
 
         address extension = callPoints.isValid() ? address(createAndRegisterExtension(callPoints)) : address(0);
         PoolKey memory key = PoolKey({
-            token0: token0, token1: token1, config: createConcentratedPoolConfig(fee, tickSpacing, extension)
+            token0: token0, token1: token1, config: createConcentratedPoolConfig(fee, tickSpacingExp, extension, salt)
         });
 
         if (callPoints.beforeInitializePool) {
@@ -132,7 +133,7 @@ contract CoreTest is FullTest {
         PoolKey memory key = PoolKey({
             token0: address(0),
             token1: address(1),
-            config: createConcentratedPoolConfig(type(uint64).max / 100, 100, extension)
+            config: createConcentratedPoolConfig(type(uint16).max / 100, 2, extension, 0)
         });
 
         core.initializePool(key, 150);
@@ -141,7 +142,7 @@ contract CoreTest is FullTest {
         key = PoolKey({
             token0: address(0),
             token1: address(1),
-            config: createConcentratedPoolConfig(type(uint64).max / 100, 100, address(0))
+            config: createConcentratedPoolConfig(type(uint16).max / 100, 2, address(0), 0)
         });
         core.initializePool(key, 300);
         vm.snapshotGasLastCall("initializePool w/o extension");

@@ -191,11 +191,11 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Finds the previous initialized tick
     /// @param poolId Unique identifier for the pool
     /// @param fromTick Starting tick to search from
-    /// @param tickSpacing Tick spacing for the pool
+    /// @param tickSpacingExp Tick spacing exponent for the pool (spacing is `1 << tickSpacingExp`)
     /// @param skipAhead Number of ticks to skip for gas optimization
     /// @return tick The previous initialized tick
     /// @return isInitialized Whether the tick is initialized
-    function prevInitializedTick(PoolId poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function prevInitializedTick(PoolId poolId, int32 fromTick, uint8 tickSpacingExp, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);
@@ -203,11 +203,11 @@ interface ICore is IFlashAccountant, IExposedStorage {
     /// @notice Finds the next initialized tick
     /// @param poolId Unique identifier for the pool
     /// @param fromTick Starting tick to search from
-    /// @param tickSpacing Tick spacing for the pool
+    /// @param tickSpacingExp Tick spacing exponent for the pool (spacing is `1 << tickSpacingExp`)
     /// @param skipAhead Number of ticks to skip for gas optimization
     /// @return tick The next initialized tick
     /// @return isInitialized Whether the tick is initialized
-    function nextInitializedTick(PoolId poolId, int32 fromTick, uint32 tickSpacing, uint256 skipAhead)
+    function nextInitializedTick(PoolId poolId, int32 fromTick, uint8 tickSpacingExp, uint256 skipAhead)
         external
         view
         returns (int32 tick, bool isInitialized);
@@ -268,6 +268,10 @@ interface ICore is IFlashAccountant, IExposedStorage {
         returns (uint128 amount0, uint128 amount1);
 
     /// @notice Executes a swap against a pool
-    /// @dev Function name is mined to have a zero function selector for gas efficiency
+    /// @dev Function name is mined to have a zero function selector for gas efficiency. Calldata is
+    /// read positionally: `PoolKey` (3 words) and `SwapParameters` (1 word). The swap is charged
+    /// the greater of the pool's configured fee and the minimum fee carried in the swap parameters,
+    /// so a caller can deliberately overpay and the number it passes is the most it can be
+    /// charged. The whole fee accrues to the pool's liquidity providers.
     function swap_6269342730() external payable;
 }

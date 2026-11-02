@@ -26,9 +26,9 @@ function minOrderDuration(BuybacksState state) pure returns (uint32 duration) {
     }
 }
 
-function fee(BuybacksState state) pure returns (uint64 f) {
+function fee(BuybacksState state) pure returns (uint16 f) {
     assembly ("memory-safe") {
-        f := and(shr(64, state), 0xFFFFFFFFFFFFFFFF)
+        f := and(shr(64, state), 0xFFFF)
     }
 }
 
@@ -44,9 +44,9 @@ function lastOrderDuration(BuybacksState state) pure returns (uint32 duration) {
     }
 }
 
-function lastFee(BuybacksState state) pure returns (uint64 f) {
+function lastFee(BuybacksState state) pure returns (uint16 f) {
     assembly ("memory-safe") {
-        f := shr(192, state)
+        f := and(shr(192, state), 0xFFFF)
     }
 }
 
@@ -59,39 +59,39 @@ function parse(BuybacksState state)
     returns (
         uint32 _targetOrderDuration,
         uint32 _minOrderDuration,
-        uint64 _fee,
+        uint16 _fee,
         uint32 _lastEndTime,
         uint32 _lastOrderDuration,
-        uint64 _lastFee
+        uint16 _lastFee
     )
 {
     assembly ("memory-safe") {
         _targetOrderDuration := and(state, 0xFFFFFFFF)
         _minOrderDuration := and(shr(32, state), 0xFFFFFFFF)
-        _fee := and(shr(64, state), 0xFFFFFFFFFFFFFFFF)
+        _fee := and(shr(64, state), 0xFFFF)
         _lastEndTime := and(shr(128, state), 0xFFFFFFFF)
         _lastOrderDuration := and(shr(160, state), 0xFFFFFFFF)
-        _lastFee := shr(192, state)
+        _lastFee := and(shr(192, state), 0xFFFF)
     }
 }
 
 function createBuybacksState(
     uint32 _targetOrderDuration,
     uint32 _minOrderDuration,
-    uint64 _fee,
+    uint16 _fee,
     uint32 _lastEndTime,
     uint32 _lastOrderDuration,
-    uint64 _lastFee
+    uint16 _lastFee
 ) pure returns (BuybacksState state) {
     assembly ("memory-safe") {
         state := or(
             or(
                 or(and(_targetOrderDuration, 0xFFFFFFFF), shl(32, and(_minOrderDuration, 0xFFFFFFFF))),
-                shl(64, and(_fee, 0xFFFFFFFFFFFFFFFF))
+                shl(64, and(_fee, 0xFFFF))
             ),
             or(
                 or(shl(128, and(_lastEndTime, 0xFFFFFFFF)), shl(160, and(_lastOrderDuration, 0xFFFFFFFF))),
-                shl(192, _lastFee)
+                shl(192, and(_lastFee, 0xFFFF))
             )
         )
     }

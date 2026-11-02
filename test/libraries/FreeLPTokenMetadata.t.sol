@@ -117,7 +117,7 @@ contract FreeLPTokenMetadataTest is Test {
 
     function test_xmlAndJsonUseSeparateEscaping() public {
         _set('<&"\'>', 'Coin "name" </text><script>bad</script>', 6);
-        PoolKey memory key = PoolKey(TOKEN, address(0x2345), createConcentratedPoolConfig(0, 10, address(0)));
+        PoolKey memory key = PoolKey(TOKEN, address(0x2345), createConcentratedPoolConfig(0, 1, address(0), 0));
         string memory uri = FreeLPMetadata.tokenURI(1, address(0x123), key, -1000, 1000);
         string memory json = string(Base64.decode(LibString.slice(uri, 29)));
         assertEq(vm.parseJsonString(json, ".properties.token0_symbol"), '<&"\'>');

@@ -208,7 +208,8 @@ contract LiquidityTest is Test {
 
     function test_maxLiquidityPerTick_at_min_price_tickSpacing1_overflows() public {
         // For tick spacing 1, calculate max liquidity per tick
-        PoolConfig config = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        PoolConfig config =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 0, _extension: address(0), _salt: 0});
         uint128 maxLiquidityPerTick = config.concentratedMaxLiquidityPerTick();
 
         // IMPORTANT: At extreme prices (near MIN_TICK), attempting to calculate the token amounts
@@ -232,7 +233,8 @@ contract LiquidityTest is Test {
 
     function test_maxLiquidityPerTick_at_max_price_tickSpacing1_overflows() public {
         // For tick spacing 1, calculate max liquidity per tick
-        PoolConfig config = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        PoolConfig config =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 0, _extension: address(0), _salt: 0});
         uint128 maxLiquidityPerTick = config.concentratedMaxLiquidityPerTick();
 
         // IMPORTANT: At extreme prices (near MAX_TICK), attempting to calculate the token amounts
@@ -256,7 +258,8 @@ contract LiquidityTest is Test {
 
     function test_maxLiquidityPerTick_at_mid_price_tickSpacing1() public pure {
         // For tick spacing 1, calculate max liquidity per tick
-        PoolConfig config = createConcentratedPoolConfig({_fee: 0, _tickSpacing: 1, _extension: address(0)});
+        PoolConfig config =
+            createConcentratedPoolConfig({_fee: 0, _tickSpacingExp: 0, _extension: address(0), _salt: 0});
         uint128 maxLiquidityPerTick = config.concentratedMaxLiquidityPerTick();
 
         // At mid price (tick 0), liquidity is split between both tokens

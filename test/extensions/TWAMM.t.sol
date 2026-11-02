@@ -34,8 +34,8 @@ abstract contract BaseTWAMMTest is FullTest {
         return uint64(((bound(time, offset, type(uint64).max - type(uint32).max - 2 * offset) / 256) * 256) + offset);
     }
 
-    function createTwammPool(uint64 fee, int32 tick) internal returns (PoolKey memory poolKey) {
-        poolKey = createPool(address(token0), address(token1), tick, createFullRangePoolConfig(fee, address(twamm)));
+    function createTwammPool(uint16 fee, int32 tick) internal returns (PoolKey memory poolKey) {
+        poolKey = createPool(address(token0), address(token1), tick, createFullRangePoolConfig(fee, address(twamm), 0));
     }
 
     function coolAllContracts() internal virtual override {
@@ -49,7 +49,7 @@ contract TWAMMTest is BaseTWAMMTest {
 
     function test_createPool_fails_not_full_range() public {
         vm.expectRevert(ITWAMM.FullRangePoolOnly.selector);
-        createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 1, address(twamm)));
+        createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 0, address(twamm), 0));
     }
 
     function test_createPool(uint256 time) public {
@@ -80,7 +80,7 @@ contract TWAMMTest is BaseTWAMMTest {
 
     function test_lockAndExecuteVirtualOrders_not_initialized() public {
         PoolKey memory key = PoolKey({
-            token0: address(token0), token1: address(token1), config: createFullRangePoolConfig(0, address(twamm))
+            token0: address(token0), token1: address(token1), config: createFullRangePoolConfig(0, address(twamm), 0)
         });
         vm.expectRevert(ITWAMM.PoolNotInitialized.selector);
         twamm.lockAndExecuteVirtualOrders(key);
@@ -107,7 +107,7 @@ contract TWAMMInternalMethodsTests is TWAMM, Test {
         assertEq(pk.token0, orderKey.token0);
         assertEq(pk.token1, orderKey.token1);
         assertEq(pk.config.fee(), orderKey.config.fee());
-        assertEq(pk.config.concentratedTickSpacing(), 0);
+        assertTrue(pk.config.isFullRange());
         assertEq(pk.config.extension(), twamm);
     }
 

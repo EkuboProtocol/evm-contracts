@@ -81,13 +81,14 @@ and put its binary **before Foundry's directory on `PATH`**. Foundry v1.8.7's
 bundled Solar reports v0.2.0 and cannot compile this project's assembly. The
 manually dispatched `Solar (next)` workflow pins and verifies the standalone
 Linux binary. Run it against `next`; automatic branch checks are intentionally
-not enabled while compatibility failures remain.
+not enabled while the compiler evaluation remains experimental.
 
-At `next` revision `6f40e4e`, Solar v0.3.0 compiles the project, but
-`MEVCaptureV21VectorsTest.test_vectors_gate_scenarios` fails with `MemoryOOG`;
-the same test passes with solc 0.8.33. The solvency invariant also failed in an
-exploratory Solar run (not yet established as compiler-specific). Do not
-exclude these tests or raise resource limits to claim migration readiness.
+The original `next` revision `6f40e4e` compiles with Solar, but its gate-vector
+test exhausts memory and its solvency handler reads beyond empty revert data.
+The Solar experiment splits independent vector scenarios into fresh call
+frames and handles empty revert data explicitly. It retains all vector
+assertions, invariant actions and resource limits; production contracts are
+unchanged. Do not exclude failing tests to claim migration readiness.
 Solar reports Solidity language version 0.8.38 and warns about the project's
 exact 0.8.33 pragmas; the Foundry progress label `Solar 0.8.33` is not the
 actual compiler version.
@@ -99,6 +100,18 @@ scripts. Do not use the Solar profile for deployments: [upstream explicitly
 warns against production use](https://github.com/paradigmxyz/solar#features-and-goals).
 A successful compile alone does not establish runtime, gas, metadata or
 deterministic deployment-address compatibility.
+
+To compare compilers locally, stop other builds and run:
+
+```bash
+python3 bin/compare-compilers.py --output /path/to/new-results-directory \
+  --solc /absolute/path/to/solc-0.8.33
+```
+
+This runs three uncached source builds per compiler, records deployed bytecode
+sizes, and compares the same 33 cold Router/deposit gas fixtures. Logs, snapshots
+and `summary.json` stay in the new results directory, not the tracked baselines.
+Gas benefits are workload-dependent; inspect regressions as well as savings.
 
 ## License
 

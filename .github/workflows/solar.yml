@@ -1,7 +1,7 @@
 name: Solar (next)
 
 on:
-  # Keep opt-in until next's runtime tests pass with Solar (see README).
+  # Keep opt-in until the compiler evaluation is accepted (see README).
   workflow_dispatch:
 
 permissions:

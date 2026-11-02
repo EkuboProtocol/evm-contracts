@@ -143,7 +143,7 @@ contract TwammMathTest is Test {
             saleRateToken0: 707 << 32,
             saleRateToken1: 179 << 32,
             timeElapsed: 12,
-            fee: uint64((uint256(30) << 64) / 10_000)
+            fee: uint16((uint256(30) << 16) / 10_000)
         });
         vm.stopSnapshotGas();
 
@@ -154,7 +154,7 @@ contract TwammMathTest is Test {
             saleRateToken0: 1917585044284,
             saleRateToken1: 893194653345642013054241177,
             timeElapsed: 360,
-            fee: 922337203685477580
+            fee: 3276
         });
         vm.stopSnapshotGas();
     }
@@ -179,9 +179,9 @@ contract TwammMathTest is Test {
                     saleRateToken0: 707 << 32,
                     saleRateToken1: 179 << 32,
                     timeElapsed: 12,
-                    fee: uint64((uint256(30) << 64) / 10_000)
+                    fee: uint16((uint256(30) << 16) / 10_000)
                 }).toFixed(),
-            762756935888947507319423427130949632 // 0.00224154117297
+            762763716810926949604251665306746880 // 0.00224154518168
         );
 
         assertEq(
@@ -191,7 +191,7 @@ contract TwammMathTest is Test {
                     saleRateToken0: 100_000 << 32,
                     saleRateToken1: 1 << 32,
                     timeElapsed: 12,
-                    fee: 1 << 63
+                    fee: 32768
                 }).toFixed(),
             212677851090737004084435068911850881024 // 0.625004031255463
         );
@@ -215,7 +215,7 @@ contract TwammMathTest is Test {
                     saleRateToken0: 1 << 32,
                     saleRateToken1: 100_000 << 32,
                     timeElapsed: 12,
-                    fee: 1 << 63
+                    fee: 32768
                 }).toFixed(),
             544448275377366823331338723279895527424 // 1.5999896801
         );
@@ -239,9 +239,9 @@ contract TwammMathTest is Test {
                     saleRateToken0: 1917585044284,
                     saleRateToken1: 893194653345642013054241177,
                     timeElapsed: 360,
-                    fee: 922337203685477580
+                    fee: 3276
                 }).toFixed(),
-            286548851173856260703560045093187956263354368 // 842,091.3894737111
+            286548853555342869696250101984787651675291648 // 0.8420913901586485
         );
 
         assertEq(
@@ -263,9 +263,9 @@ contract TwammMathTest is Test {
                     saleRateToken0: 1917585044284,
                     saleRateToken1: 893194653345642013054241177,
                     timeElapsed: 360,
-                    fee: 922337203685477580
+                    fee: 3276
                 }).toFixed(),
-            286548851173856260703560045093187956263354368 // 842,091.3894737111
+            286548853555342869696250101984787651675291648 // 0.8420913901586485
         );
 
         assertEq(
@@ -275,9 +275,9 @@ contract TwammMathTest is Test {
                     saleRateToken0: 893194653345642013054241177,
                     saleRateToken1: 1917585044284,
                     timeElapsed: 360,
-                    fee: 922337203685477580
+                    fee: 3276
                 }).toFixed(),
-            404091968133776522675682963095552 // 842,091.3894737111
+            404091964775397666952117126955008
         );
 
         assertEq(
@@ -301,9 +301,9 @@ contract TwammMathTest is Test {
                     saleRateToken0: 3728260255814876407785,
                     saleRateToken1: 1597830095238095,
                     timeElapsed: 2688,
-                    fee: 9223372036854775
+                    fee: 33
                 }).toFixed(),
-            75660834358443397537995245133758464
+            75660596070842528383378261469560832
         );
     }
 
@@ -324,7 +324,7 @@ contract TwammMathTest is Test {
         uint112 saleRateToken0,
         uint112 saleRateToken1,
         uint32 timeElapsed,
-        uint64 fee
+        uint16 fee
     ) public pure {
         // valid starting sqrt ratio
         SqrtRatio sqrtRatio =

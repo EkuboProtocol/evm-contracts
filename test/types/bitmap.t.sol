@@ -75,3 +75,17 @@ contract BitmapTest is Test {
         }
     }
 }
+
+contract BitmapMaskTest is Test {
+    function test_geSetBit_singleBit(uint8 bit, uint8 index) public pure {
+        assertEq(Bitmap.wrap(uint256(1) << bit).geSetBit(index), bit >= index ? uint256(bit) + 1 : 0);
+    }
+
+    function test_geSetBit_allIndices() public pure {
+        for (uint256 i; i < 256; i++) {
+            assertEq(Bitmap.wrap(type(uint256).max).geSetBit(uint8(i)), i + 1);
+            assertEq(Bitmap.wrap(0).geSetBit(uint8(i)), 0);
+            assertEq(Bitmap.wrap(uint256(1) << 255).geSetBit(uint8(i)), 256);
+        }
+    }
+}

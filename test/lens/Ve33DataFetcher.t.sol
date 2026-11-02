@@ -66,8 +66,8 @@ contract Ve33DataFetcherTest is FullTest {
         poolIds[1] = PoolId.wrap(bytes32(uint256(2)));
         poolIds[2] = PoolId.wrap(bytes32(uint256(3)));
 
-        VePoolSwapFeeState state0 = createVePoolSwapFeeState(100, uint64(1 << 60));
-        VePoolSwapFeeState state2 = createVePoolSwapFeeState(300, uint64(3 << 60));
+        VePoolSwapFeeState state0 = createVePoolSwapFeeState(100, uint16(4096));
+        VePoolSwapFeeState state2 = createVePoolSwapFeeState(300, uint16(12288));
         vm.store(
             address(ve),
             StorageSlot.unwrap(Ve33StorageLayout.poolSwapFeeStateSlot(poolIds[0])),
@@ -79,12 +79,12 @@ contract Ve33DataFetcherTest is FullTest {
             VePoolSwapFeeState.unwrap(state2)
         );
 
-        uint64[] memory swapFees = dataFetcher.getPoolSwapFees(poolIds);
+        uint16[] memory swapFees = dataFetcher.getPoolSwapFees(poolIds);
 
         assertEq(swapFees.length, 3);
-        assertEq(swapFees[0], uint64(1 << 60));
+        assertEq(swapFees[0], uint16(4096));
         assertEq(swapFees[1], 0);
-        assertEq(swapFees[2], uint64(3 << 60));
+        assertEq(swapFees[2], uint16(12288));
     }
 
     function test_getVe33QuoteData() public {
@@ -92,10 +92,10 @@ contract Ve33DataFetcherTest is FullTest {
             _token0: address(token0),
             _token1: address(token1),
             tick: 10,
-            config: createConcentratedPoolConfig(0, 4, address(ve))
+            config: createConcentratedPoolConfig(0, 2, address(ve), 0)
         });
         (, uint128 liquidity) = createPosition(poolKey, -40, 40, 1_000, 1_000);
-        uint64 swapFee = uint64(1 << 60);
+        uint16 swapFee = uint16(4096);
         vm.store(
             address(ve),
             StorageSlot.unwrap(Ve33StorageLayout.poolSwapFeeStateSlot(poolKey.toPoolId())),
@@ -116,7 +116,7 @@ contract Ve33DataFetcherTest is FullTest {
     }
 
     function test_getVe33QuoteData_revertsForNonVe33Pool() public {
-        PoolKey memory poolKey = createPool({tick: 10, fee: 0, tickSpacing: 4});
+        PoolKey memory poolKey = createPool({tick: 10, fee: 0, tickSpacingExp: 2});
         PoolKey[] memory poolKeys = new PoolKey[](1);
         poolKeys[0] = poolKey;
 

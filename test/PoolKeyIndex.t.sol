@@ -18,7 +18,7 @@ contract PoolKeyIndexTest is FullTest {
     }
 
     function test_register_storesPoolKeyByPoolId() public {
-        PoolKey memory poolKey = createPool(0, 0, 100);
+        PoolKey memory poolKey = createPool(0, 0, 2);
         PoolId poolId = poolKey.toPoolId();
 
         assertTrue(index.register(poolKey));
@@ -39,7 +39,7 @@ contract PoolKeyIndexTest is FullTest {
 
     function test_register_revertsIfPoolIsNotInitialized() public {
         PoolKey memory poolKey = PoolKey({
-            token0: address(token0), token1: address(token1), config: createConcentratedPoolConfig(0, 100, address(0))
+            token0: address(token0), token1: address(token1), config: createConcentratedPoolConfig(0, 2, address(0), 0)
         });
 
         vm.expectRevert(ICore.PoolNotInitialized.selector);
@@ -48,7 +48,7 @@ contract PoolKeyIndexTest is FullTest {
 
     function test_register_doesNotValidatePoolKeyBeforeInitializedCheck() public {
         PoolKey memory poolKey = PoolKey({
-            token0: address(token1), token1: address(token0), config: createConcentratedPoolConfig(0, 0, address(0))
+            token0: address(token1), token1: address(token0), config: createConcentratedPoolConfig(0, 20, address(0), 0)
         });
 
         vm.expectRevert(ICore.PoolNotInitialized.selector);
@@ -56,7 +56,7 @@ contract PoolKeyIndexTest is FullTest {
     }
 
     function test_register_isIdempotent() public {
-        PoolKey memory poolKey = createPool(0, 0, 100);
+        PoolKey memory poolKey = createPool(0, 0, 2);
 
         assertFalse(index.isRegistered(poolKey.toPoolId()));
         assertTrue(index.register(poolKey));
@@ -72,8 +72,8 @@ contract PoolKeyIndexTest is FullTest {
     }
 
     function test_registerMultiple_registersPoolKeys() public {
-        PoolKey memory poolKey0 = createPool(0, 0, 100);
-        PoolKey memory poolKey1 = createPool(1, 1, 100);
+        PoolKey memory poolKey0 = createPool(0, 0, 2);
+        PoolKey memory poolKey1 = createPool(1, 1, 2);
         PoolKey[] memory poolKeys = new PoolKey[](2);
         poolKeys[0] = poolKey0;
         poolKeys[1] = poolKey1;
@@ -91,8 +91,8 @@ contract PoolKeyIndexTest is FullTest {
     }
 
     function test_registerMultiple_isIdempotent() public {
-        PoolKey memory poolKey0 = createPool(0, 0, 100);
-        PoolKey memory poolKey1 = createPool(1, 1, 100);
+        PoolKey memory poolKey0 = createPool(0, 0, 2);
+        PoolKey memory poolKey1 = createPool(1, 1, 2);
         PoolKey[] memory poolKeys = new PoolKey[](3);
         poolKeys[0] = poolKey0;
         poolKeys[1] = poolKey1;
@@ -108,8 +108,8 @@ contract PoolKeyIndexTest is FullTest {
     }
 
     function test_getPoolKeysByToken() public {
-        PoolKey memory poolKey0 = createPool(0, 0, 100);
-        PoolKey memory poolKey1 = createPool(1, 1, 100);
+        PoolKey memory poolKey0 = createPool(0, 0, 2);
+        PoolKey memory poolKey1 = createPool(1, 1, 2);
 
         assertTrue(index.register(poolKey0));
         assertTrue(index.register(poolKey1));
@@ -130,8 +130,8 @@ contract PoolKeyIndexTest is FullTest {
 
     function test_getPoolKeysByExtension() public {
         MockExtension extension = createAndRegisterExtension();
-        PoolKey memory poolKey = createPool(0, 0, 100, address(extension));
-        PoolKey memory otherPoolKey = createPool(1, 1, 100);
+        PoolKey memory poolKey = createPool(0, 0, 2, address(extension));
+        PoolKey memory otherPoolKey = createPool(1, 1, 2);
 
         assertTrue(index.register(poolKey));
         assertTrue(index.register(otherPoolKey));
@@ -150,7 +150,7 @@ contract PoolKeyIndexTest is FullTest {
     }
 
     function test_register_nativeTokenPoolDoesNotUseDefaultPoolKeyAsSentinel() public {
-        PoolKey memory poolKey = createETHPool(0, 0, 100);
+        PoolKey memory poolKey = createETHPool(0, 0, 2);
         PoolId poolId = poolKey.toPoolId();
 
         assertEq(poolKey.token0, NATIVE_TOKEN_ADDRESS);
@@ -165,9 +165,9 @@ contract PoolKeyIndexTest is FullTest {
     }
 
     function test_pairQueriesOnlyReturnTheExactPairInEitherOrder() public {
-        PoolKey memory first = createPool(0, 0, 100);
-        PoolKey memory second = createPool(0, 1, 200);
-        PoolKey memory unrelated = createETHPool(0, 0, 100);
+        PoolKey memory first = createPool(0, 0, 2);
+        PoolKey memory second = createPool(0, 1, 3);
+        PoolKey memory unrelated = createETHPool(0, 0, 2);
         index.register(first);
         index.register(second);
         index.register(unrelated);
@@ -186,7 +186,7 @@ contract PoolKeyIndexTest is FullTest {
     }
 
     function test_nativePairAndEmptyPairs() public {
-        PoolKey memory pool = createETHPool(0, 0, 100);
+        PoolKey memory pool = createETHPool(0, 0, 2);
         index.register(pool);
         index.register(pool);
         assertEq(index.pairPoolIdCount(pool.token1, address(0)), 1);

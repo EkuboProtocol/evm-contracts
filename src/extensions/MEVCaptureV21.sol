@@ -8,15 +8,13 @@ import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
 import {ExposedStorage} from "../base/ExposedStorage.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
-import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {exp2} from "../math/exp2.sol";
-import {amountBeforeFee, computeFee} from "../math/fee.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
 import {MIN_TICK, MAX_TICK} from "../math/constants.sol";
 import {PoolState} from "../types/poolState.sol";
 import {PoolId} from "../types/poolId.sol";
 import {Locker} from "../types/locker.sol";
-import {SqrtRatio, BIT_MASK, TWO_POW_62, TWO_POW_94} from "../types/sqrtRatio.sol";
+import {SqrtRatio} from "../types/sqrtRatio.sol";
 import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {MEVCaptureV21PoolState, createMEVCaptureV21PoolState} from "../types/mevCaptureV21PoolState.sol";
@@ -44,41 +42,16 @@ function bitLength(uint256 x) pure returns (uint256 n) {
     }
 }
 
-uint96 constant MANTISSA_MAX = uint96(TWO_POW_94) - 1;
-
-/// @notice The largest valid sqrt ratio strictly below `x`
-/// @dev Only called with `x` strictly above the current price, so the result is at least the current price and never
-///   below `MIN_SQRT_RATIO`. Jumps regions when the mantissa is at its minimum.
-function predSqrtRatio(SqrtRatio x) pure returns (SqrtRatio) {
-    uint96 raw = SqrtRatio.unwrap(x);
-    uint96 region = raw & BIT_MASK;
-    if ((raw & ~BIT_MASK) == TWO_POW_62 && region != 0) {
-        return SqrtRatio.wrap((region - TWO_POW_94) | MANTISSA_MAX);
-    }
-    return SqrtRatio.wrap(raw - 1);
-}
-
-/// @notice The smallest valid sqrt ratio strictly above `x`
-/// @dev Only called with `x` strictly below the current price, so the result is at most the current price and never
-///   above `MAX_SQRT_RATIO`. Jumps regions when the mantissa is at its maximum.
-function succSqrtRatio(SqrtRatio x) pure returns (SqrtRatio) {
-    uint96 raw = SqrtRatio.unwrap(x);
-    uint96 region = raw & BIT_MASK;
-    if ((raw & ~BIT_MASK) == MANTISSA_MAX && region != BIT_MASK) {
-        return SqrtRatio.wrap((region + TWO_POW_94) | TWO_POW_62);
-    }
-    return SqrtRatio.wrap(raw + 1);
-}
-
-/// @title MEV Capture v2.1 for the current Core
+/// @title MEV Capture v2.1
 /// @notice Charges swaps that move the price away from a time-decaying anchor a surcharge that grows linearly with the
-///   displacement from the anchor. The surcharge is charged by the extension through `Core.accumulateAsFees` right
-///   after each charged Core call, so it accrues to exactly the liquidity that was active during that call. Every
-///   charged Core call is cut to end strictly before the next initialized tick; each initialized tick is crossed by its
-///   own uncharged bridge call of one representable sqrt-ratio step.
-/// @dev Specification: EKU-946 design rev 10, §(b-main). Every swap must go through `forward`.
+///   displacement from the anchor. The surcharge is charged inside the swap by Core through `SwapParameters.minFee`,
+///   one constant-rate segment at a time, so it accrues to the liquidity in range exactly like the pool fee.
+/// @dev Specification: EKU-946 design rev 5, §(b). Every swap must go through `forward`.
 contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedStorage {
     using CoreLib for *;
+
+    /// @notice Number of doubling-width away segments after the `J_LIN` equal-width ones
+    uint256 internal constant DOUBLING_SEGMENTS = 24;
 
     uint256 internal immutable HALF_LIFE;
     uint256 internal immutable SLOPE_K;
@@ -87,6 +60,7 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
     uint256 internal immutable MAX_FEE;
     uint256 internal immutable CLAMP_TICKS;
     uint256 internal immutable M_GATE;
+    uint256 internal immutable MAX_SEGMENTS;
 
     constructor(
         ICore core,
@@ -94,16 +68,23 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
         uint8 slopeK,
         uint8 segmentExp,
         uint8 jLin,
-        uint64 maxFee,
+        uint16 maxFee,
         uint32 clampTicks,
         uint8 mGate
     ) BaseExtension(core) BaseForwardee(core) {
         if (
             halfLife == 0 || halfLife > (1 << 20) || slopeK == 0 || slopeK > 16 || segmentExp > 8 || jLin == 0
-                || jLin > 64 || maxFee == 0 || maxFee > (1 << 63) || clampTicks == 0
+                || jLin > 64 || maxFee == 0 || maxFee > (1 << 15) || clampTicks == 0
                 || uint256(clampTicks) > 2 * uint256(uint32(MAX_TICK)) || mGate > 16
         ) {
             revert InvalidConfig();
+        }
+
+        // Budget lemma: the (jLin + 24)-th away segment starts more than W * (jLin - 1 + 2^24 - 2) beyond the anchor,
+        // so with poolFee >= 1 its fee is at least 1 + slopeK * 2^segmentExp * (jLin + 2^24 - 3) / 2, which must reach
+        // maxFee. Holds for every allowed configuration; checked so that it cannot silently break.
+        if (uint256(slopeK) * (uint256(jLin) + (1 << 24) - 3) << segmentExp < 2 * (uint256(maxFee) - 1)) {
+            revert SegmentBudgetTooSmall();
         }
 
         HALF_LIFE = halfLife;
@@ -113,6 +94,7 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
         MAX_FEE = maxFee;
         CLAMP_TICKS = clampTicks;
         M_GATE = mGate;
+        MAX_SEGMENTS = uint256(jLin) + DOUBLING_SEGMENTS;
     }
 
     function getCallPoints() internal pure override returns (CallPoints memory) {
@@ -163,11 +145,11 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
             halfLife: uint32(HALF_LIFE),
             slopeK: uint8(SLOPE_K),
             segmentExp: uint8(SEGMENT_EXP),
-            segmentWidthMultiplier: uint32(1) << SEGMENT_EXP,
             jLin: uint8(J_LIN),
-            maxFee: uint64(MAX_FEE),
+            maxFee: uint16(MAX_FEE),
             clampTicks: uint32(CLAMP_TICKS),
-            mGate: uint8(M_GATE)
+            mGate: uint8(M_GATE),
+            maxSegments: uint8(MAX_SEGMENTS)
         });
     }
 
@@ -272,11 +254,7 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
                 magnitude = ((magnitude >> (dt / HALF_LIFE)) << 64) / exp2(((dt % HALF_LIFE) << 64) / HALF_LIFE);
                 int256 decayed = offset < 0 ? -int256(magnitude) : int256(magnitude);
 
-                // CLAMP_TICKS * min(dt, tau) / tau in 16.16, rounded up: every update that consumes elapsed time
-                // grants at least one unit, so touching the pool every timestamp cannot slow the anchor below the
-                // configured rate (it can only add at most one unit per timestamp, i.e. one tick per 2^16 seconds)
-                int256 limit =
-                    int256(((CLAMP_TICKS << 16) * (dt < HALF_LIFE ? dt : HALF_LIFE) + HALF_LIFE - 1) / HALF_LIFE);
+                int256 limit = int256(((CLAMP_TICKS << 16) * (dt < HALF_LIFE ? dt : HALF_LIFE)) / HALF_LIFE);
                 int256 move = decayed - offset;
                 if (move > limit) move = limit;
                 else if (move < -limit) move = -limit;
@@ -327,41 +305,40 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
     /// @notice Away boundary `k` (1-based), in Q16 ticks in the swap's mirrored coordinates
     /// @dev The first `J_LIN` boundaries lie on the absolute W grid starting at `g1`, the first grid point strictly
     ///   beyond the anchor. After `gJ` (the `J_LIN`-th), widths double: 2W, 4W, ...
-    function _boundary(uint256 k, int256 g1, int256 gJ, int256 w16) internal view returns (int256) {
+    function _boundary(uint256 k, int256 g1, int256 gJ, uint256 wShift) internal view returns (int256) {
         unchecked {
-            if (k <= J_LIN) return g1 + int256(k - 1) * w16;
-            return gJ + int256((uint256(1) << (k - J_LIN + 1)) - 2) * w16;
+            if (k <= J_LIN) return g1 + (int256(k - 1) << wShift);
+            return gJ + (int256((uint256(1) << (k - J_LIN + 1)) - 2) << wShift);
         }
     }
 
     /// @notice Index of the first away boundary strictly beyond the mirrored integer tick position `p`
-    function _firstSegment(int256 p, int256 g1, int256 gJ, int256 w16) internal view returns (uint256 k) {
+    function _firstSegment(int256 p, int256 g1, int256 gJ, uint256 wShift) internal view returns (uint256 k) {
         unchecked {
             int256 p16 = p << 16;
             if (p16 < g1) return 1;
-            if (p16 < gJ) return uint256((p16 - g1) / w16) + 2;
-            return J_LIN - 1 + bitLength(uint256((p16 - gJ) / w16) + 2);
+            if (p16 < gJ) return uint256((p16 - g1) >> wShift) + 2;
+            return J_LIN - 1 + bitLength(uint256((p16 - gJ) >> wShift) + 2);
         }
     }
 
-    /// @notice Surcharge rate of an away segment: ceil(SLOPE_K/2 * poolFee * |mid - anchor| / tickSpacing), capped so
-    ///   that the total fee does not exceed MAX_FEE
+    /// @notice Total fee of an away segment: ceil(poolFee + SLOPE_K/2 * poolFee * |mid - anchor| / tickSpacing),
+    ///   capped at MAX_FEE
     /// @param twiceMidOffsetX16 lo + hi - 2 * anchor, in Q16 ticks, i.e. twice the midpoint displacement
-    function _surcharge(uint256 poolFee, uint256 twiceMidOffsetX16, uint256 spacing)
+    function _segmentFee(uint256 poolFee, uint256 twiceMidOffsetX16, uint256 spacingExp)
         internal
         view
-        returns (uint256 sur)
+        returns (uint256 fee)
     {
         unchecked {
-            uint256 den = spacing << 18;
-            uint256 num = SLOPE_K * poolFee * twiceMidOffsetX16;
-            sur = (num + den - 1) / den;
-            uint256 cap = MAX_FEE - poolFee;
-            if (sur > cap) sur = cap;
+            uint256 shift = spacingExp + 18;
+            uint256 numerator = SLOPE_K * poolFee * twiceMidOffsetX16;
+            fee = poolFee + ((numerator + (uint256(1) << shift) - 1) >> shift);
+            if (fee > MAX_FEE) fee = MAX_FEE;
         }
     }
 
-    function _coreSwap(PoolKey memory poolKey, SwapParameters params, SqrtRatio limit, int128 amount)
+    function _coreSwap(PoolKey memory poolKey, SwapParameters params, SqrtRatio limit, int128 amount, uint256 fee)
         internal
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
@@ -369,212 +346,108 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
             0,
             poolKey,
             createSwapParameters({
-                _sqrtRatioLimit: limit, _amount: amount, _isToken1: params.isToken1(), _skipAhead: params.skipAhead()
+                _sqrtRatioLimit: limit,
+                _amount: amount,
+                _isToken1: params.isToken1(),
+                _skipAhead: params.skipAhead(),
+                _minFee: uint16(fee)
             })
         );
     }
 
-    /// @notice The first tick event strictly beyond `fromTick` in the direction of travel, exactly as Core's swap loop
-    ///   searches it: an initialized tick, an uninitialized bitmap-word endpoint, or the extreme tick
-    function _tickEvent(PoolId poolId, int32 fromTick, uint32 spacing, uint256 skipAhead, bool increasing)
-        internal
-        view
-        returns (int32, bool)
-    {
-        return increasing
-            ? CORE.nextInitializedTick(poolId, fromTick, spacing, skipAhead)
-            : CORE.prevInitializedTick(poolId, fromTick, spacing, skipAhead);
-    }
-
-    /// @notice Charges the surcharge of a charged call on its calculated token and credits it to the active liquidity
-    /// @dev Exact-in: the surcharge is taken from the output. Exact-out: the input is grossed up so that the swapper
-    ///   pays the surcharge on top of the pool fee. Nothing is charged (and `accumulateAsFees` is not called) when the
-    ///   call moved no tokens, so a nonzero charge always credits the liquidity that traded.
-    function _charge(
-        PoolKey memory poolKey,
-        PoolBalanceUpdate update,
-        bool isToken1,
-        bool exactOut,
-        uint64 poolFee,
-        uint64 sur
-    ) internal returns (int256 d0, int256 d1) {
-        d0 = update.delta0();
-        d1 = update.delta1();
-        // the calculated token is token0 when token1 is specified and vice versa
-        int256 calculated = isToken1 ? d0 : d1;
-        uint128 fee;
-        if (exactOut) {
-            // the calculated token is the input
-            uint128 input = uint128(uint256(calculated));
-            uint128 inputNet = input - computeFee(input, poolFee);
-            fee = amountBeforeFee(inputNet, sur) - inputNet;
-        } else {
-            // the calculated token is the output
-            fee = computeFee(uint128(uint256(-calculated)), sur);
-        }
-        if (fee != 0) {
-            if (isToken1) {
-                CORE.accumulateAsFees(poolKey, fee, 0);
-                d0 += int256(uint256(fee));
-            } else {
-                CORE.accumulateAsFees(poolKey, 0, fee);
-                d1 += int256(uint256(fee));
-            }
-        }
-    }
-
-    struct Away {
-        bool increasing;
-        bool isToken1;
-        bool exactOut;
-        SqrtRatio userLimit;
-        SqrtRatio sqrtRatio;
-        int32 tick;
-        int128 remaining;
-        int256 sum0;
-        int256 sum1;
-        uint64 poolFee;
-        uint32 spacing;
-        uint256 skipAhead;
-        int256 a;
-        int256 w16;
-        int256 g1;
-        int256 gJ;
-        uint256 k;
-        int256 lo;
-    }
-
-    /// @notice Executes the swap as one uncut toward call (to the anchor) followed by the away state machine: charged
-    ///   calls cut before the next rate boundary and before the next initialized tick, and one uncharged bridge call
-    ///   per initialized tick crossed
+    /// @notice Executes the swap as one toward call (to the anchor) plus one Core call per away segment
     function _swapThroughSegments(PoolKey memory poolKey, SwapParameters params, int256 anchor, PoolState stateBefore)
         internal
         returns (PoolBalanceUpdate, PoolState stateAfter)
     {
-        Away memory l;
-        l.userLimit = params.sqrtRatioLimit();
-        l.remaining = params.amount();
-        (l.sqrtRatio, l.tick,) = stateBefore.parse();
-        if (l.remaining == 0 || l.sqrtRatio == l.userLimit) return CORE.swap(0, poolKey, params);
+        SqrtRatio userLimit = params.sqrtRatioLimit();
+        int128 remaining = params.amount();
+        (SqrtRatio sqrtRatio, int32 tick,) = stateBefore.parse();
+        if (remaining == 0 || sqrtRatio == userLimit) return CORE.swap(0, poolKey, params);
 
-        l.increasing = params.isPriceIncreasing();
-        l.isToken1 = params.isToken1();
-        l.exactOut = params.isExactOut();
+        bool increasing = params.isPriceIncreasing();
+        bool isToken1 = params.isToken1();
         // mirrored coordinates: the swap always moves toward larger values
-        l.a = l.increasing ? anchor : -anchor;
+        int256 a = increasing ? anchor : -anchor;
+        int128 sum0;
+        int128 sum1;
 
         {
             // the toward call ends at or before the true anchor: floor when approaching from below, ceil from above
-            int256 anchorTick = l.a >> 16;
-            if (!l.increasing) anchorTick = -anchorTick;
+            int256 anchorTick = a >> 16;
+            if (!increasing) anchorTick = -anchorTick;
             if (anchorTick < MIN_TICK) anchorTick = MIN_TICK;
             else if (anchorTick > MAX_TICK) anchorTick = MAX_TICK;
             SqrtRatio anchorSqrtRatio = tickToSqrtRatio(int32(anchorTick));
 
-            if (l.increasing ? l.sqrtRatio < anchorSqrtRatio : l.sqrtRatio > anchorSqrtRatio) {
-                SqrtRatio limit = l.increasing ? anchorSqrtRatio.min(l.userLimit) : anchorSqrtRatio.max(l.userLimit);
+            if (increasing ? sqrtRatio < anchorSqrtRatio : sqrtRatio > anchorSqrtRatio) {
+                SqrtRatio limit = increasing ? anchorSqrtRatio.min(userLimit) : anchorSqrtRatio.max(userLimit);
                 PoolBalanceUpdate update;
-                (update, stateAfter) = _coreSwap(poolKey, params, limit, l.remaining);
-                l.sum0 = update.delta0();
-                l.sum1 = update.delta1();
-                l.remaining -= l.isToken1 ? update.delta1() : update.delta0();
-                if (l.remaining == 0 || limit == l.userLimit || stateAfter.sqrtRatio() != limit) {
-                    return (createPoolBalanceUpdate(int128(l.sum0), int128(l.sum1)), stateAfter);
+                (update, stateAfter) = _coreSwap(poolKey, params, limit, remaining, params.minFee());
+                sum0 = update.delta0();
+                sum1 = update.delta1();
+                remaining -= isToken1 ? sum1 : sum0;
+                if (remaining == 0 || limit == userLimit || stateAfter.sqrtRatio() != limit) {
+                    return (createPoolBalanceUpdate(sum0, sum1), stateAfter);
                 }
                 // N1: the away loop starts from the same rounded sqrt ratio the toward call ended at
-                l.sqrtRatio = limit;
-                l.tick = stateAfter.tick();
+                sqrtRatio = limit;
+                tick = stateAfter.tick();
             }
         }
 
-        l.poolFee = poolKey.config.fee();
-        l.spacing = poolKey.config.concentratedTickSpacing();
-        l.skipAhead = params.skipAhead();
-        PoolId poolId = poolKey.toPoolId();
-
-        l.w16 = int256(uint256(l.spacing) << (SEGMENT_EXP + 16));
-        {
-            // first grid point strictly beyond the anchor (floor division for negative anchors)
-            int256 q = l.a / l.w16;
-            if (l.a < 0 && l.a % l.w16 != 0) q -= 1;
-            l.g1 = (q + 1) * l.w16;
-        }
-        l.gJ = l.g1 + int256(J_LIN - 1) * l.w16;
+        uint256 spacingExp = poolKey.config.tickSpacingExp();
+        uint256 wShift = spacingExp + SEGMENT_EXP + 16;
+        int256 g1 = ((a >> wShift) + 1) << wShift;
+        int256 gJ = g1 + (int256(J_LIN - 1) << wShift);
         // mirrored integer tick p such that the boundaries strictly beyond the price are those > p (up to one exact
         // boundary hit, handled below by comparing sqrt ratios)
-        l.k = _firstSegment(l.increasing ? int256(l.tick) : -int256(l.tick) - 1, l.g1, l.gJ, l.w16);
-        l.lo = l.k == 1 ? l.a : _boundary(l.k - 1, l.g1, l.gJ, l.w16);
+        uint256 k = _firstSegment(increasing ? int256(tick) : -int256(tick) - 1, g1, gJ, wShift);
+        uint256 poolFee = poolKey.config.fee();
+        uint256 minFee = params.minFee();
+        uint256 n;
 
+        int256 lo = k == 1 ? a : _boundary(k - 1, g1, gJ, wShift);
         while (true) {
-            // (2) rate boundary: the end of the segment containing the current price, or none once the surcharge is
-            //     capped or the boundary lies beyond the last tick
-            int256 hi = _boundary(l.k, l.g1, l.gJ, l.w16);
-            uint256 sur = _surcharge(l.poolFee, uint256(l.lo + hi - 2 * l.a), l.spacing);
-            SqrtRatio limit = l.userLimit;
-            if (sur != MAX_FEE - l.poolFee) {
+            int256 hi = _boundary(k, g1, gJ, wShift);
+            uint256 fee = _segmentFee(poolFee, uint256(lo + hi - 2 * a), spacingExp);
+
+            SqrtRatio limit = userLimit;
+            if (fee != MAX_FEE && n != MAX_SEGMENTS - 1) {
                 int256 hiTick = hi >> 16;
                 if (hiTick <= MAX_TICK) {
-                    SqrtRatio boundary = tickToSqrtRatio(int32(l.increasing ? hiTick : -hiTick));
+                    SqrtRatio boundary = tickToSqrtRatio(int32(increasing ? hiTick : -hiTick));
                     // segment membership is by sqrt ratio: skip a boundary the price already sits on
-                    if (l.increasing ? boundary <= l.sqrtRatio : boundary >= l.sqrtRatio) {
-                        l.lo = hi;
+                    if (increasing ? boundary <= sqrtRatio : boundary >= sqrtRatio) {
+                        lo = hi;
                         unchecked {
-                            l.k++;
+                            k++;
                         }
                         continue;
                     }
-                    limit = l.increasing ? boundary.min(limit) : boundary.max(limit);
+                    limit = increasing ? boundary.min(userLimit) : boundary.max(userLimit);
                 }
-            }
-
-            // (1) tick event: Core's first search of the next call. In the exact-tick state (price on a tick reached
-            //     from the other direction) Core will cross it with zero amounts at the start of the call; look past it
-            (int32 eventTick, bool initialized) = _tickEvent(poolId, l.tick, l.spacing, l.skipAhead, l.increasing);
-            SqrtRatio eventSqrtRatio = tickToSqrtRatio(eventTick);
-            if (eventSqrtRatio == l.sqrtRatio) {
-                unchecked {
-                    (eventTick, initialized) = _tickEvent(
-                        poolId, l.increasing ? eventTick : eventTick - 1, l.spacing, l.skipAhead, l.increasing
-                    );
-                }
-                eventSqrtRatio = tickToSqrtRatio(eventTick);
-            }
-
-            // (3) choose the call: an initialized tick one representable step away is crossed by its own uncharged
-            //     bridge call; otherwise a charged call that stops one step short of an initialized tick, or exactly
-            //     on an uninitialized endpoint, and before the rate boundary and the user's limit
-            bool bridge;
-            if (initialized) {
-                SqrtRatio cut = l.increasing ? predSqrtRatio(eventSqrtRatio) : succSqrtRatio(eventSqrtRatio);
-                if (cut == l.sqrtRatio) {
-                    bridge = true;
-                    limit = l.increasing ? eventSqrtRatio.min(l.userLimit) : eventSqrtRatio.max(l.userLimit);
-                } else {
-                    limit = l.increasing ? cut.min(limit) : cut.max(limit);
-                }
-            } else {
-                limit = l.increasing ? eventSqrtRatio.min(limit) : eventSqrtRatio.max(limit);
             }
 
             PoolBalanceUpdate update;
-            (update, stateAfter) = _coreSwap(poolKey, params, limit, l.remaining);
-            if (bridge || sur == 0) {
-                l.sum0 += update.delta0();
-                l.sum1 += update.delta1();
-            } else {
-                (int256 d0, int256 d1) = _charge(poolKey, update, l.isToken1, l.exactOut, l.poolFee, uint64(sur));
-                l.sum0 += d0;
-                l.sum1 += d1;
+            (update, stateAfter) = _coreSwap(poolKey, params, limit, remaining, fee > minFee ? fee : minFee);
+            // S3: checked int128 sums
+            sum0 += update.delta0();
+            sum1 += update.delta1();
+            remaining -= isToken1 ? update.delta1() : update.delta0();
+            unchecked {
+                n++;
             }
-            // the specified token's delta is Core's; the surcharge is always on the calculated token
-            l.remaining -= l.isToken1 ? update.delta1() : update.delta0();
 
-            (l.sqrtRatio, l.tick,) = stateAfter.parse();
-            if (l.remaining == 0 || l.sqrtRatio == l.userLimit) break;
+            if (remaining == 0 || limit == userLimit || stateAfter.sqrtRatio() != limit) break;
+            sqrtRatio = limit;
+            lo = hi;
+            unchecked {
+                k++;
+            }
         }
 
-        // S3: checked int128 sums
-        return (createPoolBalanceUpdate(SafeCastLib.toInt128(l.sum0), SafeCastLib.toInt128(l.sum1)), stateAfter);
+        return (createPoolBalanceUpdate(sum0, sum1), stateAfter);
     }
 
     function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory result) {

@@ -203,7 +203,8 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
                                 _amount: tokenAmount.amount,
                                 _isToken1: isToken1,
                                 _sqrtRatioLimit: node.sqrtRatioLimit,
-                                _skipAhead: node.skipAhead
+                                _skipAhead: node.skipAhead,
+                                _minFee: 0
                             })
                         );
                         results[i][j] = update;
@@ -320,7 +321,7 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
         balanceUpdate = swap(
             poolKey,
             createSwapParameters({
-                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead, _minFee: 0
             }),
             calculatedAmountThreshold,
             recipient
@@ -375,7 +376,7 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
         balanceUpdate = swapAllowPartialFill(
             poolKey,
             createSwapParameters({
-                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead, _minFee: 0
             }),
             recipient
         );
@@ -398,7 +399,7 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
         balanceUpdate = swapAllowPartialFill(
             poolKey,
             createSwapParameters({
-                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead, _minFee: 0
             }),
             msg.sender
         );
@@ -423,7 +424,7 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
         balanceUpdate = swap(
             poolKey,
             createSwapParameters({
-                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
+                _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead, _minFee: 0
             }),
             calculatedAmountThreshold,
             msg.sender
@@ -446,7 +447,8 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
                 _isToken1: node.poolKey.token1 == tokenAmount.token,
                 _amount: tokenAmount.amount,
                 _sqrtRatioLimit: node.sqrtRatioLimit,
-                _skipAhead: node.skipAhead
+                _skipAhead: node.skipAhead,
+                _minFee: 0
             }),
             calculatedAmountThreshold,
             msg.sender
@@ -468,7 +470,8 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
                 _isToken1: node.poolKey.token1 == tokenAmount.token,
                 _amount: tokenAmount.amount,
                 _sqrtRatioLimit: node.sqrtRatioLimit,
-                _skipAhead: node.skipAhead
+                _skipAhead: node.skipAhead,
+                _minFee: 0
             }),
             msg.sender
         );
@@ -526,7 +529,11 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
                 CALL_TYPE_QUOTE,
                 poolKey,
                 createSwapParameters({
-                    _isToken1: isToken1, _amount: amount, _sqrtRatioLimit: sqrtRatioLimit, _skipAhead: skipAhead
+                    _isToken1: isToken1,
+                    _amount: amount,
+                    _sqrtRatioLimit: sqrtRatioLimit,
+                    _skipAhead: skipAhead,
+                    _minFee: 0
                 })
             )
         );

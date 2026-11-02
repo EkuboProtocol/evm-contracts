@@ -18,19 +18,20 @@ contract QuoteDataFetcherTest is FullTest {
     }
 
     function test_getQuoteData() public {
-        PoolKey memory poolKey = createPool({tick: 10, fee: 0, tickSpacing: 5});
+        PoolKey memory poolKey = createPool({tick: 10, fee: 0, tickSpacingExp: 0});
         (, uint128 liqA) = createPosition(poolKey, -50, 50, 500, 500);
         (, uint128 liqB) = createPosition(poolKey, -2000, 1200, 1000, 1000);
         (, uint128 liqC) = createPosition(poolKey, -400, -200, 0, 300);
         (, uint128 liqD) = createPosition(poolKey, 250, 600, 200, 0);
-        createPosition(poolKey, -1280, -1275, 0, 5000);
+        (, uint128 liqE) = createPosition(poolKey, -1280, -1275, 0, 5000);
 
         PoolKey memory poolKeyFull = createFullRangePool({tick: 693147, fee: 0});
         (, uint128 liqF) = createPosition(poolKeyFull, MIN_TICK, MAX_TICK, 5000, 5000);
         (, uint128 liqG) = createPosition(poolKeyFull, MIN_TICK, MAX_TICK, 7500, 7500);
 
-        PoolConfig poolConfigStable =
-            createStableswapPoolConfig({_fee: 100, _extension: address(0), _centerTick: 693147, _amplification: 8});
+        PoolConfig poolConfigStable = createStableswapPoolConfig({
+            _fee: 100, _extension: address(0), _centerTick: 693147, _amplification: 8, _salt: 0
+        });
         PoolKey memory poolKeyStable = createPool({
             _token0: address(token0), _token1: address(token1), tick: 693147 * 2, config: poolConfigStable
         });
@@ -38,9 +39,9 @@ contract QuoteDataFetcherTest is FullTest {
         (, uint128 liqH) = createPosition(poolKeyStable, lowerTickStable, upperTickStable, 10000, 6000);
         (, uint128 liqI) = createPosition(poolKeyStable, lowerTickStable, upperTickStable, 2000, 15000);
 
-        PoolKey memory poolKeyNoLiquidity = createPool({tick: -693147, fee: 0, tickSpacing: 100});
+        PoolKey memory poolKeyNoLiquidity = createPool({tick: -693147, fee: 0, tickSpacingExp: 2});
         PoolKey memory poolKeyDoesNotExist =
-            PoolKey(address(token0), address(token1), createConcentratedPoolConfig(1, 1, address(0)));
+            PoolKey(address(token0), address(token1), createConcentratedPoolConfig(1, 0, address(0), 0));
 
         PoolKey[] memory keys = new PoolKey[](5);
         keys[0] = poolKey;
@@ -48,30 +49,36 @@ contract QuoteDataFetcherTest is FullTest {
         keys[2] = poolKeyNoLiquidity;
         keys[3] = poolKeyDoesNotExist;
         keys[4] = poolKeyStable;
-        QuoteData[] memory qd = qdf.getQuoteData(keys, 1);
+        QuoteData[] memory qd = qdf.getQuoteData(keys, 8);
         assertEq(qd.length, 5);
 
         assertEq(qd[0].liquidity, liqA + liqB);
         assertTrue(qd[0].sqrtRatio == tickToSqrtRatio(10));
-        assertEq(qd[0].minTick, -1270);
-        assertEq(qd[0].maxTick, 1290);
+        assertEq(qd[0].minTick, -2038);
+        assertEq(qd[0].maxTick, 2058);
         assertEq(qd[0].tick, 10);
-        assertEq(qd[0].ticks.length, 7);
-        assertEq(qd[0].ticks[0].number, -400);
-        assertEq(qd[0].ticks[1].number, -200);
-        assertEq(qd[0].ticks[2].number, -50);
-        assertEq(qd[0].ticks[3].number, 50);
-        assertEq(qd[0].ticks[4].number, 250);
-        assertEq(qd[0].ticks[5].number, 600);
-        assertEq(qd[0].ticks[6].number, 1200);
+        assertEq(qd[0].ticks.length, 10);
+        assertEq(qd[0].ticks[0].number, -2000);
+        assertEq(qd[0].ticks[1].number, -1280);
+        assertEq(qd[0].ticks[2].number, -1275);
+        assertEq(qd[0].ticks[3].number, -400);
+        assertEq(qd[0].ticks[4].number, -200);
+        assertEq(qd[0].ticks[5].number, -50);
+        assertEq(qd[0].ticks[6].number, 50);
+        assertEq(qd[0].ticks[7].number, 250);
+        assertEq(qd[0].ticks[8].number, 600);
+        assertEq(qd[0].ticks[9].number, 1200);
 
-        assertEq(qd[0].ticks[0].liquidityDelta, int128(liqC));
-        assertEq(qd[0].ticks[1].liquidityDelta, -int128(liqC));
-        assertEq(qd[0].ticks[2].liquidityDelta, int128(liqA));
-        assertEq(qd[0].ticks[3].liquidityDelta, -int128(liqA));
-        assertEq(qd[0].ticks[4].liquidityDelta, int128(liqD));
-        assertEq(qd[0].ticks[5].liquidityDelta, -int128(liqD));
-        assertEq(qd[0].ticks[6].liquidityDelta, -int128(liqB));
+        assertEq(qd[0].ticks[0].liquidityDelta, int128(liqB));
+        assertEq(qd[0].ticks[1].liquidityDelta, int128(liqE));
+        assertEq(qd[0].ticks[2].liquidityDelta, -int128(liqE));
+        assertEq(qd[0].ticks[3].liquidityDelta, int128(liqC));
+        assertEq(qd[0].ticks[4].liquidityDelta, -int128(liqC));
+        assertEq(qd[0].ticks[5].liquidityDelta, int128(liqA));
+        assertEq(qd[0].ticks[6].liquidityDelta, -int128(liqA));
+        assertEq(qd[0].ticks[7].liquidityDelta, int128(liqD));
+        assertEq(qd[0].ticks[8].liquidityDelta, -int128(liqD));
+        assertEq(qd[0].ticks[9].liquidityDelta, -int128(liqB));
 
         assertEq(qd[1].liquidity, liqF + liqG);
         assertTrue(qd[1].sqrtRatio == tickToSqrtRatio(693147));
@@ -86,8 +93,8 @@ contract QuoteDataFetcherTest is FullTest {
 
         assertEq(qd[2].liquidity, 0);
         assertTrue(qd[2].sqrtRatio == tickToSqrtRatio(-693147));
-        assertEq(qd[2].minTick, -718747);
-        assertEq(qd[2].maxTick, -667547);
+        assertEq(qd[2].minTick, -701339);
+        assertEq(qd[2].maxTick, -684955);
         assertEq(qd[2].tick, -693147);
         assertEq(qd[2].ticks.length, 0);
 

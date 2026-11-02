@@ -9,10 +9,10 @@ contract AuctionKeyTest is Test {
     function test_sellToken_whenIsSellingToken1False(
         address token0,
         address token1,
-        uint32 creatorFee,
+        uint16 creatorFee,
         uint24 minBoostDuration,
-        uint64 graduationPoolFee,
-        uint32 graduationPoolTickSpacing,
+        uint16 graduationPoolFee,
+        uint8 graduationPoolTickSpacingExp,
         uint64 startTime,
         uint32 auctionDuration
     ) public pure {
@@ -22,7 +22,7 @@ contract AuctionKeyTest is Test {
             _isSellingToken1: false,
             _minBoostDuration: minBoostDuration,
             _graduationPoolFee: graduationPoolFee,
-            _graduationPoolTickSpacing: graduationPoolTickSpacing,
+            _graduationPoolTickSpacingExp: graduationPoolTickSpacingExp,
             _startTime: startTime,
             _auctionDuration: auctionDuration
         });
@@ -35,10 +35,10 @@ contract AuctionKeyTest is Test {
     function test_sellToken_whenIsSellingToken1True(
         address token0,
         address token1,
-        uint32 creatorFee,
+        uint16 creatorFee,
         uint24 minBoostDuration,
-        uint64 graduationPoolFee,
-        uint32 graduationPoolTickSpacing,
+        uint16 graduationPoolFee,
+        uint8 graduationPoolTickSpacingExp,
         uint64 startTime,
         uint32 auctionDuration
     ) public pure {
@@ -48,7 +48,7 @@ contract AuctionKeyTest is Test {
             _isSellingToken1: true,
             _minBoostDuration: minBoostDuration,
             _graduationPoolFee: graduationPoolFee,
-            _graduationPoolTickSpacing: graduationPoolTickSpacing,
+            _graduationPoolTickSpacingExp: graduationPoolTickSpacingExp,
             _startTime: startTime,
             _auctionDuration: auctionDuration
         });
@@ -81,7 +81,7 @@ contract AuctionKeyTest is Test {
             _isSellingToken1: !auctionKey.config.isSellingToken1(),
             _minBoostDuration: auctionKey.config.minBoostDuration(),
             _graduationPoolFee: auctionKey.config.graduationPoolFee(),
-            _graduationPoolTickSpacing: auctionKey.config.graduationPoolTickSpacing(),
+            _graduationPoolTickSpacingExp: auctionKey.config.graduationPoolTickSpacing(),
             _startTime: auctionKey.config.startTime(),
             _auctionDuration: auctionKey.config.auctionDuration()
         });
@@ -96,7 +96,7 @@ contract AuctionKeyTest is Test {
                 _isSellingToken1: auctionKey.config.isSellingToken1(),
                 _minBoostDuration: auctionKey.config.minBoostDuration(),
                 _graduationPoolFee: auctionKey.config.graduationPoolFee(),
-                _graduationPoolTickSpacing: auctionKey.config.graduationPoolTickSpacing(),
+                _graduationPoolTickSpacingExp: auctionKey.config.graduationPoolTickSpacing(),
                 _startTime: auctionKey.config.startTime(),
                 _auctionDuration: auctionKey.config.auctionDuration()
             });
@@ -112,7 +112,7 @@ contract AuctionKeyTest is Test {
                 _isSellingToken1: auctionKey.config.isSellingToken1(),
                 _minBoostDuration: auctionKey.config.minBoostDuration() + 1,
                 _graduationPoolFee: auctionKey.config.graduationPoolFee(),
-                _graduationPoolTickSpacing: auctionKey.config.graduationPoolTickSpacing(),
+                _graduationPoolTickSpacingExp: auctionKey.config.graduationPoolTickSpacing(),
                 _startTime: auctionKey.config.startTime(),
                 _auctionDuration: auctionKey.config.auctionDuration()
             });
@@ -128,7 +128,7 @@ contract AuctionKeyTest is Test {
                 _isSellingToken1: auctionKey.config.isSellingToken1(),
                 _minBoostDuration: auctionKey.config.minBoostDuration(),
                 _graduationPoolFee: auctionKey.config.graduationPoolFee() + 1,
-                _graduationPoolTickSpacing: auctionKey.config.graduationPoolTickSpacing(),
+                _graduationPoolTickSpacingExp: auctionKey.config.graduationPoolTickSpacing(),
                 _startTime: auctionKey.config.startTime(),
                 _auctionDuration: auctionKey.config.auctionDuration()
             });
@@ -144,7 +144,7 @@ contract AuctionKeyTest is Test {
                 _isSellingToken1: auctionKey.config.isSellingToken1(),
                 _minBoostDuration: auctionKey.config.minBoostDuration(),
                 _graduationPoolFee: auctionKey.config.graduationPoolFee(),
-                _graduationPoolTickSpacing: auctionKey.config.graduationPoolTickSpacing() + 1,
+                _graduationPoolTickSpacingExp: auctionKey.config.graduationPoolTickSpacing() + 1,
                 _startTime: auctionKey.config.startTime(),
                 _auctionDuration: auctionKey.config.auctionDuration()
             });
@@ -160,7 +160,7 @@ contract AuctionKeyTest is Test {
                 _isSellingToken1: auctionKey.config.isSellingToken1(),
                 _minBoostDuration: auctionKey.config.minBoostDuration(),
                 _graduationPoolFee: auctionKey.config.graduationPoolFee(),
-                _graduationPoolTickSpacing: auctionKey.config.graduationPoolTickSpacing(),
+                _graduationPoolTickSpacingExp: auctionKey.config.graduationPoolTickSpacing(),
                 _startTime: auctionKey.config.startTime() + 1,
                 _auctionDuration: auctionKey.config.auctionDuration()
             });
@@ -176,7 +176,7 @@ contract AuctionKeyTest is Test {
                 _isSellingToken1: auctionKey.config.isSellingToken1(),
                 _minBoostDuration: auctionKey.config.minBoostDuration(),
                 _graduationPoolFee: auctionKey.config.graduationPoolFee(),
-                _graduationPoolTickSpacing: auctionKey.config.graduationPoolTickSpacing(),
+                _graduationPoolTickSpacingExp: auctionKey.config.graduationPoolTickSpacing(),
                 _startTime: auctionKey.config.startTime(),
                 _auctionDuration: auctionKey.config.auctionDuration() + 1
             });

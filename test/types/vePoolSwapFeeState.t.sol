@@ -11,24 +11,24 @@ contract VePoolSwapFeeStateTest is Test {
                 createVePoolSwapFeeState({totalWeight_: state.totalWeight(), swapFee_: state.swapFee()})
             ),
             VePoolSwapFeeState.unwrap(state)
-                & bytes32(0x0000000000000000ffffffffffffffffffffffffffffffffffffffffffffffff)
+                & bytes32(0x0000000000000000000000000000ffffffffffffffffffffffffffffffffffff)
         );
     }
 
-    function test_conversionFromAndTo(uint128 totalWeight, uint64 swapFee) public pure {
+    function test_conversionFromAndTo(uint128 totalWeight, uint16 swapFee) public pure {
         VePoolSwapFeeState state = createVePoolSwapFeeState({totalWeight_: totalWeight, swapFee_: swapFee});
 
         assertEq(state.totalWeight(), totalWeight);
         assertEq(state.swapFee(), swapFee);
 
-        (uint128 parsedWeight, uint64 parsedFee) = state.parse();
+        (uint128 parsedWeight, uint16 parsedFee) = state.parse();
         assertEq(parsedWeight, totalWeight);
         assertEq(parsedFee, swapFee);
     }
 
     function test_conversionFromAndToDirtyBits(bytes32 totalWeightDirty, bytes32 swapFeeDirty) public pure {
         uint128 totalWeight = uint128(uint256(totalWeightDirty));
-        uint64 swapFee = uint64(uint256(swapFeeDirty));
+        uint16 swapFee = uint16(uint256(swapFeeDirty));
 
         VePoolSwapFeeState state = createVePoolSwapFeeState({totalWeight_: totalWeight, swapFee_: swapFee});
 

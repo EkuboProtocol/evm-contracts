@@ -116,17 +116,21 @@ contract VeTokenTest is FullTest {
     }
 
     function _createVotedPoolWithFees() internal returns (uint256 veId, PoolKey memory poolKey) {
-        poolKey = createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+        poolKey = createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 6, address(ve33), 0));
         createPosition(poolKey, -64, 64, 1e18, 1e18);
 
         veId = veToken.stakeForDuration(1e18, 1 weeks);
-        veToken.vote(veId, poolKey, uint64(1 << 62));
+        veToken.vote(veId, poolKey, uint16(16384));
 
         token0.approve(address(router), type(uint256).max);
         router.swapAllowPartialFill(
             poolKey,
             createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: false, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _amount: int128(100_000),
+                _isToken1: false,
+                _skipAhead: 0,
+                _minFee: 0
             }),
             address(this)
         );
@@ -149,11 +153,11 @@ contract VeTokenTest is FullTest {
     function test_voteStateReturnsAppliedVoteAndClaimableFees() public {
         (uint256 veId, PoolKey memory poolKey) = _createVotedPoolWithFees();
 
-        (PoolId poolId, uint128 weight, uint64 swapFee, uint128 claimable0, uint128 claimable1) =
+        (PoolId poolId, uint128 weight, uint16 swapFee, uint128 claimable0, uint128 claimable1) =
             veToken.voteState(veId);
         assertEq(PoolId.unwrap(poolId), PoolId.unwrap(poolKey.toPoolId()));
         assertEq(weight, veToken.votingPower(veId));
-        assertEq(swapFee, uint64(1 << 62));
+        assertEq(swapFee, uint16(16384));
         assertGt(uint256(claimable0) + claimable1, 0);
 
         (uint128 claimed0, uint128 claimed1) = veToken.claimPoolFeesToSelf(veId, poolKey);
@@ -163,7 +167,7 @@ contract VeTokenTest is FullTest {
         (poolId, weight, swapFee, claimable0, claimable1) = veToken.voteState(veId);
         assertEq(PoolId.unwrap(poolId), PoolId.unwrap(poolKey.toPoolId()));
         assertEq(weight, veToken.votingPower(veId));
-        assertEq(swapFee, uint64(1 << 62));
+        assertEq(swapFee, uint16(16384));
         assertEq(claimable0, 0);
         assertEq(claimable1, 0);
     }
@@ -171,7 +175,7 @@ contract VeTokenTest is FullTest {
     function test_voteStateReturnsZeroForUnvotedStake() public {
         uint256 veId = veToken.stakeForDuration(1e18, 1 weeks);
 
-        (PoolId poolId, uint128 weight, uint64 swapFee, uint128 claimable0, uint128 claimable1) =
+        (PoolId poolId, uint128 weight, uint16 swapFee, uint128 claimable0, uint128 claimable1) =
             veToken.voteState(veId);
         assertEq(PoolId.unwrap(poolId), bytes32(0));
         assertEq(weight, 0);
@@ -453,11 +457,11 @@ contract VeTokenTest is FullTest {
 
     function test_stakeAndVoteUsesExplicitSalt() public {
         PoolKey memory poolKey =
-            createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+            createPool(address(token0), address(token1), 0, createConcentratedPoolConfig(0, 6, address(ve33), 0));
         uint64 end = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         bytes32 salt = bytes32(uint256(0xBEEF));
         uint256 expectedVeId = veToken.saltToId(address(this), salt);
-        uint64 swapFee = uint64(1 << 62);
+        uint16 swapFee = uint16(16384);
 
         uint256 veId = veToken.stakeAndVote(1e18, end, salt, poolKey, swapFee);
         StakeId id = veToken.stakeId(veId);
@@ -582,27 +586,31 @@ contract VeTokenTest is FullTest {
     function test_claimPoolFeesAndExtendStakeRechecksAuthorizationAfterErc20FeeTransfer() public {
         ReenteringFeeToken feeToken = new ReenteringFeeToken(address(this));
         PoolKey memory poolKey = address(feeToken) < address(token1)
-            ? createPool(address(feeToken), address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)))
-            : createPool(address(token0), address(feeToken), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+            ? createPool(address(feeToken), address(token1), 0, createConcentratedPoolConfig(0, 6, address(ve33), 0))
+            : createPool(address(token0), address(feeToken), 0, createConcentratedPoolConfig(0, 6, address(ve33), 0));
         createPosition(poolKey, -64, 64, 1e18, 1e18);
 
         uint64 end = uint64(vm.getBlockTimestamp() + 1 weeks);
         uint256 veId = veToken.stake(2e18, end);
-        veToken.vote(veId, poolKey, uint64(1 << 62));
+        veToken.vote(veId, poolKey, uint16(16384));
 
         TestToken(poolKey.token0).approve(address(router), type(uint256).max);
         TestToken(poolKey.token1).approve(address(router), type(uint256).max);
         router.swapAllowPartialFill(
             poolKey,
             createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: false, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _amount: int128(100_000),
+                _isToken1: false,
+                _skipAhead: 0,
+                _minFee: 0
             }),
             address(this)
         );
         router.swapAllowPartialFill(
             poolKey,
             createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: true, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: true, _skipAhead: 0, _minFee: 0
             }),
             address(this)
         );
@@ -622,29 +630,33 @@ contract VeTokenTest is FullTest {
     function test_claimPoolFeesAndMergeStakesRechecksAuthorizationAfterErc20FeeTransfer() public {
         ReenteringFeeToken feeToken = new ReenteringFeeToken(address(this));
         PoolKey memory poolKey = address(feeToken) < address(token1)
-            ? createPool(address(feeToken), address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)))
-            : createPool(address(token0), address(feeToken), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+            ? createPool(address(feeToken), address(token1), 0, createConcentratedPoolConfig(0, 6, address(ve33), 0))
+            : createPool(address(token0), address(feeToken), 0, createConcentratedPoolConfig(0, 6, address(ve33), 0));
         createPosition(poolKey, -64, 64, 1e18, 1e18);
 
         uint64 fromEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION() - 1 days);
         uint64 toEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         uint256 fromVeId = veToken.stake(2e18, fromEnd);
         uint256 toVeId = veToken.stake(1e18, toEnd);
-        veToken.vote(fromVeId, poolKey, uint64(1 << 62));
+        veToken.vote(fromVeId, poolKey, uint16(16384));
 
         TestToken(poolKey.token0).approve(address(router), type(uint256).max);
         TestToken(poolKey.token1).approve(address(router), type(uint256).max);
         router.swapAllowPartialFill(
             poolKey,
             createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: false, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0),
+                _amount: int128(100_000),
+                _isToken1: false,
+                _skipAhead: 0,
+                _minFee: 0
             }),
             address(this)
         );
         router.swapAllowPartialFill(
             poolKey,
             createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: true, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: true, _skipAhead: 0, _minFee: 0
             }),
             address(this)
         );
@@ -664,20 +676,20 @@ contract VeTokenTest is FullTest {
 
     function test_claimPoolFeesAndMergeStakesRechecksAuthorizationAfterNativeFeeTransfer() public {
         PoolKey memory poolKey =
-            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 0, createConcentratedPoolConfig(0, 64, address(ve33)));
+            createPool(NATIVE_TOKEN_ADDRESS, address(token1), 20, createConcentratedPoolConfig(0, 6, address(ve33), 0));
         createPosition(poolKey, -64, 64, 1e18, 1e18);
 
         uint64 fromEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION() - 1 days);
         uint64 toEnd = uint64(vm.getBlockTimestamp() + veToken.MAX_STAKE_DURATION());
         uint256 fromVeId = veToken.stake(2e18, fromEnd);
         uint256 toVeId = veToken.stake(1e18, toEnd);
-        veToken.vote(fromVeId, poolKey, uint64(1 << 62));
+        veToken.vote(fromVeId, poolKey, uint16(16384));
 
         token1.approve(address(router), type(uint256).max);
         router.swapAllowPartialFill(
             poolKey,
             createSwapParameters({
-                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: true, _skipAhead: 0
+                _sqrtRatioLimit: SqrtRatio.wrap(0), _amount: int128(100_000), _isToken1: true, _skipAhead: 0, _minFee: 0
             }),
             address(this)
         );

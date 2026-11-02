@@ -112,6 +112,8 @@ This runs three uncached source builds per compiler, records deployed bytecode
 sizes, and compares the same 33 cold Router/deposit gas fixtures. Logs, snapshots
 and `summary.json` stay in the new results directory, not the tracked baselines.
 Gas benefits are workload-dependent; inspect regressions as well as savings.
+See the [compiler evaluation](./solar-evaluation.md) for results and release
+boundaries.
 
 ## License
 

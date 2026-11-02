@@ -39,7 +39,8 @@ def main():
     versions = {}
     for tool in ("forge", "solar"):
         versions[tool] = subprocess.check_output([tool, "--version"], env=env, text=True).strip()
-    if "Version: 1.8.7" not in versions["forge"] or "Version: 0.3.0" not in versions["solar"]:
+    solar_version = versions["solar"].splitlines()[0].split("+", 1)[0]
+    if "Version: 1.8.7" not in versions["forge"] or solar_version != "solar 0.3.0":
         parser.error("expected Foundry 1.8.7 and standalone Solar 0.3.0 on PATH")
 
     def run(compiler, label, command):

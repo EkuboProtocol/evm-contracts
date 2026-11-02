@@ -31,6 +31,16 @@ runs = 1
 [profile.ci]
 verbosity = 3
 
+# Experimental development compiler for next; release builds remain on solc.
+# Requires Foundry v1.8.7 and standalone Solar v0.3.0 on PATH (see README).
+[profile.solar]
+solc = "solar"
+out = "out/solar"
+cache_path = "cache/solar"
+# Compiler-dependent gas measurements must not overwrite solc baselines.
+gas_snapshot_check = false
+gas_snapshot_emit = false
+
 # [profile.ci.fuzz]
 # runs = 100000
 # max_test_rejects = 500000

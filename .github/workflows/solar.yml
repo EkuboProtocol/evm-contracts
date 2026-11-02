@@ -1,0 +1,52 @@
+name: Solar (next)
+
+on:
+  # Keep opt-in until next's runtime tests pass with Solar (see README).
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FOUNDRY_PROFILE: solar
+
+jobs:
+  solar:
+    name: Experimental Solar build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.8.7
+
+      # Foundry's bundled Solar is older than the standalone release needed here.
+      - name: Install Solar v0.3.0
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/solar.tar.gz"
+          destination="$RUNNER_TEMP/solar-0.3.0"
+          curl --fail --location --retry 3 \
+            https://github.com/paradigmxyz/solar/releases/download/v0.3.0/solar-x86_64-unknown-linux-gnu.tar.gz \
+            --output "$archive"
+          echo "15a613746dd30ca772664824d97feddb5c5163ec2380aa556a2d270eacedc5fc  $archive" | sha256sum --check
+          mkdir -p "$destination"
+          tar -xzf "$archive" -C "$destination" --strip-components=1
+          echo "$destination" >> "$GITHUB_PATH"
+
+      - name: Show compiler versions
+        run: |
+          forge --version
+          solar --version
+
+      - name: Build with Solar
+        run: forge build --offline
+
+      - name: Test with Solar
+        run: forge test --offline

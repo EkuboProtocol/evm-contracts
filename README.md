@@ -66,6 +66,40 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 - **`TokenWrapper.sol`**: Vested token implementation that tightly integrates with Ekubo Protocol for cheaper swaps
 - **`TokenWrapperFactory.sol`**: Factory for deploying the TokenWrapper contract
 
+## Solidity compilation on `next`
+
+The experimental `solar` profile uses **Foundry v1.8.7** and standalone
+**Solar v0.3.0** for development builds and tests:
+
+```bash
+FOUNDRY_PROFILE=solar forge build --offline
+FOUNDRY_PROFILE=solar forge test --offline
+```
+
+Install Solar v0.3.0 from the [official release](https://github.com/paradigmxyz/solar/releases/tag/v0.3.0)
+and put its binary **before Foundry's directory on `PATH`**. Foundry v1.8.7's
+bundled Solar reports v0.2.0 and cannot compile this project's assembly. The
+manually dispatched `Solar (next)` workflow pins and verifies the standalone
+Linux binary. Run it against `next`; automatic branch checks are intentionally
+not enabled while compatibility failures remain.
+
+At `next` revision `6f40e4e`, Solar v0.3.0 compiles the project, but
+`MEVCaptureV21VectorsTest.test_vectors_gate_scenarios` fails with `MemoryOOG`;
+the same test passes with solc 0.8.33. The solvency invariant also failed in an
+exploratory Solar run (not yet established as compiler-specific). Do not
+exclude these tests or raise resource limits to claim migration readiness.
+Solar reports Solidity language version 0.8.38 and warns about the project's
+exact 0.8.33 pragmas; the Foundry progress label `Solar 0.8.33` is not the
+actual compiler version.
+
+Solar artifacts and cache live in `out/solar` and `cache/solar`. Its gas snapshot
+checks and writes are disabled so experiments cannot replace the solc baselines.
+Other profiles keep using solc 0.8.33, including release builds and deployment
+scripts. Do not use the Solar profile for deployments: [upstream explicitly
+warns against production use](https://github.com/paradigmxyz/solar#features-and-goals).
+A successful compile alone does not establish runtime, gas, metadata or
+deterministic deployment-address compatibility.
+
 ## License
 
 This project uses the **Ekubo DAO Shared Revenue License 1.0** (`ekubo-license-v1.eth`).

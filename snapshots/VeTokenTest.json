@@ -1,13 +1,13 @@
 {
-  "VeToken#extendStake": "43288",
-  "VeToken#increaseStakeAmount": "35112",
-  "VeToken#mergeStakes": "33078",
-  "VeToken#splitStake": "70308",
-  "VeToken#stake": "149690",
-  "VeToken#stakeId": "3137",
-  "VeToken#stakes": "6880",
-  "VeToken#tokenURI gas": "489694",
-  "VeToken#transferFrom": "31281",
-  "VeToken#votingPower": "6134",
-  "VeToken#withdrawStake": "29703"
+  "VeToken#extendStake": "42634",
+  "VeToken#increaseStakeAmount": "32053",
+  "VeToken#mergeStakes": "32473",
+  "VeToken#splitStake": "69740",
+  "VeToken#stake": "146727",
+  "VeToken#stakeId": "2691",
+  "VeToken#stakes": "5839",
+  "VeToken#tokenURI gas": "380696",
+  "VeToken#transferFrom": "31075",
+  "VeToken#votingPower": "5497",
+  "VeToken#withdrawStake": "27738"
 }

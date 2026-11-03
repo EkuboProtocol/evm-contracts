@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - main
+      - next
   pull_request:
     branches:
       - main
+      - next
   workflow_dispatch:
 
 env:
@@ -24,14 +26,13 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: v1.8.3
+      - name: Install Foundry and Solar
+        uses: ./.github/actions/setup-toolchain
 
       - name: Show Forge version
         run: |
           forge --version
+          solar --version
 
       - name: Run Forge fmt
         continue-on-error: true
@@ -40,26 +41,15 @@ jobs:
 
       - name: Run Forge build
         run: |
-          forge build --sizes
+          forge build --offline --sizes
         id: build
 
       - name: Run DeployAll script
         run: |
-          forge script script/DeployAll.s.sol
+          forge script --offline script/DeployAll.s.sol
         id: deploy-all
 
       - name: Run Forge tests
         run: |
-          forge test --gas-snapshot-check=true -vvv
+          forge test --offline --gas-snapshot-check=true -vvv
         id: test
-
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Install halmos
-        run: |
-          # install the latest version of halmos for the current user and add it to PATH
-          uv tool install --python 3.12 halmos
-
-      - name: Run halmos
-        run: halmos --match-test '^check_'

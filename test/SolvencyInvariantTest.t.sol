@@ -248,6 +248,11 @@ contract Handler is StdUtils, StdAssertions {
             poolBalances[poolId].amount0 += balanceUpdate.delta0();
             poolBalances[poolId].amount1 += balanceUpdate.delta1();
         } catch (bytes memory err) {
+            // Empty revert data is an accepted EVM error (e.g. the explicit
+            // swap gas cap). It has no selector: reading past its length can
+            // observe unrelated memory rather than zero on another compiler.
+            if (err.length == 0) return;
+
             bytes4 sig;
             assembly ("memory-safe") {
                 sig := mload(add(err, 32))
@@ -285,6 +290,29 @@ contract Handler is StdUtils, StdAssertions {
             assertGe(tick, MIN_TICK - 1);
             assertLe(tick, MAX_TICK);
         }
+    }
+}
+
+contract SolvencyHandlerTest is FullTest {
+    Handler handler;
+
+    function setUp() public override {
+        FullTest.setUp();
+        handler = new Handler(core, createAndRegisterExtension(), positions, router, token0, token1);
+        handler.createNewPool(0, 0, 0, false);
+    }
+
+    function test_swap_accepts_empty_revert_data() public {
+        vm.mockCallRevert(address(router), bytes(""), bytes(""));
+        handler.swap(0, 1, true, MAX_SQRT_RATIO, 0);
+        handler.checkAllPoolsHavePositiveBalance();
+        handler.checkAllPoolsHaveValidPriceAndTick();
+    }
+
+    function test_swap_rejects_unknown_revert_data() public {
+        vm.mockCallRevert(address(router), bytes(""), hex"deadbeef");
+        vm.expectRevert(abi.encodeWithSelector(Handler.UnexpectedError.selector, hex"deadbeef"));
+        handler.swap(0, 1, true, MAX_SQRT_RATIO, 0);
     }
 }
 

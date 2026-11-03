@@ -1,0 +1,22 @@
+name: Set up Solidity toolchain
+description: Install pinned Foundry and standalone Solar
+runs:
+  using: composite
+  steps:
+    - uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: v1.8.7
+    # Foundry's bundled Solar predates the assembly support this project needs.
+    - name: Install Solar v0.3.0
+      shell: bash
+      run: |
+        set -euo pipefail
+        archive="$RUNNER_TEMP/solar.tar.gz"
+        destination="$RUNNER_TEMP/solar-0.3.0"
+        curl --fail --location --retry 3 \
+          https://github.com/paradigmxyz/solar/releases/download/v0.3.0/solar-x86_64-unknown-linux-gnu.tar.gz \
+          --output "$archive"
+        echo "15a613746dd30ca772664824d97feddb5c5163ec2380aa556a2d270eacedc5fc  $archive" | sha256sum --check
+        mkdir -p "$destination"
+        tar -xzf "$archive" -C "$destination" --strip-components=1
+        echo "$destination" >> "$GITHUB_PATH"

@@ -66,6 +66,33 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 - **`TokenWrapper.sol`**: Vested token implementation that tightly integrates with Ekubo Protocol for cheaper swaps
 - **`TokenWrapperFactory.sol`**: Factory for deploying the TokenWrapper contract
 
+## Solidity compilation on `next`
+
+All profiles use **Foundry v1.8.7** and standalone **Solar v0.3.0**:
+
+```bash
+forge build --offline
+forge test --offline --gas-snapshot-check=true
+```
+
+Install Solar v0.3.0 from the [official release](https://github.com/paradigmxyz/solar/releases/tag/v0.3.0)
+and put its binary **before Foundry's directory on `PATH`**. Foundry v1.8.7's
+bundled Solar reports v0.2.0 and cannot compile this project's assembly. The
+CI workflows pin and verify the standalone Linux binary and use Solar for
+builds, script simulation and tests. Gas baselines live in `snapshots/`; update
+them with `forge test --offline --gas-snapshot-emit=true`, then review the diff.
+The whole-test FreeLP baseline is regenerated with
+`forge snapshot --offline --match-contract '^FreeLPTest$' --fuzz-seed 0x2338 --snap snapshots/FreeLP.gas`.
+
+Solar reports Solidity language version 0.8.38 and warns about the project's
+exact 0.8.33 pragmas; the Foundry progress label is not the compiler version.
+Compiler changes also change bytecode and deterministic deployment addresses.
+[Solar warns against production use](https://github.com/paradigmxyz/solar#features-and-goals);
+this migration does not establish production deployment safety.
+
+Symbolic verification is temporarily disabled because Solar does not emit the
+Solidity AST it requires. CI uses only Solar; there is no fallback compiler.
+
 ## License
 
 This project uses the **Ekubo DAO Shared Revenue License 1.0** (`ekubo-license-v1.eth`).

@@ -98,44 +98,52 @@ contract MEVCaptureV21VectorsTest is Test {
         assertGt(n, 0);
         uint256 steps;
         for (uint256 i; i < n; i++) {
-            string memory base = string.concat(".gateScenarios[", vm.toString(i), "]");
-            St memory init = abi.decode(vm.parseJsonType(json, string.concat(base, ".initial"), ST), (St));
-            Step[] memory ss = abi.decode(
-                vm.parseJsonTypeArray(
-                    json,
-                    string.concat(base, ".steps"),
-                    string.concat(
-                        "Step(string op,uint256 timestamp,int256 tick,uint256 liquidity,uint256 liquidityAfter,uint256 activeLiquidity,bool first,bool passed,uint256 lObs,uint256 eRef,St expected)",
-                        ST
-                    )
-                ),
-                (Step[])
-            );
-            bytes32 state = _pack(init);
-            for (uint256 j; j < ss.length; j++) {
-                Step memory st = ss[j];
-                uint32 t = uint32(st.timestamp);
-                if (keccak256(bytes(st.op)) == keccak256("position")) {
-                    state = h16.snapshot(state, uint128(st.activeLiquidity), t);
-                } else {
-                    if (st.first) {
-                        bool passed;
-                        uint256 lObs;
-                        uint256 eRef;
-                        (state, passed, lObs, eRef) = h16.anchorUpdate(state, int32(st.tick), uint128(st.liquidity), t);
-                        assertEq(passed, st.passed, "passed");
-                        assertEq(lObs, st.lObs, "lObs");
-                        assertEq(eRef, st.eRef, "eRef");
-                    } else {
-                        assertEq(MEVCaptureV21PoolState.wrap(state).lastUpdateTime(), t, "not first");
-                    }
-                    state = h16.refresh(state, uint128(st.liquidityAfter), t);
-                }
-                assertEq(state, _pack(st.expected), "state after step");
-                steps++;
-            }
+            // Each scenario has independent state. Use a fresh EVM memory arena
+            // so decoding the full fixture repeatedly does not retain every
+            // scenario's temporary allocations for the entire test.
+            steps += this.checkGateScenario(i);
         }
         assertGt(steps, 1000);
+    }
+
+    function checkGateScenario(uint256 i) external view returns (uint256 steps) {
+        string memory json = vm.readFile(string.concat(DIR, "gateScenarios.json"));
+        string memory base = string.concat(".gateScenarios[", vm.toString(i), "]");
+        St memory init = abi.decode(vm.parseJsonType(json, string.concat(base, ".initial"), ST), (St));
+        Step[] memory ss = abi.decode(
+            vm.parseJsonTypeArray(
+                json,
+                string.concat(base, ".steps"),
+                string.concat(
+                    "Step(string op,uint256 timestamp,int256 tick,uint256 liquidity,uint256 liquidityAfter,uint256 activeLiquidity,bool first,bool passed,uint256 lObs,uint256 eRef,St expected)",
+                    ST
+                )
+            ),
+            (Step[])
+        );
+        bytes32 state = _pack(init);
+        for (uint256 j; j < ss.length; j++) {
+            Step memory st = ss[j];
+            uint32 t = uint32(st.timestamp);
+            if (keccak256(bytes(st.op)) == keccak256("position")) {
+                state = h16.snapshot(state, uint128(st.activeLiquidity), t);
+            } else {
+                if (st.first) {
+                    bool passed;
+                    uint256 lObs;
+                    uint256 eRef;
+                    (state, passed, lObs, eRef) = h16.anchorUpdate(state, int32(st.tick), uint128(st.liquidity), t);
+                    assertEq(passed, st.passed, "passed");
+                    assertEq(lObs, st.lObs, "lObs");
+                    assertEq(eRef, st.eRef, "eRef");
+                } else {
+                    assertEq(MEVCaptureV21PoolState.wrap(state).lastUpdateTime(), t, "not first");
+                }
+                state = h16.refresh(state, uint128(st.liquidityAfter), t);
+            }
+            assertEq(state, _pack(st.expected), "state after step");
+            steps++;
+        }
     }
 
     function test_vectors_anchor_updates() public view {

@@ -15,7 +15,7 @@ import {PoolState} from "../types/poolState.sol";
 import {PoolId} from "../types/poolId.sol";
 import {Locker} from "../types/locker.sol";
 import {SqrtRatio} from "../types/sqrtRatio.sol";
-import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol";
+import {SwapParameters} from "../types/swapParameters.sol";
 import {PoolBalanceUpdate, createPoolBalanceUpdate} from "../types/poolBalanceUpdate.sol";
 import {MEVCaptureV21PoolState, createMEVCaptureV21PoolState} from "../types/mevCaptureV21PoolState.sol";
 
@@ -342,17 +342,15 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
         internal
         returns (PoolBalanceUpdate balanceUpdate, PoolState stateAfter)
     {
-        (balanceUpdate, stateAfter) = CORE.swap(
-            0,
-            poolKey,
-            createSwapParameters({
-                _sqrtRatioLimit: limit,
-                _amount: amount,
-                _isToken1: params.isToken1(),
-                _skipAhead: params.skipAhead(),
-                _minFee: uint16(fee)
-            })
+        // Preserve the already-packed direction and 15-bit skip-ahead fields;
+        // only the limit, remaining amount and segment fee change per call.
+        SwapParameters segmentParams = SwapParameters.wrap(
+            bytes32(
+                (uint256(SqrtRatio.unwrap(limit)) << 160) | (uint256(uint128(amount)) << 32)
+                    | (uint256(SwapParameters.unwrap(params)) & 0xffff0000) | uint256(uint16(fee))
+            )
         );
+        (balanceUpdate, stateAfter) = CORE.swap(0, poolKey, segmentParams);
     }
 
     /// @notice Executes the swap as one toward call (to the anchor) plus one Core call per away segment

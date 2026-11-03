@@ -132,9 +132,7 @@ function neq(SqrtRatio a, SqrtRatio b) pure returns (bool r) {
 }
 
 function isZero(SqrtRatio a) pure returns (bool r) {
-    assembly ("memory-safe") {
-        r := iszero(a)
-    }
+    r = SqrtRatio.unwrap(a) == 0;
 }
 
 function max(SqrtRatio a, SqrtRatio b) pure returns (SqrtRatio r) {

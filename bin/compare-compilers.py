@@ -21,6 +21,10 @@ def main():
     parser.add_argument("--solc", default="0.8.33")
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--threads", type=int, default=4)
+    parser.add_argument(
+        "--mixed-core", action="store_true",
+        help="Also evaluate solc Core with Solar periphery in a controlled test fixture (not a deployment build)",
+    )
     args = parser.parse_args()
     if args.runs < 1 or args.threads < 1:
         parser.error("runs and threads must be positive")
@@ -43,9 +47,9 @@ def main():
     if "Version: 1.8.7" not in versions["forge"] or solar_version != "solar 0.3.0":
         parser.error("expected Foundry 1.8.7 and standalone Solar 0.3.0 on PATH")
 
-    def run(compiler, label, command):
-        compiler_env = env | {"FOUNDRY_PROFILE": "solar" if compiler == "solar" else "default"}
-        compiler_env["FOUNDRY_SNAPSHOTS"] = str(output / f"{compiler}-snapshots")
+    def run(compiler, label, command, *, profile=None, snapshot_group=None):
+        compiler_env = env | {"FOUNDRY_PROFILE": profile or ("solar" if compiler == "solar" else "default")}
+        compiler_env["FOUNDRY_SNAPSHOTS"] = str(output / f"{snapshot_group or compiler}-snapshots")
         command += ["--use", "solar" if compiler == "solar" else args.solc, "-j", str(args.threads)]
         start = time.perf_counter()
         with (output / f"{label}.log").open("w") as log:
@@ -106,6 +110,71 @@ def main():
         "deployed_bytecode_bytes": sizes,
         "cold_router_gas": gas,
     }
+    if args.mixed_core:
+        solc_core_path = output / "solc-gas/out/Core.sol/Core.json"
+        solc_core = json.loads(solc_core_path.read_text())
+        solar_core = json.loads((output / "solar-gas/out/Core.sol/Core.json").read_text())
+        for artifact in (solc_core, solar_core):
+            if artifact["deployedBytecode"].get("immutableReferences"):
+                raise RuntimeError("mixed fixture requires Core without immutables")
+            if artifact["deployedBytecode"].get("linkReferences"):
+                raise RuntimeError("mixed fixture requires unlinked Core")
+        canonical_abi = lambda artifact: sorted(json.dumps(entry, sort_keys=True) for entry in artifact["abi"])
+        if canonical_abi(solc_core) != canonical_abi(solar_core) or solc_core["methodIdentifiers"] != solar_core["methodIdentifiers"]:
+            raise RuntimeError("mixed fixture requires identical Core ABIs and selectors")
+
+        fixture_dir = output / "mixed-test"
+        config_dir = output / "mixed-config"
+        fixture_dir.mkdir()
+        config_dir.mkdir()
+        # Core has no immutables. Both fixtures start with the same constructor
+        # state and pool layout; only one fixture substitutes Core runtime code.
+        # Isolation must be declared on BOTH derived tests (it is not inherited).
+        (fixture_dir / "MixedGas.t.sol").write_text(
+            '// SPDX-License-Identifier: ekubo-license-v1.eth\npragma solidity =0.8.33;\n'
+            'import {MEVCaptureV21GasTest} from "test/extensions/MEVCaptureV21Gas.t.sol";\n'
+            '/// forge-config: default.isolate = true\n'
+            'contract CompilerMixedGasTest is MEVCaptureV21GasTest {\n'
+            '    function setUp() public override {\n'
+            '        super.setUp();\n'
+            f'        vm.etch(address(core), vm.getDeployedCode({json.dumps(str(solc_core_path))}));\n'
+            '    }\n}\n'
+            '/// forge-config: default.isolate = true\n'
+            'contract CompilerSolarControlGasTest is MEVCaptureV21GasTest {}\n'
+        )
+        config = config_dir / "foundry.toml"
+        config.write_text(
+            '[profile.default]\n'
+            f'src = {json.dumps(str(root / "test"))}\n'
+            f'test = {json.dumps(str(fixture_dir))}\n'
+            f'out = {json.dumps(str(output / "mixed-gas/out"))}\n'
+            f'cache_path = {json.dumps(str(output / "mixed-gas/cache"))}\n'
+            f'libs = [{json.dumps(str(root / "lib"))}]\n'
+            f'remappings = [{json.dumps("test/=" + str(root / "test") + "/")}]\n'
+            'evm_version = "osaka"\noptimizer = true\noptimizer_runs = 9999999\nvia_ir = true\nisolate = false\n'
+            'gas_snapshot_check = false\ngas_snapshot_emit = true\n'
+            f'fs_permissions = [{{ access = "read", path = {json.dumps(str(solc_core_path))} }}]\n'
+        )
+        run("solar", "mixed-gas", [
+            "forge", "test", "--offline", "--config-path", str(config),
+            "--match-contract", "Compiler(Mixed|SolarControl)GasTest",
+        ], profile="default", snapshot_group="mixed")
+        control = json.loads((output / "mixed-snapshots/CompilerSolarControlGasTest.json").read_text())
+        mixed = json.loads((output / "mixed-snapshots/CompilerMixedGasTest.json").read_text())
+        if control != snapshots["solar"]:
+            raise RuntimeError("mixed fixture's pure-Solar control differs; do not compare incompatible settings")
+        if mixed.keys() != snapshots["solc"].keys():
+            raise RuntimeError("mixed gas cases differ")
+        result["mixed_core_gas"] = {
+            name: {
+                "solc": int(snapshots["solc"][name]), "solar": int(snapshots["solar"][name]),
+                "mixed": int(mixed[name]),
+                "mixed_delta_solc_percent": 100 * (int(mixed[name]) / int(snapshots["solc"][name]) - 1),
+            }
+            for name in sorted(mixed)
+        }
+        result["mixed_fixture_solar_control_matches"] = True
+        result["mixed_core_scope"] = "Test-only Core runtime substitution; not a deployable mixed-compiler build or full-suite equivalence proof"
     (output / "summary.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
 

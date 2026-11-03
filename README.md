@@ -88,7 +88,9 @@ test exhausts memory and its solvency handler reads beyond empty revert data.
 The Solar experiment splits independent vector scenarios into fresh call
 frames and handles empty revert data explicitly. It retains all vector
 assertions, invariant actions and resource limits; production contracts are
-unchanged. Do not exclude failing tests to claim migration readiness.
+unchanged in the initial evaluation. The subsequent [gas follow-up](./solar-gas-followup.md)
+refactors packed extension parameters without changing Core math, layouts or
+interfaces. Do not exclude failing tests to claim migration readiness.
 Solar reports Solidity language version 0.8.38 and warns about the project's
 exact 0.8.33 pragmas; the Foundry progress label `Solar 0.8.33` is not the
 actual compiler version.
@@ -114,6 +116,8 @@ and `summary.json` stay in the new results directory, not the tracked baselines.
 Gas benefits are workload-dependent; inspect regressions as well as savings.
 See the [compiler evaluation](./solar-evaluation.md) for results and release
 boundaries.
+Pass `--mixed-core` to also evaluate solc Core with Solar periphery in a
+controlled test-only fixture. This is not a deployable mixed-compiler pipeline.
 
 ## License
 

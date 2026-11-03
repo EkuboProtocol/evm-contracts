@@ -1,4 +1,8 @@
-# Solar on next: compiler evaluation
+# Solar on next: initial compiler evaluation
+
+These are the initial results at `a8caef9`, before the gas follow-up. See the
+[follow-up](./solar-gas-followup.md) for the retained source refactor, rejected
+assembly-removal experiments, and controlled mixed-compiler fixture results.
 
 ## Scope and recommendation
 

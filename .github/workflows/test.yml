@@ -53,27 +53,3 @@ jobs:
         run: |
           forge test --offline --gas-snapshot-check=true -vvv
         id: test
-
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v6
-
-      - name: Install halmos
-        run: |
-          # install the latest version of halmos for the current user and add it to PATH
-          uv tool install --python 3.12 halmos
-
-      - name: Run halmos
-        # Solar does not emit the Solidity AST required by Halmos. This build is
-        # for symbolic verification only; runtime tests and gas snapshots use Solar.
-        env:
-          FOUNDRY_SOLC: ${{ runner.temp }}/solc-0.8.33
-          FOUNDRY_OUT: out/halmos
-          FOUNDRY_CACHE_PATH: cache/halmos
-          FOUNDRY_OFFLINE: true
-        run: |
-          curl --fail --location --retry 3 \
-            https://github.com/ethereum/solidity/releases/download/v0.8.33/solc-static-linux \
-            --output "$FOUNDRY_SOLC"
-          echo "1274e5c4621ae478090c5a1f48466fd3c5f658ed9e14b15a0b213dc806215468  $FOUNDRY_SOLC" | sha256sum --check
-          chmod +x "$FOUNDRY_SOLC"
-          halmos --forge-build-out "$FOUNDRY_OUT" --match-test '^check_'

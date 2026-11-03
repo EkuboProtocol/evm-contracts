@@ -90,9 +90,8 @@ Compiler changes also change bytecode and deterministic deployment addresses.
 [Solar warns against production use](https://github.com/paradigmxyz/solar#features-and-goals);
 this migration does not establish production deployment safety.
 
-Halmos alone uses solc 0.8.33 in isolated `out/halmos` artifacts because Solar
-does not emit the Solidity AST it requires. This symbolic-verification build
-does not generate the runtime-test gas snapshots or deployment artifacts.
+Symbolic verification is temporarily disabled because Solar does not emit the
+Solidity AST it requires. CI uses only Solar; there is no fallback compiler.
 
 ## License
 

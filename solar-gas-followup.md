@@ -1,5 +1,8 @@
 # Solar gas follow-up
 
+For line-by-line PR review, see [all 33 gas diffs](./solar-gas-diffs.md), including
+before/after values for both compilers and the mixed-fixture comparison.
+
 ## What was more expensive?
 
 The original all-Solar run at `a8caef9` used more **execution gas**, not more

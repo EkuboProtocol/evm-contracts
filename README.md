@@ -118,6 +118,8 @@ See the [compiler evaluation](./solar-evaluation.md) for results and release
 boundaries.
 Pass `--mixed-core` to also evaluate solc Core with Solar periphery in a
 controlled test-only fixture. This is not a deployable mixed-compiler pipeline.
+The [gas diff table](./solar-gas-diffs.md) lists all 33 before/after cases and the
+broader whole-test increases for review.
 
 ## License
 

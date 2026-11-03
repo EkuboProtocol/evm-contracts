@@ -10,7 +10,7 @@ import {PoolBalanceUpdate} from "../src/types/poolBalanceUpdate.sol";
 import {SwapParameters, createSwapParameters} from "../src/types/swapParameters.sol";
 import {SqrtRatio} from "../src/types/sqrtRatio.sol";
 
-contract SolarSegmentHarness is MEVCaptureV21 {
+contract MEVCaptureV21SegmentHarness is MEVCaptureV21 {
     constructor(ICore core) MEVCaptureV21(core, 120, 4, 0, 16, 1 << 15, 2500, 3) {}
 
     function _registerInConstructor() internal pure override returns (bool) {
@@ -25,12 +25,12 @@ contract SolarSegmentHarness is MEVCaptureV21 {
     }
 }
 
-contract SolarRefactorTest is Test {
-    SolarSegmentHarness segmentHarness;
+contract MEVCaptureV21SegmentTest is Test {
+    MEVCaptureV21SegmentHarness segmentHarness;
     address constant MOCK_CORE = address(0x1234);
 
     function setUp() public {
-        segmentHarness = new SolarSegmentHarness(ICore(payable(MOCK_CORE)));
+        segmentHarness = new MEVCaptureV21SegmentHarness(ICore(payable(MOCK_CORE)));
     }
 
     function test_isZero(uint96 value) public pure {

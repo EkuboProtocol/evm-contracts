@@ -15,15 +15,14 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: stable
+      - name: Install Foundry and Solar
+        uses: ./.github/actions/setup-toolchain
 
       - name: Show Forge version
         run: |
           forge --version
+          solar --version
 
       - name: Run All Ticks Test
         run: |
-          forge test
+          forge test --offline

@@ -68,58 +68,31 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 
 ## Solidity compilation on `next`
 
-The experimental `solar` profile uses **Foundry v1.8.7** and standalone
-**Solar v0.3.0** for development builds and tests:
+All profiles use **Foundry v1.8.7** and standalone **Solar v0.3.0**:
 
 ```bash
-FOUNDRY_PROFILE=solar forge build --offline
-FOUNDRY_PROFILE=solar forge test --offline
+forge build --offline
+forge test --offline --gas-snapshot-check=true
 ```
 
 Install Solar v0.3.0 from the [official release](https://github.com/paradigmxyz/solar/releases/tag/v0.3.0)
 and put its binary **before Foundry's directory on `PATH`**. Foundry v1.8.7's
 bundled Solar reports v0.2.0 and cannot compile this project's assembly. The
-manually dispatched `Solar (next)` workflow pins and verifies the standalone
-Linux binary. Run it against `next`; automatic branch checks are intentionally
-not enabled while the compiler evaluation remains experimental.
+CI workflows pin and verify the standalone Linux binary and use Solar for
+builds, script simulation and tests. Gas baselines live in `snapshots/`; update
+them with `forge test --offline --gas-snapshot-emit=true`, then review the diff.
+The whole-test FreeLP baseline is regenerated with
+`forge snapshot --offline --match-contract '^FreeLPTest$' --fuzz-seed 0x2338 --snap snapshots/FreeLP.gas`.
 
-The original `next` revision `6f40e4e` compiles with Solar, but its gate-vector
-test exhausts memory and its solvency handler reads beyond empty revert data.
-The Solar experiment splits independent vector scenarios into fresh call
-frames and handles empty revert data explicitly. It retains all vector
-assertions, invariant actions and resource limits; production contracts are
-unchanged in the initial evaluation. The subsequent [gas follow-up](./solar-gas-followup.md)
-refactors packed extension parameters without changing Core math, layouts or
-interfaces. Do not exclude failing tests to claim migration readiness.
 Solar reports Solidity language version 0.8.38 and warns about the project's
-exact 0.8.33 pragmas; the Foundry progress label `Solar 0.8.33` is not the
-actual compiler version.
+exact 0.8.33 pragmas; the Foundry progress label is not the compiler version.
+Compiler changes also change bytecode and deterministic deployment addresses.
+[Solar warns against production use](https://github.com/paradigmxyz/solar#features-and-goals);
+this migration does not establish production deployment safety.
 
-Solar artifacts and cache live in `out/solar` and `cache/solar`. Its gas snapshot
-checks and writes are disabled so experiments cannot replace the solc baselines.
-Other profiles keep using solc 0.8.33, including release builds and deployment
-scripts. Do not use the Solar profile for deployments: [upstream explicitly
-warns against production use](https://github.com/paradigmxyz/solar#features-and-goals).
-A successful compile alone does not establish runtime, gas, metadata or
-deterministic deployment-address compatibility.
-
-To compare compilers locally, stop other builds and run:
-
-```bash
-python3 bin/compare-compilers.py --output /path/to/new-results-directory \
-  --solc /absolute/path/to/solc-0.8.33
-```
-
-This runs three uncached source builds per compiler, records deployed bytecode
-sizes, and compares the same 33 cold Router/deposit gas fixtures. Logs, snapshots
-and `summary.json` stay in the new results directory, not the tracked baselines.
-Gas benefits are workload-dependent; inspect regressions as well as savings.
-See the [compiler evaluation](./solar-evaluation.md) for results and release
-boundaries.
-Pass `--mixed-core` to also evaluate solc Core with Solar periphery in a
-controlled test-only fixture. This is not a deployable mixed-compiler pipeline.
-The [gas diff table](./solar-gas-diffs.md) lists all 33 before/after cases and the
-broader whole-test increases for review.
+Halmos alone uses solc 0.8.33 in isolated `out/halmos` artifacts because Solar
+does not emit the Solidity AST it requires. This symbolic-verification build
+does not generate the runtime-test gas snapshots or deployment artifacts.
 
 ## License
 

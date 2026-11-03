@@ -27,7 +27,7 @@ contract MEVCaptureV21GasTest is FullTest {
     Router internal r21;
     Router internal r64;
 
-    function setUp() public virtual override {
+    function setUp() public override {
         FullTest.setUp();
         address a1 = address(uint160(mevCaptureCallPoints().toUint8()) << 152);
         deployCodeTo("MEVCapture.sol:MEVCapture", abi.encode(core), a1);

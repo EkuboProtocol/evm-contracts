@@ -7,9 +7,11 @@ on:
   push:
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/setup-toolchain/action.yml
   pull_request:
     paths:
       - .github/workflows/copilot-setup-steps.yml
+      - .github/actions/setup-toolchain/action.yml
 
 jobs:
   # The job MUST be called `copilot-setup-steps` or it will not be picked up by Copilot.
@@ -29,9 +31,6 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
-        with:
-          version: stable
-      # so the solidity binary is made available
-      - run: forge build
+      - name: Install Foundry and Solar
+        uses: ./.github/actions/setup-toolchain
+      - run: forge build --offline

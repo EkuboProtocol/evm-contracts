@@ -10,7 +10,7 @@ import {
 } from "../interfaces/extensions/IZeroSeedLaunch.sol";
 import {BaseExtension} from "../base/BaseExtension.sol";
 import {BaseForwardee} from "../base/BaseForwardee.sol";
-import {MintableERC20} from "../MintableERC20.sol";
+import {LaunchToken, isCanonicalPackedString} from "../LaunchToken.sol";
 import {CoreLib} from "../libraries/CoreLib.sol";
 import {PoolKey} from "../types/poolKey.sol";
 import {PoolId} from "../types/poolId.sol";
@@ -22,10 +22,11 @@ import {SwapParameters, createSwapParameters} from "../types/swapParameters.sol"
 import {Locker} from "../types/locker.sol";
 import {SqrtRatio, BIT_MASK} from "../types/sqrtRatio.sol";
 import {tickToSqrtRatio} from "../math/ticks.sol";
-import {MIN_TICK, MAX_TICK, MAX_TICK_SPACING, NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
+import {MIN_TICK, MAX_TICK, NATIVE_TOKEN_ADDRESS} from "../math/constants.sol";
 import {maxLiquidity, liquidityDeltaToAmountDelta} from "../math/liquidity.sol";
 import {computeFee, amountBeforeFee} from "../math/fee.sol";
 import {decayedFee} from "../math/feeDecay.sol";
+import {alignLaunchRange} from "../math/launchRange.sol";
 import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
 import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
@@ -34,8 +35,12 @@ import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 /// before any logic runs, and no narrowing can wrap it to zero.
 uint64 constant MAX_CREATOR_FEE = type(uint64).max;
 
-/// @dev Longest token name or symbol in bytes: `MintableERC20` packs each with its length into one word.
-uint256 constant MAX_METADATA_LENGTH = 31;
+/// @dev Largest supply in base units: one trillion tokens at the fixed 18 decimals, about 2**99.66.
+uint128 constant MAX_SUPPLY = 10 ** 30;
+
+/// @dev Both of a launch pool's initialized ticks lie within two adjacent bitmap words (`src/math/launchRange.sol`),
+/// so one extra word is all a tick search ever needs to reach a bound from anywhere inside the range.
+uint256 constant LAUNCH_SKIP_AHEAD = 1;
 
 function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
     return CallPoints({
@@ -56,7 +61,8 @@ function zeroSeedLaunchCallPoints() pure returns (CallPoints memory) {
 /// no quote seed. Buyers fund the only quote reserve. The position, its principal and the pool never change
 /// except through swaps; time only lowers the creator fee, from `initialFee` at `tradingStart` towards the floor
 /// `finalFee` at the launch's own tick rate: the excess shrinks by `tickToSqrtRatio(-m)` for the `m` whole ticks
-/// accumulated since the start (see `src/math/feeDecay.sol`).
+/// accumulated since the start (see `src/math/feeDecay.sol`). The pool's tick spacing is derived from the
+/// requested range so that the whole range spans at most one bitmap word of ticks (`src/math/launchRange.sol`).
 /// @dev Forward only: creation, fee claims and swaps all arrive through `Core.forward`, so this contract is never a
 /// locker, never holds a balance and never transfers a token. The forwarding locker settles what each action leaves
 /// on its lock: nothing for creation (the new supply is minted straight into Core as the position's payment), the
@@ -115,7 +121,20 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         uint128 installedSupply = _installedSupply(
             tokenIs0, positionId, initialTick, liquidity, poolKey.config.concentratedMaxLiquidityPerTick()
         );
-        return Installation(token, poolKey, positionId, initialTick, liquidity, installedSupply);
+        (int32 askTick, int32 upperTick) = tokenIs0
+            ? (positionId.tickLower(), positionId.tickUpper())
+            : (-positionId.tickUpper(), -positionId.tickLower());
+        return Installation(
+            token,
+            poolKey,
+            positionId,
+            initialTick,
+            liquidity,
+            installedSupply,
+            poolKey.config.concentratedTickSpacing(),
+            askTick,
+            upperTick
+        );
     }
 
     /// @inheritdoc IZeroSeedLaunch
@@ -144,8 +163,9 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
             tag := mload(add(data, 0x20))
         }
         if (tag == ZERO_SEED_LAUNCH_CREATE) {
-            (, LaunchParameters memory parameters) = abi.decode(data, (uint256, LaunchParameters));
-            return abi.encode(_create(original.addr(), parameters));
+            (, LaunchParameters memory parameters, string memory logoUrl) =
+                abi.decode(data, (uint256, LaunchParameters, string));
+            return abi.encode(_create(original.addr(), parameters, logoUrl));
         }
         if (tag == ZERO_SEED_LAUNCH_CLAIM_FEES) {
             (, PoolKey memory claimed) = abi.decode(data, (uint256, PoolKey));
@@ -158,8 +178,9 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
     }
 
     /// @dev Installed inventory is minted to Core and credited to this lock; the remainder goes directly to zero.
-    /// The lock settles with nothing owed and no spendable inventory outside the position.
-    function _create(address controller, LaunchParameters memory parameters)
+    /// The lock settles with nothing owed and no spendable inventory outside the position. `logoUrl` is only
+    /// emitted.
+    function _create(address controller, LaunchParameters memory parameters, string memory logoUrl)
         private
         returns (Installation memory installation)
     {
@@ -170,9 +191,8 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         int32 initialTick = installation.initialTick;
         bool tokenIs0 = poolKey.token0 == predicted;
 
-        MintableERC20 token = new MintableERC20{salt: _tokenSalt(controller, parameters.salt)}(
-            address(this), parameters.name, parameters.symbol, parameters.decimals
-        );
+        LaunchToken token =
+            new LaunchToken{salt: _tokenSalt(controller, parameters.salt)}(parameters.name, parameters.symbol);
         assert(address(token) == predicted);
 
         PoolId poolId = poolKey.toPoolId();
@@ -193,20 +213,19 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
                 && (tokenIs0 ? update.delta1() : update.delta0()) == 0
         );
 
-        // Token deployment, the mint that pays the position and the renunciation of the mint authority all happen
-        // here, inside the forwarded call: the supply goes from the token contract straight into Core.
+        // Token deployment and the single mint that pays the position happen here, inside the forwarded call: the
+        // supply goes from the token contract straight into Core, and the token closes minting after this call.
+        // The remainder keeps totalSupply exactly as requested without leaving spendable inventory outside the
+        // position: it is minted directly to the sink, so no custody, transfer or Core accounting is needed.
         bytes memory tokenArg = abi.encode(token);
         (bool started,) = address(CORE).call(bytes.concat(IFlashAccountant.startPayments.selector, tokenArg));
-        token.mint(address(CORE), installation.installedSupply);
+        token.mint(address(CORE), installation.installedSupply, parameters.supply - installation.installedSupply);
         (bool completed,) = address(CORE).call(bytes.concat(IFlashAccountant.completePayments.selector, tokenArg));
         assert(started && completed);
-        // Keep totalSupply exactly as requested without leaving spendable inventory outside the position.
-        // Mint directly to the sink: no custody, transfer or additional Core accounting is needed.
-        uint128 remainder = parameters.supply - installation.installedSupply;
-        if (remainder != 0) token.mint(address(0), remainder);
-        token.renounceOwnership();
 
-        emit LaunchCreated(poolId, address(token), controller, poolKey, positionId, installation.liquidity, parameters);
+        emit LaunchCreated(
+            poolId, address(token), controller, poolKey, positionId, installation.liquidity, parameters, logoUrl
+        );
     }
 
     /// @dev Only the controller that forwarded the creation may move the ledger; it is credited to the current lock
@@ -264,7 +283,9 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
     }
 
     /// @dev Swaps stop at the position bounds, so the price never leaves the installed range: buys fill partially
-    /// at the upper bound and sells stop at the ask with no bid below it.
+    /// at the upper bound and sells stop at the ask with no bid below it. The caller's skip-ahead is replaced by
+    /// `LAUNCH_SKIP_AHEAD`: the pool has exactly two initialized ticks at most one bitmap word apart, so the search
+    /// always lands on a bound in one call instead of stepping the swap loop once per empty word.
     function _withinPosition(int32 tickLower, int32 tickUpper, SwapParameters params)
         private
         pure
@@ -274,14 +295,12 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         SqrtRatio limit = params.sqrtRatioLimit();
         if (params.isPriceIncreasing()) {
             SqrtRatio upper = tickToSqrtRatio(tickUpper);
-            if (limit <= upper) return params;
-            limit = upper;
+            if (limit > upper) limit = upper;
         } else {
             SqrtRatio lower = tickToSqrtRatio(tickLower);
-            if (limit >= lower) return params;
-            limit = lower;
+            if (limit < lower) limit = lower;
         }
-        return createSwapParameters(limit, params.amount(), params.isToken1(), params.skipAhead());
+        return createSwapParameters(limit, params.amount(), params.isToken1(), LAUNCH_SKIP_AHEAD);
     }
 
     function _feeAt(uint64 initialFee, uint64 finalFee, uint64 decayRateX32, uint64 start, uint256 timestamp)
@@ -297,16 +316,14 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         if (parameters.quoteToken != NATIVE_TOKEN_ADDRESS && parameters.quoteToken.code.length == 0) {
             revert UnsupportedQuoteToken();
         }
-        if (
-            bytes(parameters.name).length > MAX_METADATA_LENGTH || bytes(parameters.symbol).length > MAX_METADATA_LENGTH
-        ) {
-            revert MetadataTooLong();
+        if (!isCanonicalPackedString(parameters.name) || !isCanonicalPackedString(parameters.symbol)) {
+            revert InvalidMetadata();
         }
-        if (parameters.supply == 0 || parameters.supply > uint128(type(int128).max)) revert InvalidParameters();
+        if (parameters.supply == 0 || parameters.supply > MAX_SUPPLY) revert InvalidSupply();
         if (
-            parameters.tickSpacing == 0 || parameters.tickSpacing > MAX_TICK_SPACING || parameters.askTick < MIN_TICK
-                || parameters.upperTick > MAX_TICK || parameters.askTick >= parameters.upperTick
-        ) revert InvalidParameters();
+            parameters.askTick < MIN_TICK || parameters.upperTick > MAX_TICK
+                || parameters.askTick >= parameters.upperTick
+        ) revert InvalidTicks();
         // Any uint64 fee rate is accepted (see MAX_CREATOR_FEE), as is any uint64 decay rate, zero included; only the
         // schedule shape is checked.
         if (parameters.finalFee > parameters.initialFee) revert InvalidFeeSchedule();
@@ -314,21 +331,24 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
     }
 
     /// @dev Token, pool key, position and initial tick for a controller and parameters: everything fixed before
-    /// liquidity. Returns fresh values and reads its inputs only.
+    /// liquidity. The spacing and the installed bounds come from the requested range (`alignLaunchRange`).
+    /// Returns fresh values and reads its inputs only.
     function _geometry(address controller, LaunchParameters memory parameters)
         private
         view
         returns (address token, PoolKey memory poolKey, PositionId positionId, int32 initialTick)
     {
-        token = _tokenAddress(controller, parameters.salt, parameters.name, parameters.symbol, parameters.decimals);
+        token = _tokenAddress(controller, parameters.salt, parameters.name, parameters.symbol);
         if (token.code.length != 0) revert LaunchTokenExists(token);
+        (uint32 tickSpacing, int32 askTick, int32 upperTick) =
+            alignLaunchRange(parameters.askTick, parameters.upperTick);
         bool tokenIs0 = token < parameters.quoteToken;
         poolKey = PoolKey({
             token0: tokenIs0 ? token : parameters.quoteToken,
             token1: tokenIs0 ? parameters.quoteToken : token,
-            config: createConcentratedPoolConfig(0, parameters.tickSpacing, address(this))
+            config: createConcentratedPoolConfig(0, tickSpacing, address(this))
         });
-        positionId = _positionId(tokenIs0, parameters.askTick, parameters.upperTick);
+        positionId = _positionId(tokenIs0, askTick, upperTick);
         positionId.validate(poolKey.config);
         // The token-only side: price at the lower economic bound, which is the pool's lower tick for a token0
         // launch and the pool's upper tick for a token1 launch.
@@ -402,14 +422,12 @@ contract ZeroSeedLaunch is IZeroSeedLaunch, BaseExtension, BaseForwardee {
         return keccak256(abi.encode(controller, salt));
     }
 
-    function _tokenAddress(address controller, bytes32 salt, string memory name, string memory symbol, uint8 decimals)
+    function _tokenAddress(address controller, bytes32 salt, bytes32 name, bytes32 symbol)
         private
         view
         returns (address)
     {
-        bytes32 initCodeHash = keccak256(
-            bytes.concat(type(MintableERC20).creationCode, abi.encode(address(this), name, symbol, decimals))
-        );
+        bytes32 initCodeHash = keccak256(bytes.concat(type(LaunchToken).creationCode, abi.encode(name, symbol)));
         return address(
             uint160(
                 uint256(

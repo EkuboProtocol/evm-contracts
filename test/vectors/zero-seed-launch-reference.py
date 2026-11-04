@@ -171,17 +171,15 @@ getcontext().prec = 80
 # the largest liquidity its requested supply pays for, in both orders.
 for r in v["create"]:
     exact = installation.installation(
-        r["order"] == "t0", int(r["ask"]), int(r["upper"]), v["fixture"]["tick_spacing"], int(r["requested"])
+        r["order"] == "t0", int(r["ask"]), int(r["upper"]), int(r["requested"])
     )
     check(int(exact["liquidity"]) == int(r["liquidity"]) and int(exact["installedSupply"]) == int(r["installed"]))
     check(int(exact["debitAtLiquidityPlusOne"]) > int(r["requested"]))
-for r in v["installation"]["vectors"]:
-    exact = installation.installation(r["order"] == "t0", int(r["ask"]), int(r["upper"]), int(r["spacing"]), int(r["supply"]))
-    check(int(exact["liquidity"]) == int(r["liquidity"]) and int(exact["installedSupply"]) == int(r["installed"]))
-    check(int(exact["previousLiquidity"]) == int(r["previous_liquidity"]) < int(r["liquidity"]))
+    check(exact["tickSpacing"] == int(r["spacing"]))
+    check(exact["alignedAskTick"] == int(r["alignedAsk"]) and exact["alignedUpperTick"] == int(r["alignedUpper"]))
 
 for r in v["create"]:
-    ask, upper = Decimal(r["ask"]), Decimal(r["upper"])
+    ask, upper = Decimal(r["alignedAsk"]), Decimal(r["alignedUpper"])
     supply, liquidity = Decimal(r["installed"]), Decimal(r["liquidity"])
     if r["order"] == "t0":
         lo, hi = Decimal("1.000001") ** (ask / 2), Decimal("1.000001") ** (upper / 2)
@@ -189,7 +187,8 @@ for r in v["create"]:
     else:
         lo, hi = Decimal("1.000001") ** (-upper / 2), Decimal("1.000001") ** (-ask / 2)
         ideal = supply / (hi - lo)
-    check(abs(liquidity - ideal) / ideal < Decimal("3e-20"))
+    # Compact sqrt-ratio approximation plus less than one liquidity unit of integer debit rounding.
+    check(abs(liquidity - ideal) < 1 + ideal * Decimal("3e-20"))
     check(0 < int(r["installed"]) <= int(r["requested"]))
 
 for r in v["trade"]:
@@ -241,7 +240,6 @@ for label in ("fixture", "consumer_default"):
 cd = fee_range["reference_schedules"]["consumer_default"]
 check(int(cd["initialFee"]) == Q // 2 and int(cd["fee_after_one_day_q64"]) == fee_at(Q // 2, f, DEFAULT_RATE, 86400))
 check(int(fee_range["reference_schedules"]["fixture"]["initialFee"]) == i)
-check(fee_range["removed"]["selector"] == "0xcd4e6167")
 check(int(curve["rates_q64"]["max"]) == U64_MAX)
 
 # Maximum rate: exact input nets floor(gross / 2**64); exact output pays calc * 2**64; both representation limits.

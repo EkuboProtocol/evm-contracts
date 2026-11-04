@@ -1,10 +1,10 @@
 {
- "version": 7,
+ "version": 8,
  "fixture": {
   "core": "Locally compiled src/Core.sol deployed at the test's canonical Core address; no fork or live-chain validation",
   "router": "Locally compiled test/LaunchTestRouter.sol; standard-ABI single-hop forwarding and settlement, with snapshot/revert quotes in the test harness; no deployed-router bytecode fixture",
   "supply_requested": "1000000000000000000000000000",
-  "tick_spacing": 100,
+  "tick_spacing": 17990,
   "width_ticks": 4605200,
   "ask_tick_18_18": -13815500,
   "ask_tick_18_6": -41446500,
@@ -30,335 +30,358 @@
    "dec": "18/18",
    "ask": "-13815500",
    "upper": "-9210300",
+   "spacing": "17990",
+   "alignedAsk": "-13798330",
+   "alignedUpper": "-9210880",
    "requested": "1000000000000000000000000000",
-   "installed": "999999999999999999999999210",
-   "liquidity": "1111119116089565312897934",
-   "tickLower": "-13815500",
-   "tickUpper": "-9210300",
-   "initialTick": "-13815500",
-   "withdrawable": "999999999999999999999999209",
-   "ideal_liquidity": "1111119116089565312897934",
-   "relative_error": "6.356e-27"
+   "installed": "999999999999999999999999508",
+   "liquidity": "1121810267768648385524834",
+   "tickLower": "-13798330",
+   "tickUpper": "-9210880",
+   "initialTick": "-13798330",
+   "withdrawable": "999999999999999999999999507"
   },
   {
    "order": "t0",
    "dec": "18/6",
    "ask": "-41446500",
    "upper": "-36841300",
+   "spacing": "17990",
+   "alignedAsk": "-41430970",
+   "alignedUpper": "-36843520",
    "requested": "1000000000000000000000000000",
-   "installed": "999999999999999999302656786",
-   "liquidity": "1111138522742929536",
-   "tickLower": "-41446500",
-   "tickUpper": "-36841300",
-   "initialTick": "-41446500",
-   "withdrawable": "999999999999999999302656785",
-   "ideal_liquidity": "1111138522742929536",
-   "relative_error": "2.037e-20"
+   "installed": "999999999999999999488107389",
+   "liquidity": "1120910338181752946",
+   "tickLower": "-41430970",
+   "tickUpper": "-36843520",
+   "initialTick": "-41430970",
+   "withdrawable": "999999999999999999488107388"
   },
   {
    "order": "t1",
    "dec": "18/18",
    "ask": "-13815500",
    "upper": "-9210300",
+   "spacing": "17990",
+   "alignedAsk": "-13798330",
+   "alignedUpper": "-9210880",
    "requested": "1000000000000000000000000000",
-   "installed": "999999999999999999999999422",
-   "liquidity": "1111119116089565312898036",
-   "tickLower": "9210300",
-   "tickUpper": "13815500",
-   "initialTick": "13815500",
-   "withdrawable": "999999999999999999999999421",
-   "ideal_liquidity": "1111119116089565312897934",
-   "relative_error": "9.158e-23"
+   "installed": "999999999999999999999999559",
+   "liquidity": "1121810267768648385525007",
+   "tickLower": "9210880",
+   "tickUpper": "13798330",
+   "initialTick": "13798330",
+   "withdrawable": "999999999999999999999999558"
   },
   {
    "order": "t1",
    "dec": "18/6",
    "ask": "-41446500",
    "upper": "-36841300",
+   "spacing": "17990",
+   "alignedAsk": "-41430970",
+   "alignedUpper": "-36843520",
    "requested": "1000000000000000000000000000",
-   "installed": "999999999999999999282285400",
-   "liquidity": "1111138522742929536",
-   "tickLower": "36841300",
-   "tickUpper": "41446500",
-   "initialTick": "41446500",
-   "withdrawable": "999999999999999999282285399",
-   "ideal_liquidity": "1111138522742929536",
-   "relative_error": "2.875e-29"
+   "installed": "999999999999999999449009087",
+   "liquidity": "1120910338181752946",
+   "tickLower": "36843520",
+   "tickUpper": "41430970",
+   "initialTick": "41430970",
+   "withdrawable": "999999999999999999449009086"
   }
  ],
  "installation": {
-  "token0_liquidity": "floor(supply * lowerFixed * upperFixed / (2**128 * (upperFixed - lowerFixed))), the exact inverse of Core's token0 debit ceil(ceil(liquidity * 2**128 * (upperFixed - lowerFixed) / upperFixed) / lowerFixed); computed on chain as floor(supply * mantissaLower * mantissaUpper / (((upperFixed - lowerFixed) >> shiftLower) << (128 - shiftUpper))) from the compact sqrt ratios (mantissa = low 94 bits, shift = 2 + 32 * top two bits); saturates at 2**128 - 1",
-  "token1_liquidity": "floor(supply * 2**128 / (upperFixed - lowerFixed)), unchanged shared helper; the exact inverse of ceil(liquidity * (upperFixed - lowerFixed) / 2**128)",
-  "note": "Installed liquidity is the exact inverse of Core's rounded-up debit in both orders: debit(liquidity) <= supply < debit(liquidity + 1). The token0 order no longer uses math/liquidity.sol maxLiquidityForToken0, whose first floor under-installed at low prices; the fixture creation rows above are unchanged by this. Full pinned rows, refusals and pins: zero-seed-launch-installation.json (oracle: zero-seed-launch-installation.py).",
-  "vectors": [
-   {
-    "label": "low price, 1e30",
-    "order": "t0",
-    "ask": "-88080384",
-    "upper": "-85983232",
-    "spacing": "524288",
-    "supply": "1000000000000000000000000000000",
-    "liquidity": "115073586432",
-    "installed": "999999999991410763432286846442",
-    "sink": "8589236567713153558",
-    "debit_at_liquidity_plus_one": "1000000000000100854972818930129",
-    "previous_liquidity": "106052588672",
-    "previous_installed": "921606703670075887283160121070"
-   },
-   {
-    "label": "low price, two liquidity units",
-    "order": "t0",
-    "ask": "-88080384",
-    "upper": "-85983232",
-    "spacing": "524288",
-    "supply": "17380183081064167375",
-    "liquidity": "2",
-    "installed": "17380183081064167375",
-    "sink": "0",
-    "debit_at_liquidity_plus_one": "26070274621596251062",
-    "previous_liquidity": "1",
-    "previous_installed": "8690091540532083688"
-   },
-   {
-    "label": "full width, int128 budget",
-    "order": "t0",
-    "ask": "-88722835",
-    "upper": "88722835",
-    "spacing": "1",
-    "supply": "170141183460469231694794709727778658247",
-    "liquidity": "9223595582101085260",
-    "installed": "170141183460469231694794709727778658247",
-    "sink": "0",
-    "debit_at_liquidity_plus_one": "170141183460469231713241006721831381988",
-    "previous_liquidity": "9223595582101085259",
-    "previous_installed": "170141183460469231676348412733725934507"
-   }
-  ]
+  "reference": "zero-seed-launch-installation.json",
+  "oracle": "zero-seed-launch-installation.py"
  },
  "trade": [
   {
    "order": "t0",
-   "decimals": "18/18",
-   "step": "buyExactIn",
+   "dec": "18/18",
    "quoteIn": "1000000000000000000",
-   "gross": "999083373736809197508878",
-   "fee": "49954168686840459832116",
-   "net": "949129205049968737676762"
+   "gross": "982091443427432213916824",
+   "fee": "49104572171371610653250",
+   "net": "932986871256060603263574",
+   "decimals": "18/18",
+   "step": "buyExactIn"
   },
   {
    "order": "t0",
+   "dec": "18/18",
+   "tokenOut": "932986871256060603263574",
+   "calcQuote": "951638594087469002",
+   "fee": "50086241794077316",
+   "paid": "1001724835881546318",
    "decimals": "18/18",
-   "step": "buyExactOut",
-   "tokenOut": "949129205049968737676762",
-   "calcQuote": "951668650101832044",
-   "fee": "50087823689570108",
-   "paid": "1001756473791402152"
+   "step": "buyExactOut"
   },
   {
    "order": "t0",
+   "dec": "18/18",
+   "tokenIn": "932986871256060603263574",
+   "quoteOut": "904056664383095550",
    "decimals": "18/18",
-   "step": "dustExhausted",
-   "token": "191",
-   "quote": "90"
+   "step": "sellExactIn"
   },
   {
    "order": "t0",
-   "decimals": "18/18",
-   "step": "dust",
-   "token": "102",
-   "quote": "2"
-  },
-  {
-   "order": "t0",
-   "decimals": "18/18",
-   "step": "exhaust",
-   "requested": "999950046831313159540166992",
-   "got": "999950045831313159540166903",
-   "principalToken": "0",
-   "principalQuote": "10000312219037842827169"
-  },
-  {
-   "order": "t0",
-   "decimals": "18/18",
-   "step": "reverse",
+   "dec": "18/18",
    "leftHeld": "0",
-   "principalQuote": "49957287200176383",
-   "principalToken": "999950045831313159540166992"
-  },
-  {
-   "order": "t0",
+   "principalQuote": "49958055259709451",
+   "principalToken": "999950895427828628389346150",
    "decimals": "18/18",
-   "step": "sellExactIn",
-   "tokenIn": "949129205049968737676762",
-   "quoteOut": "904085217596740440"
+   "step": "reverse"
   },
   {
    "order": "t0",
-   "decimals": "18/6",
-   "step": "buyExactIn",
-   "quoteIn": "1000000",
-   "gross": "999048506325137632526244",
-   "fee": "49952425316256881582986",
-   "net": "949096081008880750943258"
+   "dec": "18/18",
+   "token": "108",
+   "quote": "2",
+   "decimals": "18/18",
+   "step": "dust"
   },
   {
    "order": "t0",
-   "decimals": "18/6",
-   "step": "buyExactOut",
-   "tokenOut": "949096081008880750943258",
-   "calcQuote": "951669",
-   "fee": "50088",
-   "paid": "1001757"
-  },
-  {
-   "order": "t0",
-   "decimals": "18/6",
-   "step": "dustExhausted",
-   "token": "94478106",
-   "quote": "100"
-  },
-  {
-   "order": "t0",
-   "decimals": "18/6",
-   "step": "dust",
-   "token": "94478017",
-   "quote": "2"
-  },
-  {
-   "order": "t0",
-   "decimals": "18/6",
-   "step": "exhaust",
-   "requested": "999950048574683742326595783",
-   "got": "999950047574683742326595694",
+   "dec": "18/18",
+   "requested": "999950896427828628389346150",
+   "got": "999950895427828628389346150",
    "principalToken": "0",
-   "principalQuote": "10000661550"
+   "principalQuote": "10083609766202278612140",
+   "decimals": "18/18",
+   "step": "exhaust"
   },
   {
    "order": "t0",
+   "dec": "18/18",
+   "positionTokenBefore": "999950895427828628389346150",
+   "delivered": "999950895427828628389346150",
+   "residueToken": "0",
+   "decimals": "18/18",
+   "step": "upperResidue"
+  },
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "token": "108",
+   "quote": "2",
+   "decimals": "18/18",
+   "step": "dustExhausted"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "quoteIn": "1000000",
+   "gross": "983667637211529436923507",
+   "fee": "49183381860576471803516",
+   "net": "934484255350952965119991",
    "decimals": "18/6",
-   "step": "reverse",
+   "step": "buyExactIn"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "tokenOut": "934484255350952965119991",
+   "calcQuote": "951642",
+   "fee": "50087",
+   "paid": "1001729",
+   "decimals": "18/6",
+   "step": "buyExactOut"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "tokenIn": "934484255350952965119991",
+   "quoteOut": "904058",
+   "decimals": "18/6",
+   "step": "sellExactIn"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
    "leftHeld": "0",
    "principalQuote": "49957",
-   "principalToken": "999950047574683742326595783"
+   "principalToken": "999950816618139422912052817",
+   "decimals": "18/6",
+   "step": "reverse"
   },
   {
    "order": "t0",
+   "dec": "18/6",
+   "token": "104251056",
+   "quote": "2",
    "decimals": "18/6",
-   "step": "sellExactIn",
-   "tokenIn": "949096081008880750943258",
-   "quoteOut": "904084"
+   "step": "dust"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "requested": "999950817618139422912052817",
+   "got": "999950816618139422912052817",
+   "principalToken": "0",
+   "principalQuote": "10067437871",
+   "decimals": "18/6",
+   "step": "exhaust"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "positionTokenBefore": "999950816618139422912052817",
+   "delivered": "999950816618139422912052817",
+   "residueToken": "0",
+   "decimals": "18/6",
+   "step": "upperResidue"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "token": "104251056",
+   "quote": "2",
+   "decimals": "18/6",
+   "step": "dustExhausted"
   },
   {
    "order": "t1",
-   "decimals": "18/18",
-   "step": "buyExactIn",
+   "dec": "18/18",
    "quoteIn": "1000000000000000000",
-   "gross": "999083373736809197249895",
-   "fee": "49954168686840459819167",
-   "net": "949129205049968737430728"
+   "gross": "982091443427432213710037",
+   "fee": "49104572171371610642911",
+   "net": "932986871256060603067126",
+   "decimals": "18/18",
+   "step": "buyExactIn"
   },
   {
    "order": "t1",
+   "dec": "18/18",
+   "tokenOut": "932986871256060603067126",
+   "calcQuote": "951638594087469001",
+   "fee": "50086241794077316",
+   "paid": "1001724835881546317",
    "decimals": "18/18",
-   "step": "buyExactOut",
-   "tokenOut": "949129205049968737430728",
-   "calcQuote": "951668650101832044",
-   "fee": "50087823689570108",
-   "paid": "1001756473791402152"
+   "step": "buyExactOut"
   },
   {
    "order": "t1",
+   "dec": "18/18",
+   "tokenIn": "932986871256060603067126",
+   "quoteOut": "904056664383095550",
    "decimals": "18/18",
-   "step": "dustExhausted",
-   "token": "428919",
-   "quote": "86"
+   "step": "sellExactIn"
   },
   {
    "order": "t1",
-   "decimals": "18/18",
-   "step": "dust",
-   "token": "428825",
-   "quote": "3"
-  },
-  {
-   "order": "t1",
-   "decimals": "18/18",
-   "step": "exhaust",
-   "requested": "999950046831313159539751430",
-   "got": "999950045831313159539751336",
-   "principalToken": "0",
-   "principalQuote": "10000312219037842827184"
-  },
-  {
-   "order": "t1",
-   "decimals": "18/18",
-   "step": "reverse",
+   "dec": "18/18",
    "leftHeld": "0",
-   "principalQuote": "49957287200176384",
-   "principalToken": "999950045831313159539751430"
-  },
-  {
-   "order": "t1",
+   "principalQuote": "49958055259709452",
+   "principalToken": "999950895427828628388961338",
    "decimals": "18/18",
-   "step": "sellExactIn",
-   "tokenIn": "949129205049968737430728",
-   "quoteOut": "904085217596740439"
+   "step": "reverse"
   },
   {
    "order": "t1",
-   "decimals": "18/6",
-   "step": "buyExactIn",
-   "quoteIn": "1000000",
-   "gross": "999048148471968146393535",
-   "fee": "49952407423598407276350",
-   "net": "949095741048369739117185"
+   "dec": "18/18",
+   "token": "395310",
+   "quote": "2",
+   "decimals": "18/18",
+   "step": "dust"
   },
   {
    "order": "t1",
-   "decimals": "18/6",
-   "step": "buyExactOut",
-   "tokenOut": "949095741048369739117185",
-   "calcQuote": "951669",
-   "fee": "50088",
-   "paid": "1001757"
-  },
-  {
-   "order": "t1",
-   "decimals": "18/6",
-   "step": "dustExhausted",
-   "token": "91",
-   "quote": "90"
-  },
-  {
-   "order": "t1",
-   "decimals": "18/6",
-   "step": "dust",
-   "token": "1",
-   "quote": "2"
-  },
-  {
-   "order": "t1",
-   "decimals": "18/6",
-   "step": "exhaust",
-   "requested": "999950048592576400875009049",
-   "got": "999950047592576400875008959",
+   "dec": "18/18",
+   "requested": "999950896427828628388961338",
+   "got": "999950895427828628388961338",
    "principalToken": "0",
-   "principalQuote": "10000661550"
+   "principalQuote": "10083609766202278612147",
+   "decimals": "18/18",
+   "step": "exhaust"
   },
   {
    "order": "t1",
+   "dec": "18/18",
+   "positionTokenBefore": "999950895427828628388961338",
+   "delivered": "999950895427828628388961338",
+   "residueToken": "0",
+   "decimals": "18/18",
+   "step": "upperResidue"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "token": "395310",
+   "quote": "2",
+   "decimals": "18/18",
+   "step": "dustExhausted"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "quoteIn": "1000000",
+   "gross": "983667120985587257409989",
+   "fee": "49183356049279362827840",
+   "net": "934483764936307894582149",
    "decimals": "18/6",
-   "step": "reverse",
+   "step": "buyExactIn"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "tokenOut": "934483764936307894582149",
+   "calcQuote": "951641",
+   "fee": "50087",
+   "paid": "1001728",
+   "decimals": "18/6",
+   "step": "buyExactOut"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "tokenIn": "934483764936307894582149",
+   "quoteOut": "904058",
+   "decimals": "18/6",
+   "step": "sellExactIn"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
    "leftHeld": "0",
    "principalQuote": "49957",
-   "principalToken": "999950047592576400875009049"
+   "principalToken": "999950816643950720086181245",
+   "decimals": "18/6",
+   "step": "reverse"
   },
   {
    "order": "t1",
+   "dec": "18/6",
+   "token": "2",
+   "quote": "3",
    "decimals": "18/6",
-   "step": "sellExactIn",
-   "tokenIn": "949095741048369739117185",
-   "quoteOut": "904084"
+   "step": "dust"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "requested": "999950817643950720086181245",
+   "got": "999950816643950720086181245",
+   "principalToken": "0",
+   "principalQuote": "10067437871",
+   "decimals": "18/6",
+   "step": "exhaust"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "positionTokenBefore": "999950816643950720086181245",
+   "delivered": "999950816643950720086181245",
+   "residueToken": "0",
+   "decimals": "18/6",
+   "step": "upperResidue"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "token": "2",
+   "quote": "3",
+   "decimals": "18/6",
+   "step": "dustExhausted"
   }
  ],
  "fee": [
@@ -607,46 +630,38 @@
   {
    "order": "t0",
    "paid": "1000000000000000000",
-   "got": "949129205049968737676762"
+   "got": "932986871256060603263574"
   },
   {
    "order": "t1",
    "paid": "1000000000000000000",
-   "got": "949129205049968737430728"
+   "got": "932986871256060603067126"
   }
  ],
  "gas": [
   {
    "order": "t0",
-   "create": 1368087,
-   "firstBuy": 102485,
-   "secondBuy": 34267,
-   "sell": 34271,
-   "claim": 70154
+   "create": "1145023",
+   "firstBuy": "102296",
+   "secondBuy": "34078",
+   "sell": "34167",
+   "claim": "70066"
   },
   {
    "order": "t1",
-   "create": 1326935,
-   "firstBuy": 84663,
-   "secondBuy": 35163,
-   "sell": 38609,
-   "claim": 79676
+   "create": "1104007",
+   "firstBuy": "84187",
+   "secondBuy": "34686",
+   "sell": "38502",
+   "claim": "79588"
   }
  ],
  "other": [
   {
-   "kind": "dust",
-   "quoteIn": "1",
-   "net": "949971",
-   "fee": "49999",
-   "raw": "VEC|dust|t0|quoteIn=1|net=949971|fee=49999"
+   "raw": "VEC|recapture|t0|quoteIn=10e18|netOfFee=9256308150479412625085330|afterClaim=9743482263662539604908183"
   },
   {
-   "kind": "recapture",
-   "quoteIn": "10e18",
-   "netOfFee": "9415099531871718329641155",
-   "afterClaim": "9910631086180756136011948",
-   "raw": "VEC|recapture|t0|quoteIn=10e18|netOfFee=9415099531871718329641155|afterClaim=9910631086180756136011948"
+   "raw": "VEC|dust|t0|quoteIn=1|net=933793|fee=49148"
   }
  ],
  "gas_note": "In-test warm gas, t0 on the plain 18-decimal test ERC-20 quote and t1 on native ETH, through the periphery (create, claim) and the forwarding test locker (swaps), as logged by test_gas_vectors at this revision (forge 1.8.3, solc 0.8.33, via_ir, optimizer 9999999, evm osaka).",
@@ -659,61 +674,61 @@
    {
     "order": "t0",
     "decimals": "18/18",
-    "upper_residue_raw_token": "89",
-    "position_token_before_exhaust": "999950045831313159540166992",
-    "delivered_raw_token": "999950045831313159540166903",
+    "position_token_before_exhaust": "999950895427828628389346150",
+    "delivered_raw_token": "999950895427828628389346150",
+    "upper_residue_raw_token": "0",
     "core_dust_before_exhaust": {
-     "raw_token": "102",
+     "raw_token": "108",
      "raw_quote": "2"
     },
     "core_dust_after_exhaust": {
-     "raw_token": "191",
-     "raw_quote": "90"
+     "raw_token": "108",
+     "raw_quote": "2"
     }
    },
    {
     "order": "t0",
     "decimals": "18/6",
-    "upper_residue_raw_token": "89",
-    "position_token_before_exhaust": "999950047574683742326595783",
-    "delivered_raw_token": "999950047574683742326595694",
+    "position_token_before_exhaust": "999950816618139422912052817",
+    "delivered_raw_token": "999950816618139422912052817",
+    "upper_residue_raw_token": "0",
     "core_dust_before_exhaust": {
-     "raw_token": "94478017",
+     "raw_token": "104251056",
      "raw_quote": "2"
     },
     "core_dust_after_exhaust": {
-     "raw_token": "94478106",
-     "raw_quote": "100"
+     "raw_token": "104251056",
+     "raw_quote": "2"
     }
    },
    {
     "order": "t1",
     "decimals": "18/18",
-    "upper_residue_raw_token": "94",
-    "position_token_before_exhaust": "999950045831313159539751430",
-    "delivered_raw_token": "999950045831313159539751336",
+    "position_token_before_exhaust": "999950895427828628388961338",
+    "delivered_raw_token": "999950895427828628388961338",
+    "upper_residue_raw_token": "0",
     "core_dust_before_exhaust": {
-     "raw_token": "428825",
-     "raw_quote": "3"
+     "raw_token": "395310",
+     "raw_quote": "2"
     },
     "core_dust_after_exhaust": {
-     "raw_token": "428919",
-     "raw_quote": "86"
+     "raw_token": "395310",
+     "raw_quote": "2"
     }
    },
    {
     "order": "t1",
     "decimals": "18/6",
-    "upper_residue_raw_token": "90",
-    "position_token_before_exhaust": "999950047592576400875009049",
-    "delivered_raw_token": "999950047592576400875008959",
+    "position_token_before_exhaust": "999950816643950720086181245",
+    "delivered_raw_token": "999950816643950720086181245",
+    "upper_residue_raw_token": "0",
     "core_dust_before_exhaust": {
-     "raw_token": "1",
-     "raw_quote": "2"
+     "raw_token": "2",
+     "raw_quote": "3"
     },
     "core_dust_after_exhaust": {
-     "raw_token": "91",
-     "raw_quote": "90"
+     "raw_token": "2",
+     "raw_quote": "3"
     }
    }
   ]
@@ -851,36 +866,25 @@
   "reentrancy": "the ledger is moved onto the lock before Core pays; an owner contract re-entering claimFees during the payment claims zero"
  },
  "metadata": {
-  "max_bytes": 31,
-  "unit": "UTF-8 bytes",
-  "error": "MetadataTooLong()",
+  "encoding": "Canonical LibString.packOne: first byte length 1..31, next length bytes content, all remaining bytes zero",
+  "unit": "bytes, not characters; UTF-8 is a consumer policy, not contract validation",
+  "error": "InvalidMetadata()",
   "checked_in": [
    "create",
    "previewInstallation"
   ],
-  "vectors": [
-   {
-    "field": "name",
-    "bytes": 31,
-    "verdict": "accept"
-   },
-   {
-    "field": "name",
-    "bytes": 32,
-    "verdict": "MetadataTooLong"
-   },
-   {
-    "field": "symbol",
-    "bytes": 32,
-    "verdict": "MetadataTooLong"
-   },
-   {
-    "field": "name",
-    "bytes": 33,
-    "note": "11 x U+20AC",
-    "verdict": "MetadataTooLong"
-   }
-  ]
+  "decimals": 18,
+  "examples": {
+   "Zero Seed": "0x095a65726f205365656400000000000000000000000000000000000000000000",
+   "ZERO": "0x045a45524f000000000000000000000000000000000000000000000000000000"
+  },
+  "refused": [
+   "zero",
+   "length 0",
+   "length >31",
+   "nonzero tail"
+  ],
+  "note": "LibString.packOne assumes memory padding; producers must explicitly zero the tail. No truncation."
  },
  "collision": {
   "error": "LaunchTokenExists(address token)",
@@ -888,7 +892,7 @@
    "create",
    "previewInstallation"
   ],
-  "rule": "token address = CREATE2(extension, keccak256(abi.encode(controller, salt)), MintableERC20 init code with name/symbol/decimals). The controller is the locker that forwards the creation; the periphery passes salt = keccak256(abi.encode(owner, userSalt)). Refused when the address already has code. Same salt with other metadata, another salt, another owner or another controller is independent."
+  "rule": "CREATE2(extension, keccak256(abi.encode(controller,salt)), keccak256(LaunchToken.creationCode ++ abi.encode(bytes32 name,bytes32 symbol))); logo is excluded"
  },
  "fee_curve": {
   "note": "Tick-rate schedule. Digests: SHA-256 chain h = sha256(h || fee as 8-byte big-endian) over the sampled seconds t = 0, step, 2*step, ..., last inclusive; all from the independent Python oracle (exact port of the tick table).",
@@ -1436,17 +1440,12 @@
   "unencodable": {
    "value": "18446744073709551616",
    "meaning": "exactly 100% = 2**64",
-   "verdict": "ABI decoding failure with empty revert data in create(LaunchParameters), previewInstallation(address,LaunchParameters) and the forwarded create payload (abi.encode(ZERO_SEED_LAUNCH_CREATE, LaunchParameters)), for either fee word; nothing is truncated or wrapped to zero",
+   "verdict": "ABI decoding failure in create(parameters,logoUrl), previewInstallation and forwarded create for either fee word; no truncation",
    "dirty_high_bits": {
     "value": "36893488147419103231",
     "note": "2**64 + (2**64 - 1)",
     "verdict": "same ABI decoding failure"
    }
-  },
-  "removed": {
-   "error": "FeeTooHigh()",
-   "selector": "0xcd4e6167",
-   "note": "removed from IZeroSeedLaunch and the derived ABI; the previous ceiling floor(2**64 * 99 / 100) = 18262276632972456099 no longer exists"
   },
   "vectors": [
    {
@@ -1566,151 +1565,183 @@
   "first_buy_note": "The first whole-quote-unit buy is identical for the max -> 0.3% / default rate, max -> max / rate 1 and max -> 0 / rate 2**64 - 1 schedules (the rate at tradingStart is the initial rate in every case).",
   "trades": [
    {
+    "rate": "max",
     "order": "t0",
+    "dec": "18/18",
+    "gross": "982941",
+    "fee": "982941",
+    "net": "0",
     "decimals": "18/18",
-    "step": "oneUnit",
-    "quoteIn": "1",
-    "gross": "999970",
-    "fee": "999970",
-    "net": "0"
+    "step": "oneUnit"
    },
    {
+    "rate": "max",
     "order": "t0",
-    "decimals": "18/18",
-    "step": "buyExactIn",
+    "dec": "18/18",
     "quoteIn": "1000000000000000000",
-    "gross": "999083373736809197507080",
-    "fee": "999083373736809197452920",
-    "net": "54160"
+    "gross": "982091443427432213915088",
+    "fee": "982091443427432213861849",
+    "net": "53239",
+    "decimals": "18/18",
+    "step": "buyExactIn"
    },
    {
+    "rate": "max",
     "order": "t0",
-    "decimals": "18/18",
-    "step": "buyExactOut",
-    "tokenOut": "54160",
+    "dec": "18/18",
+    "tokenOut": "53239",
     "calcQuote": "1",
     "fee": "18446744073709551615",
-    "paid": "18446744073709551616"
+    "paid": "18446744073709551616",
+    "decimals": "18/18",
+    "step": "buyExactOut"
    },
    {
+    "rate": "max",
     "order": "t0",
-    "decimals": "18/18",
-    "step": "sellAll",
-    "tokenIn": "108320",
+    "dec": "18/18",
+    "tokenIn": "106478",
     "grossQuote": "0",
     "fee": "0",
-    "quoteOut": "0"
+    "quoteOut": "0",
+    "roundTripLoss": "19446744073709551617",
+    "decimals": "18/18",
+    "step": "sellAll"
    },
    {
+    "rate": "max",
     "order": "t0",
+    "dec": "18/6",
+    "gross": "984538387033333867",
+    "fee": "984538387033333867",
+    "net": "0",
     "decimals": "18/6",
-    "step": "oneUnit",
-    "quoteIn": "1",
-    "gross": "999947603316768497",
-    "fee": "999947603316768497",
-    "net": "0"
+    "step": "oneUnit"
    },
    {
+    "rate": "max",
     "order": "t0",
-    "decimals": "18/6",
-    "step": "buyExactIn",
+    "dec": "18/6",
     "quoteIn": "1000000",
-    "gross": "999048504527750217302727",
-    "fee": "999048504527750217248569",
-    "net": "54158"
+    "gross": "983667635470798139337767",
+    "fee": "983667635470798139284443",
+    "net": "53324",
+    "decimals": "18/6",
+    "step": "buyExactIn"
    },
    {
+    "rate": "max",
     "order": "t0",
-    "decimals": "18/6",
-    "step": "buyExactOut",
-    "tokenOut": "54158",
+    "dec": "18/6",
+    "tokenOut": "53324",
     "calcQuote": "1",
     "fee": "18446744073709551615",
-    "paid": "18446744073709551616"
+    "paid": "18446744073709551616",
+    "decimals": "18/6",
+    "step": "buyExactOut"
    },
    {
+    "rate": "max",
     "order": "t0",
-    "decimals": "18/6",
-    "step": "sellAll",
-    "tokenIn": "108316",
+    "dec": "18/6",
+    "tokenIn": "106648",
     "grossQuote": "0",
     "fee": "0",
-    "quoteOut": "0"
+    "quoteOut": "0",
+    "roundTripLoss": "18446744073710551617",
+    "decimals": "18/6",
+    "step": "sellAll"
    },
    {
+    "rate": "max",
     "order": "t1",
+    "dec": "18/18",
+    "gross": "729761",
+    "fee": "729761",
+    "net": "0",
     "decimals": "18/18",
-    "step": "oneUnit",
-    "quoteIn": "1",
-    "gross": "722806",
-    "fee": "722806",
-    "net": "0"
+    "step": "oneUnit"
    },
    {
+    "rate": "max",
     "order": "t1",
-    "decimals": "18/18",
-    "step": "buyExactIn",
+    "dec": "18/18",
     "quoteIn": "1000000000000000000",
-    "gross": "999083373736809196527088",
-    "fee": "999083373736809196472928",
-    "net": "54160"
+    "gross": "982091443427432212980275",
+    "fee": "982091443427432212927036",
+    "net": "53239",
+    "decimals": "18/18",
+    "step": "buyExactIn"
    },
    {
+    "rate": "max",
     "order": "t1",
-    "decimals": "18/18",
-    "step": "buyExactOut",
-    "tokenOut": "54160",
+    "dec": "18/18",
+    "tokenOut": "53239",
     "calcQuote": "1",
     "fee": "18446744073709551615",
-    "paid": "18446744073709551616"
+    "paid": "18446744073709551616",
+    "decimals": "18/18",
+    "step": "buyExactOut"
    },
    {
+    "rate": "max",
     "order": "t1",
-    "decimals": "18/18",
-    "step": "sellAll",
-    "tokenIn": "108320",
+    "dec": "18/18",
+    "tokenIn": "106478",
     "grossQuote": "0",
     "fee": "0",
-    "quoteOut": "0"
+    "quoteOut": "0",
+    "roundTripLoss": "19446744073709551617",
+    "decimals": "18/18",
+    "step": "sellAll"
    },
    {
+    "rate": "max",
     "order": "t1",
+    "dec": "18/6",
+    "gross": "467398106332855075",
+    "fee": "467398106332855075",
+    "net": "0",
     "decimals": "18/6",
-    "step": "oneUnit",
-    "quoteIn": "1",
-    "gross": "641450041727074607",
-    "fee": "641450041727074607",
-    "net": "0"
+    "step": "oneUnit"
    },
    {
+    "rate": "max",
     "order": "t1",
-    "decimals": "18/6",
-    "step": "buyExactIn",
+    "dec": "18/6",
     "quoteIn": "1000000",
-    "gross": "999047507021926419318928",
-    "fee": "999047507021926419264770",
-    "net": "54158"
+    "gross": "983666653587480924554914",
+    "fee": "983666653587480924501590",
+    "net": "53324",
+    "decimals": "18/6",
+    "step": "buyExactIn"
    },
    {
+    "rate": "max",
     "order": "t1",
-    "decimals": "18/6",
-    "step": "buyExactOut",
-    "tokenOut": "54158",
+    "dec": "18/6",
+    "tokenOut": "53324",
     "calcQuote": "1",
     "fee": "18446744073709551615",
-    "paid": "18446744073709551616"
+    "paid": "18446744073709551616",
+    "decimals": "18/6",
+    "step": "buyExactOut"
    },
    {
+    "rate": "max",
     "order": "t1",
-    "decimals": "18/6",
-    "step": "sellAll",
-    "tokenIn": "108316",
+    "dec": "18/6",
+    "tokenIn": "106648",
     "grossQuote": "0",
     "fee": "0",
-    "quoteOut": "0"
+    "quoteOut": "0",
+    "roundTripLoss": "18446744073710551617",
+    "decimals": "18/6",
+    "step": "sellAll"
    }
   ],
-  "trades_note": "t1 18/18 is the native ETH quote. A single raw quote unit nets nothing (the whole gross output is the fee); a whole quote unit nets 54,160 (18/18) or 54,158 (18/6) raw launch-token units; the immediate sell of everything held grosses under one raw quote unit, so it pays nothing and charges nothing.",
+  "trades_note": "Actual maximum-rate fills on the final geometry; oneUnit buys net zero, exact output grosses up the input; see trade rows for exact amounts",
   "exact_output_bounds": {
    "note": "Bisection over the requested launch-token output on the pinned fixture: the last request that executes, the first that fails the signed int128 conversion of the fee-inclusive input (calc * 2**64 >= 2**127), and the first that fails the uint128 gross-up helper (calc >= 2**64). The last executable request has calc = 2**63 - 1 exactly. Every failed probe rolls back pool state, fee ledger, position liquidity and Core balances.",
    "signed_bound_calc": "9223372036854775807",
@@ -1721,25 +1752,26 @@
    },
    "vectors": [
     {
+     "rate": "max",
      "order": "t0",
-     "decimals": "18/18",
-     "lastValidTokenOut": "9147280263567190862134907",
+     "lastValidTokenOut": "8992894608587101713726987",
      "calc": "9223372036854775807",
      "paid": "170141183460469231713240559642174554112",
-     "firstSignedOverflowTokenOut": "9147280263567190862134908",
-     "lastSignedOverflowTokenOut": "18145179163502972233172123",
-     "firstHelperOverflowTokenOut": "18145179163502972233172124"
+     "firstSignedOverflowTokenOut": "8992894608587101713726988",
+     "lastSignedOverflowTokenOut": "17841529728048229186238638",
+     "firstHelperOverflowTokenOut": "17841529728048229186238639",
+     "decimals": "18/18"
     },
     {
+     "rate": "max",
      "order": "t1",
-     "decimals": "18/18",
-     "quote": "native",
-     "lastValidTokenOut": "9147280263567190861982364",
+     "lastValidTokenOut": "8992894608587101713646726",
      "calc": "9223372036854775807",
      "paid": "170141183460469231713240559642174554112",
-     "firstSignedOverflowTokenOut": "9147280263567190861982365",
-     "lastSignedOverflowTokenOut": "18145179163502972233028470",
-     "firstHelperOverflowTokenOut": "18145179163502972233028471"
+     "firstSignedOverflowTokenOut": "8992894608587101713646727",
+     "lastSignedOverflowTokenOut": "17841529728048229186058949",
+     "firstHelperOverflowTokenOut": "17841529728048229186058950",
+     "decimals": "18/18"
     }
    ]
   }
@@ -1754,7 +1786,7 @@
   "create": {
    "tag": "0x224a5a98239f599168b798c4205db155bfff4332b4931a7fb5bc60c2e2eeee30",
    "tag_source": "keccak256(\"IZeroSeedLaunch#CREATE\")",
-   "payload": "abi.encode(tag, LaunchParameters)",
+   "payload": "abi.encode(ZERO_SEED_LAUNCH_CREATE, LaunchParameters, string logoUrl)",
    "returns": "abi.encode(Installation)",
    "controller": "Locker.addr() of the forwarding locker",
    "lock_debt_after": "zero"
@@ -1772,111 +1804,153 @@
  "abi": {
   "ZeroSeedLaunch": {
    "selectors": {
+    "afterCollectFees(bytes32,(address,address,bytes32),bytes32,uint128,uint128)": "0x751fd5df",
+    "afterInitializePool(address,(address,address,bytes32),int32,uint96)": "0x948374ff",
+    "afterSwap(bytes32,(address,address,bytes32),bytes32,bytes32,bytes32)": "0xa4e8f288",
+    "afterUpdatePosition(bytes32,(address,address,bytes32),bytes32,int128,bytes32,bytes32)": "0x25fa4e69",
+    "beforeCollectFees(bytes32,(address,address,bytes32),bytes32)": "0xdf65d8d1",
+    "beforeInitializePool(address,(address,address,bytes32),int32)": "0x1fbbb462",
+    "beforeSwap(bytes32,(address,address,bytes32),bytes32)": "0xca11dba7",
+    "beforeUpdatePosition(bytes32,(address,address,bytes32),bytes32,int128)": "0x0035c723",
     "creatorFees((address,address,bytes32))": "0xb4ce9a2e",
     "feeAt(bytes32,uint256)": "0xe81084ec",
     "forwarded_2374103877(bytes32)": "0x00000001",
     "getLaunch(bytes32)": "0x7d1d589c",
-    "previewInstallation(address,(string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint64,uint64,uint64,bytes32))": "0xb665ec4d"
-   },
-   "topics": {
-    "LaunchCreated": "0x8f81ce1beb182cad759aa1c797ef027d374f535fd0c08696441c32797c7a5888",
-    "LaunchSwapped": "0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d",
-    "CreatorFeesClaimed": "0xf0ffdfa84530baef2e9f8bbb160545a59bfef8da319fa27aa69e4f3c8f05a41d"
+    "previewInstallation(address,(bytes32,bytes32,uint128,address,int32,int32,uint64,uint64,uint64,uint64,bytes32))": "0xd215dcb2"
    },
    "errors": {
+    "BaseForwardeeAccountantOnly()": "0x588e1740",
+    "BoundsOrder()": "0x68651c5c",
+    "BoundsTickSpacing()": "0x89fd41b1",
+    "CallPointNotImplemented()": "0xc6f26286",
     "ControllerOnly()": "0xac8ff76a",
+    "CoreOnly()": "0x62279cff",
     "InitializeThroughCreateOnly()": "0x028eb443",
     "InvalidFeeSchedule()": "0xf75a271a",
-    "InvalidParameters()": "0xe5239090",
+    "InvalidMetadata()": "0xbcecb64a",
+    "InvalidSupply()": "0x15ae6727",
+    "InvalidTick(int32)": "0x073ee172",
+    "InvalidTicks()": "0x1434ed7f",
     "InvalidTradingStart()": "0xe0839259",
     "LaunchTokenExists(address)": "0xf68475cd",
     "LiquidityAboveTickCap(uint128,uint128)": "0x20ea795f",
-    "MetadataTooLong()": "0x85b8e2f4",
+    "MinMaxBounds()": "0xabfa4a31",
     "PositionsThroughCreateOnly()": "0x74a99003",
+    "StableswapMustBeFullRange()": "0x72b1019d",
     "SwapsThroughForwardOnly()": "0xf17f54b3",
     "TradingNotStarted()": "0xacf75be8",
     "UnknownForwardAction()": "0xe5c78d9a",
     "UnknownLaunch()": "0xf6806bf8",
     "UnsupportedQuoteToken()": "0x658d8331",
     "ZeroLiquidity()": "0x10074548"
+   },
+   "events": {
+    "CreatorFeesClaimed(bytes32,address,uint128,uint128)": "0xf0ffdfa84530baef2e9f8bbb160545a59bfef8da319fa27aa69e4f3c8f05a41d",
+    "LaunchCreated(bytes32,address,address,(address,address,bytes32),bytes32,uint128,(bytes32,bytes32,uint128,address,int32,int32,uint64,uint64,uint64,uint64,bytes32),string)": "0x0a54c7540832cb23832d30bbf27c5597cfb779d070a1c253a7aee90571c2da4c",
+    "LaunchSwapped(bytes32,address,int128,int128,uint64,uint128,bool)": "0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d"
    }
   },
   "ZeroSeedLaunchPeriphery": {
    "selectors": {
     "LAUNCH()": "0x096e3c3e",
     "claimFees((address,address,bytes32),address)": "0x6906b4c0",
-    "create((string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint64,uint64,uint64,bytes32))": "0xf91810d2",
+    "create((bytes32,bytes32,uint128,address,int32,int32,uint64,uint64,uint64,uint64,bytes32),string)": "0x9a09bd5d",
     "launchOwner(bytes32)": "0x60ac0b66",
-    "previewInstallation(address,(string,string,uint8,uint128,address,int32,int32,uint32,uint64,uint64,uint64,uint64,bytes32))": "0xb665ec4d",
+    "locked_6416899205(uint256)": "0x00000000",
+    "previewInstallation(address,(bytes32,bytes32,uint128,address,int32,int32,uint64,uint64,uint64,uint64,bytes32))": "0xd215dcb2",
     "transferLaunch(bytes32,address)": "0x8b1cb36f"
    },
-   "topics": {
-    "LaunchOwnerChanged": "0x478004cf03e8c3b648608ce0259ce479c813aa671a383230ee7763fe5da22391",
-    "LaunchFeesClaimed": "0x908c6b2c19765fe47aef218b4f71ea1a10a9e156d9d5c3500c3a298e01428805"
+   "errors": {
+    "BaseLockerAccountantOnly()": "0x3ed2a9c0",
+    "ExpectedRevertWithinLock()": "0x4c816e2b",
+    "InvalidOwner()": "0x49e27cff",
+    "InvalidRecipient()": "0x9c8d2cd2",
+    "OwnerOnly()": "0x596dcdb8"
+   },
+   "events": {
+    "LaunchFeesClaimed(bytes32,address,address,uint128,uint128)": "0x908c6b2c19765fe47aef218b4f71ea1a10a9e156d9d5c3500c3a298e01428805",
+    "LaunchOwnerChanged(bytes32,address,address)": "0x478004cf03e8c3b648608ce0259ce479c813aa671a383230ee7763fe5da22391"
    }
   },
-  "LaunchParameters": "(string name,string symbol,uint8 decimals,uint128 supply,address quoteToken,int32 askTick,int32 upperTick,uint32 tickSpacing,uint64 tradingStart,uint64 decayRateX32,uint64 initialFee,uint64 finalFee,bytes32 salt)",
-  "Launch": "(address controller,uint64 tradingStart,uint64 decayRateX32,uint64 initialFee,uint64 finalFee,int32 tickLower,int32 tickUpper)",
-  "changed_from_previous_revision": {
-   "previewInstallation(address,LaunchParameters)": {
-    "previous": "0x917c1163",
-    "current": "0xb665ec4d"
+  "LaunchToken": {
+   "selectors": {
+    "DOMAIN_SEPARATOR()": "0x3644e515",
+    "allowance(address,address)": "0xdd62ed3e",
+    "approve(address,uint256)": "0x095ea7b3",
+    "balanceOf(address)": "0x70a08231",
+    "decimals()": "0x313ce567",
+    "mint(address,uint128,uint128)": "0x97622870",
+    "name()": "0x06fdde03",
+    "nonces(address)": "0x7ecebe00",
+    "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)": "0xd505accf",
+    "symbol()": "0x95d89b41",
+    "totalSupply()": "0x18160ddd",
+    "transfer(address,uint256)": "0xa9059cbb",
+    "transferFrom(address,address,uint256)": "0x23b872dd"
    },
-   "create(LaunchParameters)": {
-    "previous": "0x662af306",
-    "current": "0xf91810d2"
+   "errors": {
+    "AllowanceOverflow()": "0xf9067066",
+    "AllowanceUnderflow()": "0x8301ab38",
+    "InsufficientAllowance()": "0x13be252b",
+    "InsufficientBalance()": "0xf4d678b8",
+    "InvalidPermit()": "0xddafbaef",
+    "MintClosed()": "0x589ed34b",
+    "Permit2AllowanceIsFixedAtInfinity()": "0x3f68539a",
+    "PermitExpired()": "0x1a15a3cc",
+    "TotalSupplyOverflow()": "0xe5cfe957"
    },
-   "LaunchCreated topic": {
-    "previous": "0x3a4e811187f4a8c0b72396e9d7ca13aeed62eb97a599a24af1ed99066041098f",
-    "current": "0x8f81ce1beb182cad759aa1c797ef027d374f535fd0c08696441c32797c7a5888"
-   },
-   "LaunchParameters": "uint32 feeDuration (10th field) replaced by uint64 decayRateX32 at the same position",
-   "Launch": "uint32 feeDuration (3rd field) replaced by uint64 decayRateX32 at the same position; getLaunch(bytes32) selector unchanged, return tuple changed",
-   "unchanged": [
-    "feeAt(bytes32,uint256) 0xe81084ec",
-    "getLaunch(bytes32) 0x7d1d589c",
-    "creatorFees 0xb4ce9a2e",
-    "claimFees 0x6906b4c0",
-    "transferLaunch 0x8b1cb36f",
-    "launchOwner 0x60ac0b66",
-    "LAUNCH 0x096e3c3e",
-    "LaunchSwapped topic",
-    "CreatorFeesClaimed topic",
-    "LaunchOwnerChanged topic",
-    "LaunchFeesClaimed topic",
-    "forward tags ZERO_SEED_LAUNCH_CREATE / ZERO_SEED_LAUNCH_CLAIM_FEES",
-    "swap payload",
-    "InvalidFeeSchedule selector 0xf75a271a (now only finalFee > initialFee)"
-   ]
-  },
-  "storage_layout_Launch": {
-   "slots": 2,
-   "slot0": "controller address @0, tradingStart uint64 @20",
-   "slot1": "decayRateX32 uint64 @0, initialFee uint64 @8, finalFee uint64 @16, tickLower int32 @24, tickUpper int32 @28",
-   "source": "forge inspect ZeroSeedLaunch storage-layout"
+   "events": {
+    "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+    "Transfer(address,address,uint256)": "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+   }
   }
  },
  "pins": {
-  "runtime": {
+  "runtime_templates": {
    "ZeroSeedLaunch": {
-    "keccak256": "0xe08ad382497fc9825956c2b4e9ccf463014c4ed65baf50c0a59db8d7b7aedfc3",
-    "bytes": 19694
+    "bytes": 18366,
+    "keccak256": "0x707be0d4e2c25c21d6d9aafec5bb58e634118c1edade48d0dc1fd5be5de2624c"
    },
    "ZeroSeedLaunchPeriphery": {
-    "keccak256": "0xfa8ef7dfd8f5f7454366b471449f8a771f1cef34c764022c971e9394a05f0444",
-    "bytes": 5534
+    "bytes": 6123,
+    "keccak256": "0xe6c0d086bff1c96e4f0a2e8068022795a0c74f96d15d15cd041cbea2d2e9b529"
+   },
+   "LaunchToken": {
+    "bytes": 3012,
+    "keccak256": "0xec01758e39962fca797fc966e3e541ac87c2c72814b9e1ab86d6193597b182b6"
    }
   },
-  "initcode": {
+  "creationCode": {
    "ZeroSeedLaunch": {
-    "keccak256": "0xa76b1de0bfc2d72b32ce963cbc7598aa67fa60ae6b8874ec176e3630ec965f2c",
-    "bytes": 20184
+    "bytes": 18884,
+    "keccak256": "0x6ec3a947c32774eab196724fd1a98c4eb927af430dec7ed1b111be414d85dc20"
    },
    "ZeroSeedLaunchPeriphery": {
-    "keccak256": "0x7a4c7a556485b2005cb824b11641adc4d766a5c501e3a65adaa72646654ec0c4",
-    "bytes": 5754
+    "bytes": 6343,
+    "keccak256": "0x4698c93153732a8f4371252ca5af048a7fe5a181dbd6e26ee4e76f2c942abaf2"
+   },
+   "LaunchToken": {
+    "bytes": 3172,
+    "keccak256": "0xb92240f5b935a76e949aab04e7e9e4a0a28adc3ff1a89a349c67dcaab13ea432"
    }
-  },
-  "note": "forge 1.8.3 (cae51ad), solc 0.8.33, via_ir, optimizer 9999999, evm osaka; immutables resolved with Core at the canonical address and the extension at its callpoint address; LOCAL compilation from test_bytecodeSizes, not a deployment."
+  }
+ },
+ "supply": {
+  "min": "1",
+  "max": "1000000000000000000000000000000",
+  "type": "uint128",
+  "error": "InvalidSupply()"
+ },
+ "spacing": {
+  "rule": "s = ceil((upperTick-askTick)/256); ask = ceil(askTick/s)*s; upper = floor(upperTick/s)*s",
+  "max": 693148,
+  "skipAhead": 1,
+  "reference": "zero-seed-launch-installation.json"
+ },
+ "logo": {
+  "location": "second argument of create and final field of LaunchCreated",
+  "default": "",
+  "stored": false,
+  "in_preview_or_token_or_pool_identity": false
  }
 }

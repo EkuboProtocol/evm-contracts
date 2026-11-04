@@ -9,7 +9,7 @@ import {ICore} from "../../src/interfaces/ICore.sol";
 import {IExposedStorage} from "../../src/interfaces/IExposedStorage.sol";
 import {IZeroSeedLaunch, ZERO_SEED_LAUNCH_CREATE} from "../../src/interfaces/extensions/IZeroSeedLaunch.sol";
 import {ZeroSeedLaunch, MAX_CREATOR_FEE} from "../../src/extensions/ZeroSeedLaunch.sol";
-import {MintableERC20} from "../../src/MintableERC20.sol";
+import {LaunchToken} from "../../src/LaunchToken.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
@@ -127,8 +127,8 @@ abstract contract FeeCurveBase is ZeroSeedLaunchBase {
         p.finalFee = finalFee;
         _bind(p, creator);
         vm.prank(creator);
-        inst = periphery.create(p);
-        MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
+        inst = periphery.create(p, "");
+        LaunchToken(inst.token).approve(address(swapper), type(uint256).max);
         _assertSchedule(inst.poolKey.toPoolId(), initialFee, finalFee, decayRateX32);
     }
 
@@ -519,9 +519,10 @@ contract FeeCurveHighRateTest is FeeCurveBase {
             assertEq(logs[i].topics[1], PoolId.unwrap(inst.poolKey.toPoolId()), "event pool id");
             assertEq(address(uint160(uint256(logs[i].topics[2]))), inst.token, "event token");
             assertEq(address(uint160(uint256(logs[i].topics[3]))), address(periphery), "event controller");
-            (,, uint128 liquidity, IZeroSeedLaunch.LaunchParameters memory emitted) =
-                abi.decode(logs[i].data, (PoolKey, PositionId, uint128, IZeroSeedLaunch.LaunchParameters));
+            (,, uint128 liquidity, IZeroSeedLaunch.LaunchParameters memory emitted, string memory logoUrl) =
+                abi.decode(logs[i].data, (PoolKey, PositionId, uint128, IZeroSeedLaunch.LaunchParameters, string));
             assertEq(liquidity, inst.liquidity, "event liquidity");
+            assertEq(bytes(logoUrl).length, 0, "event logo defaults empty");
             assertEq(emitted.initialFee, initialFee, "event initial fee");
             assertEq(emitted.finalFee, finalFee, "event final fee");
             assertEq(emitted.decayRateX32, decayRateX32, "event decay rate");
@@ -565,7 +566,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         p.initialFee = RATE_MAX;
         p.finalFee = RATE_MAX;
         _bind(p, creator);
-        bytes memory create = abi.encodeCall(periphery.create, (p));
+        bytes memory create = abi.encodeCall(periphery.create, (p, ""));
         bytes memory preview = abi.encodeCall(periphery.previewInstallation, (creator, p));
         bytes32 word = bytes32(uint256(RATE_MAX));
         // The struct is encoded in field order, so the first match is `initialFee` and the second `finalFee`.
@@ -592,7 +593,7 @@ contract FeeCurveHighRateTest is FeeCurveBase {
         // A raw forward carrying 2**64 fails inside the extension's decoder and the error passes through Core and
         // the locker unchanged; the lock leaves nothing behind.
         MaliciousLocker raw = new MaliciousLocker(ICore(CORE));
-        bytes memory payload = abi.encode(ZERO_SEED_LAUNCH_CREATE, p);
+        bytes memory payload = abi.encode(ZERO_SEED_LAUNCH_CREATE, p, "");
         uint256 payloadOffset = _wordOffset(payload, word, 0);
         (bool okRaw, bytes memory reasonRaw) = address(raw)
             .call(

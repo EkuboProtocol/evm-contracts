@@ -16,6 +16,9 @@ uint256 constant ZERO_SEED_LAUNCH_CLAIM_FEES = 0xe52d8a05fd0f2d32b280675736d8117
 /// Every action reaches the extension through `Core.forward`; it has no external mutating entrypoint.
 /// @dev Ticks in `LaunchParameters` are economic: log base 1.000001 of raw quote units per raw launch token unit,
 /// independent of address order. The pool tick is the same for a token0 launch and negated for a token1 launch.
+/// The pool's tick spacing is not an input: it is `ceil((upperTick - askTick) / 256)` and both bounds are moved
+/// inward onto that grid (`src/math/launchRange.sol`); `previewInstallation` reports the spacing and the aligned
+/// bounds that creation installs.
 /// Creator fees are Q0.64 fractions (2**64 = 100%) held by this extension, separate from the pool config fee,
 /// which is always zero. Every `uint64` is a valid rate, `0..2**64 - 1` inclusive; exactly 100% is not encodable.
 /// The fee is `initialFee` until `tradingStart`; afterwards the excess over `finalFee` shrinks by the tick-math
@@ -28,20 +31,24 @@ uint256 constant ZERO_SEED_LAUNCH_CLAIM_FEES = 0xe52d8a05fd0f2d32b280675736d8117
 /// Forward payloads, all settled by the forwarding locker within its lock:
 /// - swap: `abi.encode(PoolKey, SwapParameters)` (128 bytes), returns `abi.encode(PoolBalanceUpdate, PoolState)`;
 ///   the fee-inclusive deltas are debt on the lock.
-/// - create: `abi.encode(ZERO_SEED_LAUNCH_CREATE, LaunchParameters)`, returns `abi.encode(Installation)`; the
-///   forwarding locker becomes the launch controller and the lock exits with zero debt.
+/// - create: `abi.encode(ZERO_SEED_LAUNCH_CREATE, LaunchParameters, string logoUrl)`, returns
+///   `abi.encode(Installation)`; the forwarding locker becomes the launch controller and the lock exits with zero
+///   debt.
 /// - claim fees: `abi.encode(ZERO_SEED_LAUNCH_CLAIM_FEES, PoolKey)`, controller only, returns
 ///   `abi.encode(uint128 amount0, uint128 amount1)` credited to the lock for the locker to withdraw.
 /// Any other first word at or above 2**160 reverts `UnknownForwardAction`.
 interface IZeroSeedLaunch {
+    /// @dev A static tuple of eleven words. No field is optional.
     struct LaunchParameters {
-        /// @dev At most 31 bytes, as is `symbol`.
-        string name;
-        string symbol;
-        uint8 decimals;
-        /// @dev Exact minted supply. The installed liquidity is the largest amount whose Core debit, rounded up,
-        /// fits this supply; the remainder below one more liquidity unit is minted to address(0), preserving the
-        /// round totalSupply.
+        /// @dev Canonical `LibString.packOne` word: byte 0 is the length, 1 to 31; bytes `1..length` are the
+        /// content, returned verbatim by the token's `name()`; every later byte is zero. Anything else, including
+        /// the empty word, is `InvalidMetadata`. The token's decimals are always 18.
+        bytes32 name;
+        /// @dev Same encoding and rule as `name`.
+        bytes32 symbol;
+        /// @dev Exact minted supply in base units, `1..10**30` (one trillion 18-decimal tokens; `InvalidSupply`
+        /// outside). The installed liquidity is the largest amount whose Core debit, rounded up, fits this supply;
+        /// the remainder below one more liquidity unit is minted to address(0), preserving the round totalSupply.
         uint128 supply;
         /// @dev Native ETH is address(0). An ERC-20 quote is untrusted and its trust is token-wide, not pair-local:
         /// Core keeps one balance per token, so a quote that misreports balances or transfers compromises every
@@ -49,9 +56,10 @@ interface IZeroSeedLaunch {
         /// same quote, and an honest token paired with it can lose those pools' own reserves. Unrelated tokens and
         /// native ETH keep their own per-token accounting, so pools without the quote are not reachable through it.
         address quoteToken;
+        /// @dev Requested economic bounds, `MIN_TICK <= askTick < upperTick <= MAX_TICK` (`InvalidTicks`). The
+        /// installed bounds are these rounded inward to the derived spacing; see `Installation`.
         int32 askTick;
         int32 upperTick;
-        uint32 tickSpacing;
         uint64 tradingStart;
         /// @dev Fee decay speed in ticks per second as unsigned Q32.32 (`2**32` = one tick per second). The excess
         /// fee over `finalFee` halves every `2 * ln(2) / ln(1.000001)` = 1,386,295.05 ticks, so the half-life in
@@ -76,6 +84,10 @@ interface IZeroSeedLaunch {
         int32 tickUpper;
     }
 
+    /// @notice What creation installs for a controller and parameters.
+    /// @dev `tickSpacing`, `askTick` and `upperTick` are the derived spacing and the aligned economic bounds; they
+    /// differ from the request only by the inward rounding described in `src/math/launchRange.sol`, and
+    /// `positionId` holds the same bounds in pool-tick form.
     struct Installation {
         address token;
         PoolKey poolKey;
@@ -83,11 +95,15 @@ interface IZeroSeedLaunch {
         int32 initialTick;
         uint128 liquidity;
         uint128 installedSupply;
+        uint32 tickSpacing;
+        int32 askTick;
+        int32 upperTick;
     }
 
-    error InvalidParameters();
+    error InvalidMetadata();
+    error InvalidSupply();
+    error InvalidTicks();
     error UnsupportedQuoteToken();
-    error MetadataTooLong();
     error LaunchTokenExists(address token);
     error InvalidFeeSchedule();
     error InvalidTradingStart();
@@ -102,8 +118,11 @@ interface IZeroSeedLaunch {
     error PositionsThroughCreateOnly();
 
     /// @notice Emitted once per launch. `liquidity` is installed principal; `parameters.supply` includes the
-    /// inaccessible rounding remainder at address(0).
+    /// inaccessible rounding remainder at address(0). `parameters` is the request as validated, with the requested
+    /// (unaligned) ticks and the namespaced salt; `positionId` carries the installed bounds.
     /// `controller` is the locker that forwarded the creation, for example the periphery that records the owner.
+    /// `logoUrl` is the creator's optional logo location, empty by default: emitted for indexers, never stored and
+    /// never interpreted by the contract.
     event LaunchCreated(
         PoolId indexed poolId,
         address indexed token,
@@ -111,7 +130,8 @@ interface IZeroSeedLaunch {
         PoolKey poolKey,
         PositionId positionId,
         uint128 liquidity,
-        LaunchParameters parameters
+        LaunchParameters parameters,
+        string logoUrl
     );
 
     /// @notice Emitted for every forwarded swap after the creator fee is applied.
@@ -131,9 +151,10 @@ interface IZeroSeedLaunch {
     /// @notice Emitted when the controller moves the whole fee ledger of a launch onto its lock.
     event CreatorFeesClaimed(PoolId indexed poolId, address indexed controller, uint128 amount0, uint128 amount1);
 
-    /// @notice For `controller`, the largest liquidity `supply` buys and the exact supply that liquidity takes.
-    /// Creation uses the same calculation and sends `supply - installedSupply` to address(0).
-    /// Applies the same parameter, metadata and token-address checks as creation, so it refuses an oversized
+    /// @notice For `controller`, the spacing and aligned bounds, the largest liquidity `supply` buys and the exact
+    /// supply that liquidity takes. Creation uses the same calculation and sends `supply - installedSupply` to
+    /// address(0).
+    /// Applies the same parameter, metadata and token-address checks as creation, so it refuses a non-canonical
     /// name or symbol and a controller/salt/metadata whose token already exists. It is installation math at the
     /// current state, not a dry run: creation can still fail later, for example once `tradingStart` passes.
     function previewInstallation(address controller, LaunchParameters calldata parameters)

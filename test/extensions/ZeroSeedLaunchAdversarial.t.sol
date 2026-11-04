@@ -4,7 +4,6 @@ pragma solidity =0.8.33;
 import {Vm} from "forge-std/Vm.sol";
 import {console2} from "forge-std/console2.sol";
 import {ERC20} from "solady/tokens/ERC20.sol";
-import {Ownable} from "solady/auth/Ownable.sol";
 import {ICore} from "../../src/interfaces/ICore.sol";
 import {IFlashAccountant} from "../../src/interfaces/IFlashAccountant.sol";
 import {
@@ -16,7 +15,8 @@ import {ZeroSeedLaunch, zeroSeedLaunchCallPoints} from "../../src/extensions/Zer
 import {ZeroSeedLaunchPeriphery} from "../../src/ZeroSeedLaunchPeriphery.sol";
 import {IZeroSeedLaunchPeriphery} from "../../src/interfaces/IZeroSeedLaunchPeriphery.sol";
 import {NATIVE_TOKEN_ADDRESS} from "../../src/math/constants.sol";
-import {MintableERC20} from "../../src/MintableERC20.sol";
+import {LaunchToken, isCanonicalPackedString} from "../../src/LaunchToken.sol";
+import {LibString} from "solady/utils/LibString.sol";
 import {BaseLocker} from "../../src/base/BaseLocker.sol";
 import {CoreLib} from "../../src/libraries/CoreLib.sol";
 import {CoreStorageLayout} from "../../src/libraries/CoreStorageLayout.sol";
@@ -208,8 +208,8 @@ abstract contract AdversarialBase is ZeroSeedLaunchBase {
         p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         _bind(p, who);
         vm.prank(who);
-        inst = periphery.create(p);
-        MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
+        inst = periphery.create(p, "");
+        LaunchToken(inst.token).approve(address(swapper), type(uint256).max);
     }
 
     /// @dev Exercise a different quote on the SAME extension and periphery, with a distinct token salt.
@@ -232,7 +232,7 @@ abstract contract AdversarialBase is ZeroSeedLaunchBase {
         IZeroSeedLaunch.Installation memory preview = via.previewInstallation(who, p);
         assertLe(preview.installedSupply, p.supply);
         vm.prank(who);
-        inst = via.create(p);
+        inst = via.create(p, "");
     }
 
     function _ledgerAndPrincipal(IZeroSeedLaunch.Installation memory inst) internal view returns (bytes32 h) {
@@ -263,10 +263,10 @@ contract ZeroSeedLaunchQuoteTest is AdversarialBase {
         periphery.previewInstallation(creator, p);
         vm.prank(creator);
         vm.expectRevert(IZeroSeedLaunch.UnsupportedQuoteToken.selector);
-        periphery.create(p);
+        periphery.create(p, "");
         p.quoteToken = NATIVE_TOKEN_ADDRESS;
         vm.prank(creator);
-        IZeroSeedLaunch.Installation memory inst = periphery.create(p);
+        IZeroSeedLaunch.Installation memory inst = periphery.create(p, "");
         assertEq(inst.poolKey.token0, NATIVE_TOKEN_ADDRESS);
     }
 
@@ -461,7 +461,7 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
         IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         _bind(p, address(owner));
         IZeroSeedLaunch.Installation memory inst = owner.createLaunch(p);
-        MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
+        LaunchToken(inst.token).approve(address(swapper), type(uint256).max);
         vm.warp(START);
         _buy(inst.poolKey, inst.token, 10e18, true); // quote (ETH) fee
         _buy(inst.poolKey, inst.token, 10e18, false); // token fee
@@ -492,7 +492,7 @@ contract ZeroSeedLaunchClaimTest is AdversarialBase {
         IZeroSeedLaunch.Installation memory preview = hostilePeriphery.previewInstallation(address(rc), p);
         assertLe(preview.installedSupply, p.supply);
         IZeroSeedLaunch.Installation memory inst = rc.createLaunch(p);
-        MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
+        LaunchToken(inst.token).approve(address(swapper), type(uint256).max);
         vm.warp(START);
         _buy(inst.poolKey, inst.token, 10e18, true);
         _buy(inst.poolKey, inst.token, 10e18, false);
@@ -563,7 +563,7 @@ contract ReentrantOwner is IQuoteHook {
         external
         returns (IZeroSeedLaunch.Installation memory inst)
     {
-        inst = periphery.create(p);
+        inst = periphery.create(p, "");
         key = inst.poolKey;
     }
 
@@ -592,32 +592,73 @@ contract ReentrantOwner is IQuoteHook {
 contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
     using CoreLib for ICore;
 
+    /// @dev Metadata words are canonical `LibString.packOne` encodings: a 31-byte string is the longest, a 32-byte
+    /// one packs to zero and is refused as empty, and the token returns exactly the packed bytes. The bound is in
+    /// bytes, not characters: ten three-byte characters fit, eleven do not.
     function test_metadataBounds_sharedByPreviewAndCreate() public {
         IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         string memory len31 = "abcdefghijklmnopqrstuvwxyz01234";
         string memory len32 = "abcdefghijklmnopqrstuvwxyz012345";
+        assertEq(LibString.packOne(len32), bytes32(0), "32 bytes do not pack");
+        assertEq(LibString.packOne(""), bytes32(0), "empty does not pack");
+        assertEq(LibString.packOne(unicode"€€€€€€€€€€€"), bytes32(0), "33 bytes do not pack");
+        bytes32 tenEuro = LibString.packOne(unicode"€€€€€€€€€€");
+        assertEq(uint256(tenEuro) >> 248, 30, "ten three-byte characters");
         for (uint256 field; field < 2; field++) {
             IZeroSeedLaunch.LaunchParameters memory q = abi.decode(abi.encode(p), (IZeroSeedLaunch.LaunchParameters));
-            if (field == 0) q.name = len32;
-            else q.symbol = len32;
-            vm.expectRevert(IZeroSeedLaunch.MetadataTooLong.selector);
+            if (field == 0) q.name = LibString.packOne(len32);
+            else q.symbol = LibString.packOne(len32);
+            vm.expectRevert(IZeroSeedLaunch.InvalidMetadata.selector);
             periphery.previewInstallation(creator, q);
             vm.prank(creator);
-            vm.expectRevert(IZeroSeedLaunch.MetadataTooLong.selector);
-            periphery.create(q);
+            vm.expectRevert(IZeroSeedLaunch.InvalidMetadata.selector);
+            periphery.create(q, "");
         }
-        p.name = len31;
-        p.symbol = len31;
+        p.name = LibString.packOne(len31);
+        p.symbol = tenEuro;
+        assertEq(uint256(p.name) >> 248, 31, "31-byte length");
         _bind(p, creator);
         vm.prank(creator);
-        IZeroSeedLaunch.Installation memory inst = periphery.create(p);
-        assertEq(MintableERC20(inst.token).name(), len31);
-        assertEq(MintableERC20(inst.token).symbol(), len31);
-        // The bound is in bytes, not characters: 11 three-byte characters (33 bytes) are refused.
-        p.salt = bytes32(uint256(2));
-        p.name = unicode"€€€€€€€€€€€";
-        vm.expectRevert(IZeroSeedLaunch.MetadataTooLong.selector);
-        periphery.previewInstallation(creator, p);
+        IZeroSeedLaunch.Installation memory inst = periphery.create(p, "");
+        assertEq(LaunchToken(inst.token).name(), len31);
+        assertEq(LaunchToken(inst.token).symbol(), unicode"€€€€€€€€€€");
+        assertEq(LibString.packOne(LaunchToken(inst.token).name()), p.name, "name round-trips");
+        assertEq(LibString.packOne(LaunchToken(inst.token).symbol()), p.symbol, "symbol round-trips");
+    }
+
+    /// @dev Every canonical word is accepted and round-trips through the deployed token byte for byte; a canonical
+    /// word with any bit set after its content is refused, as is every word whose length byte is outside 1..31.
+    function testFuzz_metadataCanonical(bytes32 content, uint8 length, uint8 tailByte, uint8 tailIndex) public {
+        length = uint8(bound(length, 1, 31));
+        bytes32 canonical = bytes32(uint256(length) << 248)
+            | ((content >> 8) & ~(bytes32(type(uint256).max) >> (8 * (uint256(length) + 1))));
+        assertTrue(isCanonicalPackedString(canonical), "built word is canonical");
+        assertEq(LibString.packOne(LibString.unpackOne(canonical)), canonical, "pack(unpack) is the identity");
+        assertEq(bytes(LibString.unpackOne(canonical)).length, length, "unpacked length");
+        IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
+        p.name = canonical;
+        p.symbol = canonical;
+        _bind(p, creator);
+        vm.prank(creator);
+        IZeroSeedLaunch.Installation memory inst = periphery.create(p, "");
+        assertEq(LibString.packOne(LaunchToken(inst.token).name()), canonical, "token name round-trips");
+        assertEq(LibString.packOne(LaunchToken(inst.token).symbol()), canonical, "token symbol round-trips");
+        // A nonzero byte anywhere after the content makes the word non-canonical.
+        if (length < 31) {
+            tailIndex = uint8(bound(tailIndex, length + 1, 31));
+            tailByte = uint8(bound(tailByte, 1, 255));
+            bytes32 dirty = canonical | bytes32(uint256(tailByte) << (8 * (31 - tailIndex)));
+            assertFalse(isCanonicalPackedString(dirty), "dirty tail");
+            p.name = dirty;
+            p.salt = bytes32(uint256(2));
+            vm.expectRevert(IZeroSeedLaunch.InvalidMetadata.selector);
+            periphery.previewInstallation(creator, p);
+        }
+        // Length bytes 0 and 32..255 are refused whatever the content.
+        bytes32 badLength =
+            bytes32(uint256(uint8(bound(tailByte, 32, 255))) << 248) | (canonical & (bytes32(type(uint256).max) >> 8));
+        assertFalse(isCanonicalPackedString(badLength), "length above 31");
+        assertFalse(isCanonicalPackedString(canonical & (bytes32(type(uint256).max) >> 8)), "length zero");
     }
 
     function test_collision_refusedPredictably_otherSaltOrMetadataIndependent() public {
@@ -628,14 +669,14 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
         periphery.previewInstallation(creator, p);
         vm.prank(creator);
         vm.expectRevert(exists);
-        periphery.create(p);
+        periphery.create(p, "");
         // Same salt, different metadata: different token address, accepted.
         IZeroSeedLaunch.LaunchParameters memory q = abi.decode(abi.encode(p), (IZeroSeedLaunch.LaunchParameters));
-        q.symbol = "ZERO2";
+        q.symbol = LibString.packOne("ZERO2");
         q.supply = REQUESTED_SUPPLY;
         _bind(q, creator);
         vm.prank(creator);
-        IZeroSeedLaunch.Installation memory second = periphery.create(q);
+        IZeroSeedLaunch.Installation memory second = periphery.create(q, "");
         assertTrue(second.token != first.token, "distinct token");
         // Different salt, same metadata: accepted.
         q = abi.decode(abi.encode(p), (IZeroSeedLaunch.LaunchParameters));
@@ -643,7 +684,7 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
         q.supply = REQUESTED_SUPPLY;
         _bind(q, creator);
         vm.prank(creator);
-        periphery.create(q);
+        periphery.create(q, "");
     }
 
     /// @dev Contract-side start boundaries at block time T. These are the only rules the contract enforces; it has
@@ -662,15 +703,15 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
                 periphery.previewInstallation(creator, p);
                 vm.prank(creator);
                 vm.expectRevert(IZeroSeedLaunch.InvalidTradingStart.selector);
-                periphery.create(p);
+                periphery.create(p, "");
                 console2.log(string.concat("VEC|start|T=5000|start=", _ustr(starts[i]), "|create=InvalidTradingStart"));
                 vm.revertToState(snap);
                 continue;
             }
             _bind(p, creator);
             vm.prank(creator);
-            IZeroSeedLaunch.Installation memory inst = periphery.create(p);
-            MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
+            IZeroSeedLaunch.Installation memory inst = periphery.create(p, "");
+            LaunchToken(inst.token).approve(address(swapper), type(uint256).max);
             if (starts[i] > t) {
                 vm.expectRevert(IZeroSeedLaunch.TradingNotStarted.selector);
                 _buy(inst.poolKey, inst.token, 1e18, false);
@@ -703,7 +744,7 @@ contract ZeroSeedLaunchPreviewStartTest is AdversarialBase {
         vm.warp(t + 1);
         vm.prank(creator);
         vm.expectRevert(IZeroSeedLaunch.InvalidTradingStart.selector);
-        periphery.create(p);
+        periphery.create(p, "");
         assertEq(planned.token.code.length, 0, "no token");
         assertFalse(ICore(CORE).poolState(planned.poolKey.toPoolId()).isInitialized(), "no pool");
     }
@@ -831,24 +872,40 @@ contract ZeroSeedLaunchBypassTest is AdversarialBase {
         swapper.forwardSwap(k, createSwapParameters(SqrtRatio.wrap(0), 1e18, true, 0));
     }
 
-    function test_minterRenounced_noHandover_permit2Disclosed() public {
+    /// @dev The token has no owner and no handover: minting is closed for everyone, the deployer included, once the
+    /// creation mint exists, and the ERC-20 surface has no `owner()`.
+    function test_mintClosed_noOwner_permit2Disclosed() public {
         (IZeroSeedLaunch.Installation memory inst,) = _create(true, 18, DECAY_RATE);
-        MintableERC20 t = MintableERC20(inst.token);
-        assertEq(t.owner(), address(0));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        t.mint(address(this), 1);
+        LaunchToken t = LaunchToken(inst.token);
+        _assertMintClosed(inst.token);
         vm.prank(address(launch));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        t.mint(address(this), 1);
-        address eve = makeAddr("eve");
-        vm.prank(eve);
-        t.requestOwnershipHandover();
-        vm.prank(address(launch));
-        vm.expectRevert(Ownable.Unauthorized.selector);
-        t.completeOwnershipHandover(eve);
+        vm.expectRevert(LaunchToken.MintClosed.selector);
+        t.mint(address(this), 0, 0);
+        (bool ok, bytes memory ret) = inst.token.staticcall(abi.encodeWithSignature("owner()"));
+        assertFalse(ok && ret.length == 32, "no owner() view");
+        (ok,) = inst.token.call(abi.encodeWithSignature("requestOwnershipHandover()"));
+        assertFalse(ok, "no handover");
         assertEq(t.totalSupply(), inst.installedSupply + t.balanceOf(address(0)));
         // I-1: solady default, Permit2 holds an infinite allowance for every holder of the launch token.
         assertEq(t.allowance(address(this), 0x000000000022D473030F116dDEE9F6B43aC78BA3), type(uint256).max);
+    }
+
+    /// @dev Before the creation mint the deployer is the only account that can mint, and only once: a fresh token
+    /// deployed by this test accepts exactly one mint from its deployer.
+    function test_launchToken_singleMintByDeployer() public {
+        LaunchToken t = new LaunchToken(NAME, SYMBOL);
+        assertEq(t.name(), "Zero Seed");
+        assertEq(t.symbol(), "ZERO");
+        assertEq(t.decimals(), 18);
+        vm.prank(makeAddr("eve"));
+        vm.expectRevert(LaunchToken.MintClosed.selector);
+        t.mint(address(this), 1, 0);
+        t.mint(address(this), 5, 3);
+        assertEq(t.totalSupply(), 8);
+        assertEq(t.balanceOf(address(this)), 5);
+        assertEq(t.balanceOf(address(0)), 3);
+        vm.expectRevert(LaunchToken.MintClosed.selector);
+        t.mint(address(this), 1, 0);
     }
 
     function test_extremeAmounts_noUnexpectedPanic() public {
@@ -922,7 +979,8 @@ contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
     }
 
     function test_forward_unknownOrMalformedPayloadsRefused() public {
-        (IZeroSeedLaunch.Installation memory inst,) = _create(false, 18, DECAY_RATE);
+        (IZeroSeedLaunch.Installation memory inst, IZeroSeedLaunch.LaunchParameters memory p) =
+            _create(false, 18, DECAY_RATE);
         vm.warp(START);
         bytes32 before = _ledgerAndPrincipal(inst);
         MaliciousLocker m = new MaliciousLocker(ICore(CORE));
@@ -942,9 +1000,11 @@ contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
         // A first word in the address range selects the swap decoder, which refuses a short payload.
         vm.expectRevert();
         m.forwardRaw(address(launch), abi.encode(inst.poolKey.token0, inst.poolKey.token1));
-        // A create payload whose tag is right but whose body is not a LaunchParameters fails to decode.
+        // A create payload whose tag is right but whose body is not a LaunchParameters and a string fails to decode.
         vm.expectRevert();
         m.forwardRaw(address(launch), abi.encode(ZERO_SEED_LAUNCH_CREATE, uint256(1)));
+        vm.expectRevert();
+        m.forwardRaw(address(launch), abi.encode(ZERO_SEED_LAUNCH_CREATE, p));
         assertEq(_ledgerAndPrincipal(inst), before, "nothing changed");
     }
 
@@ -978,7 +1038,7 @@ contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
         q.tradingStart = uint64(block.timestamp);
         vm.recordLogs();
         IZeroSeedLaunch.Installation memory theirs = abi.decode(
-            m.forwardRaw(address(launch), abi.encode(ZERO_SEED_LAUNCH_CREATE, q)), (IZeroSeedLaunch.Installation)
+            m.forwardRaw(address(launch), abi.encode(ZERO_SEED_LAUNCH_CREATE, q, "")), (IZeroSeedLaunch.Installation)
         );
         assertEq(theirs.token, preview.token, "preview binding");
         assertEq(launch.getLaunch(theirs.poolKey.toPoolId()).controller, address(m), "controller is the locker");
@@ -992,11 +1052,11 @@ contract ZeroSeedLaunchForwardDispatchTest is AdversarialBase {
             }
         }
         assertTrue(seen, "LaunchCreated");
-        assertEq(MintableERC20(theirs.token).owner(), address(0), "minter renounced");
+        _assertMintClosed(theirs.token);
         assertEq(ERC20(theirs.token).balanceOf(CORE), theirs.installedSupply, "supply in Core");
 
         // Its own fee rights work, as the controller, and only touch its own ledger.
-        MintableERC20(theirs.token).approve(address(swapper), type(uint256).max);
+        LaunchToken(theirs.token).approve(address(swapper), type(uint256).max);
         _buy(theirs.poolKey, theirs.token, 1e18, false);
         (uint128 t0, uint128 t1) = launch.creatorFees(theirs.poolKey);
         (uint128 c0, uint128 c1) = m.forwardClaimAndWithdraw(address(launch), theirs.poolKey);
@@ -1128,8 +1188,8 @@ contract ZeroSeedLaunchSharedQuoteTest is AdversarialBase {
         IZeroSeedLaunch.LaunchParameters memory p = _parameters(ASK_18_18, REQUESTED_SUPPLY, DECAY_RATE);
         p.salt = salt;
         vm.prank(owner);
-        inst = periphery.create(p);
-        MintableERC20(inst.token).approve(address(swapper), type(uint256).max);
+        inst = periphery.create(p, "");
+        LaunchToken(inst.token).approve(address(swapper), type(uint256).max);
     }
 
     /// @dev Pool-local facts only: state, principal and fee ledger. Excludes Q's reported Core balance, which the
@@ -1158,7 +1218,7 @@ contract ZeroSeedLaunchSharedQuoteTest is AdversarialBase {
         _buy(honestErc20.poolKey, honestErc20.token, 1e18, false);
         activeQuote = NATIVE_TOKEN_ADDRESS;
         (nativeLaunch,) = _createOn(periphery, creator);
-        MintableERC20(nativeLaunch.token).approve(address(swapper), type(uint256).max);
+        LaunchToken(nativeLaunch.token).approve(address(swapper), type(uint256).max);
         _buy(nativeLaunch.poolKey, nativeLaunch.token, 1e18, false);
         honestErc20Before = _ledgerAndPrincipal(honestErc20);
         nativeBefore = _ledgerAndPrincipal(nativeLaunch);

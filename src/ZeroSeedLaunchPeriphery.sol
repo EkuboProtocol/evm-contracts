@@ -38,12 +38,12 @@ contract ZeroSeedLaunchPeriphery is IZeroSeedLaunchPeriphery, BaseLocker {
     }
 
     /// @inheritdoc IZeroSeedLaunchPeriphery
-    function create(IZeroSeedLaunch.LaunchParameters memory parameters)
+    function create(IZeroSeedLaunch.LaunchParameters memory parameters, string calldata logoUrl)
         external
         returns (IZeroSeedLaunch.Installation memory installation)
     {
         parameters.salt = _ownerSalt(msg.sender, parameters.salt);
-        installation = abi.decode(lock(abi.encode(CALL_CREATE, parameters)), (IZeroSeedLaunch.Installation));
+        installation = abi.decode(lock(abi.encode(CALL_CREATE, parameters, logoUrl)), (IZeroSeedLaunch.Installation));
         PoolId poolId = installation.poolKey.toPoolId();
         launchOwner[poolId] = msg.sender;
         emit LaunchOwnerChanged(poolId, address(0), msg.sender);
@@ -85,9 +85,9 @@ contract ZeroSeedLaunchPeriphery is IZeroSeedLaunchPeriphery, BaseLocker {
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
         uint256 callType = abi.decode(data, (uint256));
         if (callType == CALL_CREATE) {
-            (, IZeroSeedLaunch.LaunchParameters memory parameters) =
-                abi.decode(data, (uint256, IZeroSeedLaunch.LaunchParameters));
-            return CORE.forward(address(LAUNCH), abi.encode(ZERO_SEED_LAUNCH_CREATE, parameters));
+            (, IZeroSeedLaunch.LaunchParameters memory parameters, string memory logoUrl) =
+                abi.decode(data, (uint256, IZeroSeedLaunch.LaunchParameters, string));
+            return CORE.forward(address(LAUNCH), abi.encode(ZERO_SEED_LAUNCH_CREATE, parameters, logoUrl));
         }
         (, PoolKey memory poolKey, address recipient) = abi.decode(data, (uint256, PoolKey, address));
         bytes memory result = CORE.forward(address(LAUNCH), abi.encode(ZERO_SEED_LAUNCH_CLAIM_FEES, poolKey));

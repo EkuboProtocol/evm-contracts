@@ -26,8 +26,9 @@ interface IZeroSeedLaunchPeriphery {
     );
 
     /// @notice Creates the launch token, pool and locked position atomically; `msg.sender` becomes the owner.
-    /// `parameters.salt` is namespaced by `msg.sender` before it reaches the extension.
-    function create(IZeroSeedLaunch.LaunchParameters memory parameters)
+    /// `parameters.salt` is namespaced by `msg.sender` before it reaches the extension. `logoUrl` is passed through
+    /// to the extension's `LaunchCreated` event and nowhere else; pass an empty string for no logo.
+    function create(IZeroSeedLaunch.LaunchParameters memory parameters, string calldata logoUrl)
         external
         returns (IZeroSeedLaunch.Installation memory installation);
 

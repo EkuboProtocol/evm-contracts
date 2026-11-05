@@ -42,8 +42,9 @@ function isValid(SqrtRatio sqrtRatio) pure returns (bool r) {
         r := and(
             // greater than or equal to TWO_POW_62, i.e. the whole number portion is nonzero
             gt(and(sqrtRatio, not(BIT_MASK)), TWO_POW_62_MINUS_ONE),
-            // and between min/max sqrt ratio
-            and(iszero(lt(sqrtRatio, MIN_SQRT_RATIO_RAW)), iszero(gt(sqrtRatio, MAX_SQRT_RATIO_RAW)))
+            // and between min/max sqrt ratio, inclusive: values below the minimum wrap around to
+            // a difference far larger than the width of the range, so one comparison checks both bounds
+            lt(sub(sqrtRatio, MIN_SQRT_RATIO_RAW), add(sub(MAX_SQRT_RATIO_RAW, MIN_SQRT_RATIO_RAW), 1))
         )
     }
 }

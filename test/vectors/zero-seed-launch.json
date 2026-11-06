@@ -1,0 +1,1956 @@
+{
+ "version": 8,
+ "fixture": {
+  "core": "Locally compiled src/Core.sol deployed at the test's canonical Core address; no fork or live-chain validation",
+  "router": "Locally compiled test/LaunchTestRouter.sol; standard-ABI single-hop forwarding and settlement, with snapshot/revert quotes in the test harness; no deployed-router bytecode fixture",
+  "supply_requested": "1000000000000000000000000000",
+  "tick_spacing": 17990,
+  "width_ticks": 4605200,
+  "ask_tick_18_18": -13815500,
+  "ask_tick_18_6": -41446500,
+  "trading_start": 1000,
+  "fee_initial_q64": "922337203685477580",
+  "fee_final_q64": "55340232221128654",
+  "max_creator_fee_q64": "18446744073709551615",
+  "creator_fee_range": "every uint64 0..18446744073709551615 inclusive for initialFee and finalFee (Q0.64; 2**64 - 1 is just under 100%, never exactly 100%); finalFee <= initialFee, else InvalidFeeSchedule; exactly 100% = 2**64 is not a uint64 and fails ABI decoding with empty revert data; see creator_fee_range",
+  "label": "LOCAL FIXTURE VECTORS - not live evidence; numeric start margin is a local-reference proposal, not a live parameter; the creator fee ceiling is the uint64 maximum",
+  "quote_18": "t0 order: plain 18-decimal test ERC-20 selected per launch at the top of the address space. t1 order: native ETH, address(0), the reference Base configuration; always token0, no code, no decimals(), no approvals.",
+  "quote_6": "plain 6-decimal solady ERC-20 (DecimalsToken), selected per launch for math vectors only",
+  "fee_decay_rates_x32": [
+   "68913100933",
+   "9923486534471"
+  ],
+  "fee_decay_rate_x32_default": "68913100933",
+  "fee_decay_rate_encoding": "decayRateX32: uint64, unsigned Q32.32 ticks per second (2**32 = 1 tick/s). Any value is accepted; 0 is a flat fee. Half-life in seconds of the excess over finalFee = 2 * ln(2) / ln(1.000001) * 2**32 / decayRateX32 = 1386295.05426695565 * 2**32 / decayRateX32. rate for a half-life H: floor(1386295.05426695565... * 2**32 / H), computed with exact high-precision arithmetic (not binary floating point).",
+  "fee_schedule": "initialFee for t <= 0 or decayRateX32 == 0; finalFee for t > MAX_DECAY_PRODUCT / decayRateX32 (integer division; MAX_DECAY_PRODUCT = (88722835 + 1) * 2**32 - 1 = 381061679028371455); otherwise m = floor(decayRateX32 * t / 2**32) and fee = finalFee + floor((initialFee - finalFee) * R / 2**128) with R = toFixed(tickToSqrtRatio(-m)), the compact (94-bit mantissa, rounded down) sqrt ratio of src/math/ticks.sol as a 64.128 integer. t = block timestamp - tradingStart in whole seconds. The operation order is normative; the saturation check must precede the helper call."
+ },
+ "create": [
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "ask": "-13815500",
+   "upper": "-9210300",
+   "spacing": "17990",
+   "alignedAsk": "-13798330",
+   "alignedUpper": "-9210880",
+   "requested": "1000000000000000000000000000",
+   "installed": "999999999999999999999999508",
+   "liquidity": "1121810267768648385524834",
+   "tickLower": "-13798330",
+   "tickUpper": "-9210880",
+   "initialTick": "-13798330",
+   "withdrawable": "999999999999999999999999507"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "ask": "-41446500",
+   "upper": "-36841300",
+   "spacing": "17990",
+   "alignedAsk": "-41430970",
+   "alignedUpper": "-36843520",
+   "requested": "1000000000000000000000000000",
+   "installed": "999999999999999999488107389",
+   "liquidity": "1120910338181752946",
+   "tickLower": "-41430970",
+   "tickUpper": "-36843520",
+   "initialTick": "-41430970",
+   "withdrawable": "999999999999999999488107388"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "ask": "-13815500",
+   "upper": "-9210300",
+   "spacing": "17990",
+   "alignedAsk": "-13798330",
+   "alignedUpper": "-9210880",
+   "requested": "1000000000000000000000000000",
+   "installed": "999999999999999999999999559",
+   "liquidity": "1121810267768648385525007",
+   "tickLower": "9210880",
+   "tickUpper": "13798330",
+   "initialTick": "13798330",
+   "withdrawable": "999999999999999999999999558"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "ask": "-41446500",
+   "upper": "-36841300",
+   "spacing": "17990",
+   "alignedAsk": "-41430970",
+   "alignedUpper": "-36843520",
+   "requested": "1000000000000000000000000000",
+   "installed": "999999999999999999449009087",
+   "liquidity": "1120910338181752946",
+   "tickLower": "36843520",
+   "tickUpper": "41430970",
+   "initialTick": "41430970",
+   "withdrawable": "999999999999999999449009086"
+  }
+ ],
+ "installation": {
+  "reference": "zero-seed-launch-installation.json",
+  "oracle": "zero-seed-launch-installation.py"
+ },
+ "trade": [
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "quoteIn": "1000000000000000000",
+   "gross": "982091443427432213916824",
+   "fee": "49104572171371610653250",
+   "net": "932986871256060603263574",
+   "decimals": "18/18",
+   "step": "buyExactIn"
+  },
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "tokenOut": "932986871256060603263574",
+   "calcQuote": "951638594087469002",
+   "fee": "50086241794077316",
+   "paid": "1001724835881546318",
+   "decimals": "18/18",
+   "step": "buyExactOut"
+  },
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "tokenIn": "932986871256060603263574",
+   "quoteOut": "904056664383095550",
+   "decimals": "18/18",
+   "step": "sellExactIn"
+  },
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "leftHeld": "0",
+   "principalQuote": "49958055259709451",
+   "principalToken": "999950895427828628389346150",
+   "decimals": "18/18",
+   "step": "reverse"
+  },
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "token": "108",
+   "quote": "2",
+   "decimals": "18/18",
+   "step": "dust"
+  },
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "requested": "999950896427828628389346150",
+   "got": "999950895427828628389346150",
+   "principalToken": "0",
+   "principalQuote": "10083609766202278612140",
+   "decimals": "18/18",
+   "step": "exhaust"
+  },
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "positionTokenBefore": "999950895427828628389346150",
+   "delivered": "999950895427828628389346150",
+   "residueToken": "0",
+   "decimals": "18/18",
+   "step": "upperResidue"
+  },
+  {
+   "order": "t0",
+   "dec": "18/18",
+   "token": "108",
+   "quote": "2",
+   "decimals": "18/18",
+   "step": "dustExhausted"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "quoteIn": "1000000",
+   "gross": "983667637211529436923507",
+   "fee": "49183381860576471803516",
+   "net": "934484255350952965119991",
+   "decimals": "18/6",
+   "step": "buyExactIn"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "tokenOut": "934484255350952965119991",
+   "calcQuote": "951642",
+   "fee": "50087",
+   "paid": "1001729",
+   "decimals": "18/6",
+   "step": "buyExactOut"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "tokenIn": "934484255350952965119991",
+   "quoteOut": "904058",
+   "decimals": "18/6",
+   "step": "sellExactIn"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "leftHeld": "0",
+   "principalQuote": "49957",
+   "principalToken": "999950816618139422912052817",
+   "decimals": "18/6",
+   "step": "reverse"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "token": "104251056",
+   "quote": "2",
+   "decimals": "18/6",
+   "step": "dust"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "requested": "999950817618139422912052817",
+   "got": "999950816618139422912052817",
+   "principalToken": "0",
+   "principalQuote": "10067437871",
+   "decimals": "18/6",
+   "step": "exhaust"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "positionTokenBefore": "999950816618139422912052817",
+   "delivered": "999950816618139422912052817",
+   "residueToken": "0",
+   "decimals": "18/6",
+   "step": "upperResidue"
+  },
+  {
+   "order": "t0",
+   "dec": "18/6",
+   "token": "104251056",
+   "quote": "2",
+   "decimals": "18/6",
+   "step": "dustExhausted"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "quoteIn": "1000000000000000000",
+   "gross": "982091443427432213710037",
+   "fee": "49104572171371610642911",
+   "net": "932986871256060603067126",
+   "decimals": "18/18",
+   "step": "buyExactIn"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "tokenOut": "932986871256060603067126",
+   "calcQuote": "951638594087469001",
+   "fee": "50086241794077316",
+   "paid": "1001724835881546317",
+   "decimals": "18/18",
+   "step": "buyExactOut"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "tokenIn": "932986871256060603067126",
+   "quoteOut": "904056664383095550",
+   "decimals": "18/18",
+   "step": "sellExactIn"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "leftHeld": "0",
+   "principalQuote": "49958055259709452",
+   "principalToken": "999950895427828628388961338",
+   "decimals": "18/18",
+   "step": "reverse"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "token": "395310",
+   "quote": "2",
+   "decimals": "18/18",
+   "step": "dust"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "requested": "999950896427828628388961338",
+   "got": "999950895427828628388961338",
+   "principalToken": "0",
+   "principalQuote": "10083609766202278612147",
+   "decimals": "18/18",
+   "step": "exhaust"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "positionTokenBefore": "999950895427828628388961338",
+   "delivered": "999950895427828628388961338",
+   "residueToken": "0",
+   "decimals": "18/18",
+   "step": "upperResidue"
+  },
+  {
+   "order": "t1",
+   "dec": "18/18",
+   "token": "395310",
+   "quote": "2",
+   "decimals": "18/18",
+   "step": "dustExhausted"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "quoteIn": "1000000",
+   "gross": "983667120985587257409989",
+   "fee": "49183356049279362827840",
+   "net": "934483764936307894582149",
+   "decimals": "18/6",
+   "step": "buyExactIn"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "tokenOut": "934483764936307894582149",
+   "calcQuote": "951641",
+   "fee": "50087",
+   "paid": "1001728",
+   "decimals": "18/6",
+   "step": "buyExactOut"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "tokenIn": "934483764936307894582149",
+   "quoteOut": "904058",
+   "decimals": "18/6",
+   "step": "sellExactIn"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "leftHeld": "0",
+   "principalQuote": "49957",
+   "principalToken": "999950816643950720086181245",
+   "decimals": "18/6",
+   "step": "reverse"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "token": "2",
+   "quote": "3",
+   "decimals": "18/6",
+   "step": "dust"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "requested": "999950817643950720086181245",
+   "got": "999950816643950720086181245",
+   "principalToken": "0",
+   "principalQuote": "10067437871",
+   "decimals": "18/6",
+   "step": "exhaust"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "positionTokenBefore": "999950816643950720086181245",
+   "delivered": "999950816643950720086181245",
+   "residueToken": "0",
+   "decimals": "18/6",
+   "step": "upperResidue"
+  },
+  {
+   "order": "t1",
+   "dec": "18/6",
+   "token": "2",
+   "quote": "3",
+   "decimals": "18/6",
+   "step": "dustExhausted"
+  }
+ ],
+ "fee": [
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "-1",
+   "tick_magnitude": null,
+   "fee_q64": "922337203685477580"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "0",
+   "tick_magnitude": null,
+   "fee_q64": "922337203685477580"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "1",
+   "tick_magnitude": "16",
+   "fee_q64": "922330267740917652"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "10",
+   "tick_magnitude": "160",
+   "fee_q64": "922267846736753839"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "60",
+   "tick_magnitude": "962",
+   "fee_q64": "921920278629180106"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "600",
+   "tick_magnitude": "9627",
+   "fee_q64": "918173943809149156"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "1800",
+   "tick_magnitude": "28881",
+   "fee_q64": "909907303121253143"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "3600",
+   "tick_magnitude": "57762",
+   "fee_q64": "897655606672062181"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "43200",
+   "tick_magnitude": "693147",
+   "fee_q64": "668399831593786699"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "86399",
+   "tick_magnitude": "1386279",
+   "fee_q64": "488842197715736884"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "86400",
+   "tick_magnitude": "1386295",
+   "fee_q64": "488838729715618946"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "86401",
+   "tick_magnitude": "1386311",
+   "fee_q64": "488835261743244884"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "172800",
+   "tick_magnitude": "2772590",
+   "fee_q64": "272089486849531874"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "604800",
+   "tick_magnitude": "9704065",
+   "fee_q64": "62113647347197278"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "2592000",
+   "tick_magnitude": "41588851",
+   "fee_q64": "55340233028582759"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "5529596",
+   "tick_magnitude": "88722819",
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "5529597",
+   "tick_magnitude": "88722835",
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "5529598",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "18446744073709551615",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "68913100933",
+   "t_minus_start": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "-1",
+   "tick_magnitude": null,
+   "fee_q64": "922337203685477580"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "0",
+   "tick_magnitude": null,
+   "fee_q64": "922337203685477580"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "1",
+   "tick_magnitude": "2310",
+   "fee_q64": "921336400758785753"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "10",
+   "tick_magnitude": "23104",
+   "fee_q64": "912379287313991670"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "60",
+   "tick_magnitude": "138629",
+   "fee_q64": "864277214588907100"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "600",
+   "tick_magnitude": "1386295",
+   "fee_q64": "488838729715618946"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "1800",
+   "tick_magnitude": "4158885",
+   "fee_q64": "163714862475909380"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "3600",
+   "tick_magnitude": "8317770",
+   "fee_q64": "68887062105693473"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "43200",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "86399",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "86400",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "86401",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "172800",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "604800",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "2592000",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "38398",
+   "tick_magnitude": "88718262",
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "38399",
+   "tick_magnitude": "88720572",
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "38400",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "18446744073709551615",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  },
+  {
+   "decayRateX32": "9923486534471",
+   "t_minus_start": "115792089237316195423570985008687907853269984665640564039457584007913129639935",
+   "tick_magnitude": null,
+   "fee_q64": "55340232221128654"
+  }
+ ],
+ "router": [
+  {
+   "order": "t0",
+   "paid": "1000000000000000000",
+   "got": "932986871256060603263574"
+  },
+  {
+   "order": "t1",
+   "paid": "1000000000000000000",
+   "got": "932986871256060603067126"
+  }
+ ],
+ "gas": [
+  {
+   "order": "t0",
+   "create": "1145023",
+   "firstBuy": "102296",
+   "secondBuy": "34078",
+   "sell": "34167",
+   "claim": "70066"
+  },
+  {
+   "order": "t1",
+   "create": "1104007",
+   "firstBuy": "84187",
+   "secondBuy": "34686",
+   "sell": "38502",
+   "claim": "79588"
+  }
+ ],
+ "other": [
+  {
+   "raw": "VEC|recapture|t0|quoteIn=10e18|netOfFee=9256308150479412625085330|afterClaim=9743482263662539604908183"
+  },
+  {
+   "raw": "VEC|dust|t0|quoteIn=1|net=933793|fee=49148"
+  }
+ ],
+ "gas_note": "In-test warm gas, t0 on the plain 18-decimal test ERC-20 quote and t1 on native ETH, through the periphery (create, claim) and the forwarding test locker (swaps), as logged by test_gas_vectors at this revision (forge 1.8.3, solc 0.8.33, via_ir, optimizer 9999999, evm osaka).",
+ "residue_metrics": {
+  "definitions": {
+   "core_unbooked_dust": "Per token: Core balance - position amount (rounded down) - creator fee ledger, accumulated over all swaps; raw units of that token. Unowned: not creator principal, not creator fees, unreachable by claims.",
+   "upper_bound_residue": "Raw launch-token units the position held before the exhausting buy that the buy did not deliver when it stopped at the upper bound. Becomes Core unbooked dust: dust_after.token = dust_before.token + residue (asserted)."
+  },
+  "scenarios": [
+   {
+    "order": "t0",
+    "decimals": "18/18",
+    "position_token_before_exhaust": "999950895427828628389346150",
+    "delivered_raw_token": "999950895427828628389346150",
+    "upper_residue_raw_token": "0",
+    "core_dust_before_exhaust": {
+     "raw_token": "108",
+     "raw_quote": "2"
+    },
+    "core_dust_after_exhaust": {
+     "raw_token": "108",
+     "raw_quote": "2"
+    }
+   },
+   {
+    "order": "t0",
+    "decimals": "18/6",
+    "position_token_before_exhaust": "999950816618139422912052817",
+    "delivered_raw_token": "999950816618139422912052817",
+    "upper_residue_raw_token": "0",
+    "core_dust_before_exhaust": {
+     "raw_token": "104251056",
+     "raw_quote": "2"
+    },
+    "core_dust_after_exhaust": {
+     "raw_token": "104251056",
+     "raw_quote": "2"
+    }
+   },
+   {
+    "order": "t1",
+    "decimals": "18/18",
+    "position_token_before_exhaust": "999950895427828628388961338",
+    "delivered_raw_token": "999950895427828628388961338",
+    "upper_residue_raw_token": "0",
+    "core_dust_before_exhaust": {
+     "raw_token": "395310",
+     "raw_quote": "2"
+    },
+    "core_dust_after_exhaust": {
+     "raw_token": "395310",
+     "raw_quote": "2"
+    }
+   },
+   {
+    "order": "t1",
+    "decimals": "18/6",
+    "position_token_before_exhaust": "999950816643950720086181245",
+    "delivered_raw_token": "999950816643950720086181245",
+    "upper_residue_raw_token": "0",
+    "core_dust_before_exhaust": {
+     "raw_token": "2",
+     "raw_quote": "3"
+    },
+    "core_dust_after_exhaust": {
+     "raw_token": "2",
+     "raw_quote": "3"
+    }
+   }
+  ]
+ },
+ "start": {
+  "contract": [
+   {
+    "block_time": 5000,
+    "tradingStart": "4999",
+    "create": "InvalidTradingStart (create and preview)",
+    "trade_at_block_time": null,
+    "trade_at_start": null
+   },
+   {
+    "block_time": 5000,
+    "tradingStart": "5000",
+    "create": "ok",
+    "trade_at_block_time": "ok",
+    "trade_at_start": "ok"
+   },
+   {
+    "block_time": 5000,
+    "tradingStart": "5001",
+    "create": "ok",
+    "trade_at_block_time": "TradingNotStarted",
+    "trade_at_start": "ok"
+   },
+   {
+    "block_time": 5000,
+    "tradingStart": "91400",
+    "create": "ok",
+    "trade_at_block_time": "TradingNotStarted",
+    "trade_at_start": "ok"
+   },
+   {
+    "block_time": 5000,
+    "tradingStart": "18446744073709551615",
+    "create": "ok (contract has no cap; effectively indefinite self-lock)",
+    "trade_at_block_time": "TradingNotStarted",
+    "trade_at_start": "not exercised (astronomically distant timestamp)"
+   }
+  ],
+  "contract_mined_late": {
+   "previewed_at": 5000,
+   "tradingStart": 5000,
+   "mined_at": 5001,
+   "create": "InvalidTradingStart, no token and no pool left"
+  },
+  "producer_proposal": {
+   "status": "local reference proposal for CTO freeze; not a live/hosted selection",
+   "rule": "buildTime + minMargin <= tradingStart <= buildTime + maxDelay and buildTime < expiry <= tradingStart; never rewrite a signed start",
+   "minMargin_s": 300,
+   "maxDelay_s": 86400,
+   "vectors": [
+    {
+     "buildTime": 1000,
+     "tradingStart": 1000,
+     "expiry": 1000,
+     "verdict": "refuse: start-now (start <= buildTime)"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1299,
+     "expiry": 1299,
+     "verdict": "refuse: start below margin"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1300,
+     "expiry": 1300,
+     "verdict": "accept: minimum start, expiry at start"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1300,
+     "expiry": 1301,
+     "verdict": "refuse: expiry after start"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1300,
+     "expiry": 1000,
+     "verdict": "refuse: expiry not after buildTime"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 1300,
+     "expiry": 1001,
+     "verdict": "accept"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 87400,
+     "expiry": 1300,
+     "verdict": "accept: maximum start"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 87400,
+     "expiry": 87400,
+     "verdict": "accept"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 87401,
+     "expiry": 1300,
+     "verdict": "refuse: start above cap"
+    },
+    {
+     "buildTime": 1000,
+     "tradingStart": 18446744073709551615,
+     "expiry": 1300,
+     "verdict": "refuse: start above cap (contract alone would accept and self-lock)"
+    }
+   ],
+   "why": "Bounds the requested start to maxDelay after buildTime. Submission before expiry does not guarantee mining before start: late mining reverts atomically. No inclusion-latency guarantee."
+  }
+ },
+ "claim_recipient_refusals": {
+  "error": "InvalidRecipient() (periphery)",
+  "refused": [
+   "address(0)",
+   "Core",
+   "extension",
+   "periphery",
+   "poolKey.token0",
+   "poolKey.token1"
+  ],
+  "accepted_examples": [
+   "owner",
+   "EOA",
+   "other contract (ETH-receiving for a native quote)"
+  ],
+  "atomicity": "both assets or neither; a reverting native recipient or a refused ERC-20 transfer rolls the ledger, principal and Core balances back; retry to another recipient pays both in full",
+  "reentrancy": "the ledger is moved onto the lock before Core pays; an owner contract re-entering claimFees during the payment claims zero"
+ },
+ "metadata": {
+  "encoding": "Canonical LibString.packOne: first byte length 1..31, next length bytes content, all remaining bytes zero",
+  "unit": "bytes, not characters; UTF-8 is a consumer policy, not contract validation",
+  "error": "InvalidMetadata()",
+  "checked_in": [
+   "create",
+   "previewInstallation"
+  ],
+  "decimals": 18,
+  "examples": {
+   "Zero Seed": "0x095a65726f205365656400000000000000000000000000000000000000000000",
+   "ZERO": "0x045a45524f000000000000000000000000000000000000000000000000000000"
+  },
+  "refused": [
+   "zero",
+   "length 0",
+   "length >31",
+   "nonzero tail"
+  ],
+  "note": "LibString.packOne assumes memory padding; producers must explicitly zero the tail. No truncation."
+ },
+ "collision": {
+  "error": "LaunchTokenExists(address token)",
+  "checked_in": [
+   "create",
+   "previewInstallation"
+  ],
+  "rule": "CREATE2(extension, keccak256(abi.encode(controller,salt)), keccak256(LaunchToken.creationCode ++ abi.encode(bytes32 name,bytes32 symbol))); logo is excluded"
+ },
+ "fee_curve": {
+  "note": "Tick-rate schedule. Digests: SHA-256 chain h = sha256(h || fee as 8-byte big-endian) over the sampled seconds t = 0, step, 2*step, ..., last inclusive; all from the independent Python oracle (exact port of the tick table).",
+  "rates_q64": {
+   "5": "922337203685477580",
+   "50": "9223372036854775808",
+   "75": "13835058055282163712",
+   "90": "16602069666338596454",
+   "99": "18262276632972456099",
+   "99.9": "18428297329635842064",
+   "max": "18446744073709551615"
+  },
+  "final_fee_q64": "55340232221128654",
+  "decay_rates_x32": {
+   "default_one_day": "68913100933",
+   "600s": "9923486534471",
+   "two_ticks_per_second": "8589934592",
+   "quarter_tick_per_second": "1073741824",
+   "tenth_tick_per_second_floor": "429496729",
+   "min": "1",
+   "max": "18446744073709551615"
+  },
+  "half_life_s": {
+   "default_one_day": "86400.00000104363",
+   "600s": "600.00000000005238",
+   "two_ticks_per_second": "693151.52713347783 (8.0225408233 days)",
+   "quarter_tick_per_second": "5545180.2170678226 (64.18 days)",
+   "min": "5954091920683119 (about 1.89e8 years)",
+   "max": "0.0000000003229 (saturates within the first second)"
+  },
+  "saturation_second": {
+   "default_one_day": "5529597",
+   "600s": "38399",
+   "two_ticks_per_second": "44361417",
+   "quarter_tick_per_second": "354891343",
+   "min": "381061679028371455",
+   "max": "0"
+  },
+  "saturation_note": "saturation_second = MAX_DECAY_PRODUCT / decayRateX32 is the last elapsed second computed through the helper; from the next second the fee is exactly finalFee. On the 50% -> 0.3% fixtures the floored excess is already zero earlier (rounding), so the two mechanisms coincide at the floor; a full-span excess (2**64 - 1 -> 0) still leaves 1 raw unit when the magnitude is exactly 88,722,835 at saturation_second, which is why the guard rather than a clamp to the minimum tick yields finalFee.",
+  "digests_sha256": [
+   {
+    "label": "default 50% -> 0.3%, every second 0..3600",
+    "initialFee": "9223372036854775808",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "68913100933",
+    "last": 3600,
+    "step": 1,
+    "digest": "c3de4d91d476acc61f73455efe7fb8c750b89de3759a0c500bbde0bdf9bcd062"
+   },
+   {
+    "label": "default 50% -> 0.3%, every minute 0..30 days",
+    "initialFee": "9223372036854775808",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "68913100933",
+    "last": 2592000,
+    "step": 60,
+    "digest": "b2c022f5cbbc90cedca9834bcf64f636b97c45dee08c730ab4dbf17d8d5acc74"
+   },
+   {
+    "label": "600 s half-life 5% -> 0.3%, every second 0..3600",
+    "initialFee": "922337203685477580",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "9923486534471",
+    "last": 3600,
+    "step": 1,
+    "digest": "c4db35cd45f48222463cb9a940c506599715162db6c37b01428331ff5263bdc6"
+   },
+   {
+    "label": "2 ticks/s 99.9% -> 0, every hour 0..30 days",
+    "initialFee": "18428297329635842064",
+    "finalFee": "0",
+    "decayRateX32": "8589934592",
+    "last": 2592000,
+    "step": 3600,
+    "digest": "8fdefff5fe4cfb98c43bbbf6ed6f0b9a0ae398f1f810ffea0522d5504e1321da"
+   },
+   {
+    "label": "1/4 tick/s max -> 0, every second 0..3600",
+    "initialFee": "18446744073709551615",
+    "finalFee": "0",
+    "decayRateX32": "1073741824",
+    "last": 3600,
+    "step": 1,
+    "digest": "11ff0a905ab22707579e714aba31b895ed3234788a0dab10b0daa0881a9ccf36"
+   }
+  ],
+  "tables": {
+   "default_one_day_50_to_0.3": [
+    {
+     "t": "0",
+     "fee_q64": "9223372036854775808",
+     "pct": "50.0000000000"
+    },
+    {
+     "t": "1",
+     "fee_q64": "9223298692930386783",
+     "pct": "49.9996024018",
+     "tick_magnitude": "16"
+    },
+    {
+     "t": "60",
+     "fee_q64": "9218963276153076996",
+     "pct": "49.9761000603",
+     "tick_magnitude": "962"
+    },
+    {
+     "t": "3600",
+     "fee_q64": "8962377276946957658",
+     "pct": "48.5851445715",
+     "tick_magnitude": "57762"
+    },
+    {
+     "t": "43200",
+     "fee_q64": "6538119400055406284",
+     "pct": "35.4432162875",
+     "tick_magnitude": "693147"
+    },
+    {
+     "t": "86400",
+     "fee_q64": "4639356258918185573",
+     "pct": "25.1500006743",
+     "tick_magnitude": "1386295"
+    },
+    {
+     "t": "172800",
+     "fee_q64": "2347348307759775472",
+     "pct": "12.7250006743",
+     "tick_magnitude": "2772590"
+    },
+    {
+     "t": "604800",
+     "fee_q64": "126965494298918151",
+     "pct": "0.6882813237",
+     "tick_magnitude": "9704065"
+    },
+    {
+     "t": "2592000",
+     "fee_q64": "55340240759526319",
+     "pct": "0.3000000463",
+     "tick_magnitude": "41588851"
+    },
+    {
+     "t": "5529597",
+     "fee_q64": "55340232221128654",
+     "pct": "0.3000000000",
+     "tick_magnitude": "88722835"
+    },
+    {
+     "t": "5529598",
+     "fee_q64": "55340232221128654",
+     "pct": "0.3000000000"
+    }
+   ],
+   "two_ticks_per_second_50_to_0.3": [
+    {
+     "t": "0",
+     "fee_q64": "9223372036854775808",
+     "pct": "50.0000000000"
+    },
+    {
+     "t": "1",
+     "fee_q64": "9223362868832139196",
+     "pct": "49.9999503000",
+     "tick_magnitude": "2"
+    },
+    {
+     "t": "60",
+     "fee_q64": "9222821971723649262",
+     "pct": "49.9970180909",
+     "tick_magnitude": "120"
+    },
+    {
+     "t": "3600",
+     "fee_q64": "9190426476420833039",
+     "pct": "49.8214017590",
+     "tick_magnitude": "7200"
+    },
+    {
+     "t": "43200",
+     "fee_q64": "8835746255246636721",
+     "pct": "47.8986764273",
+     "tick_magnitude": "86400"
+    },
+    {
+     "t": "86400",
+     "fee_q64": "8464509350746382498",
+     "pct": "45.8861971355",
+     "tick_magnitude": "172800"
+    },
+    {
+     "t": "172800",
+     "fee_q64": "7768459773126180960",
+     "pct": "42.1129048144",
+     "tick_magnitude": "345600"
+    },
+    {
+     "t": "604800",
+     "fee_q64": "5062770843274302024",
+     "pct": "27.4453357354",
+     "tick_magnitude": "1209600"
+    },
+    {
+     "t": "2592000",
+     "fee_q64": "741753037726786584",
+     "pct": "4.0210512748",
+     "tick_magnitude": "5184000"
+    },
+    {
+     "t": "44361417",
+     "fee_q64": "55340232221128654",
+     "pct": "0.3000000000",
+     "tick_magnitude": "88722834"
+    },
+    {
+     "t": "44361418",
+     "fee_q64": "55340232221128654",
+     "pct": "0.3000000000"
+    }
+   ],
+   "two_ticks_per_second_99.9_to_0": [
+    {
+     "t": "0",
+     "fee_q64": "18428297329635842064",
+     "pct": "99.9000000000"
+    },
+    {
+     "t": "1",
+     "fee_q64": "18428278901356940707",
+     "pct": "99.8999001001",
+     "tick_magnitude": "2"
+    },
+    {
+     "t": "60",
+     "fee_q64": "18427191665519151079",
+     "pct": "99.8940061828",
+     "tick_magnitude": "120"
+    },
+    {
+     "t": "3600",
+     "fee_q64": "18362074764497997343",
+     "pct": "99.5410067550",
+     "tick_magnitude": "7200"
+    },
+    {
+     "t": "43200",
+     "fee_q64": "17649146110668978989",
+     "pct": "95.6762127785",
+     "tick_magnitude": "86400"
+    },
+    {
+     "t": "86400",
+     "fee_q64": "16902937523957200381",
+     "pct": "91.6310079243",
+     "tick_magnitude": "172800"
+    },
+    {
+     "t": "172800",
+     "fee_q64": "15503835857875547793",
+     "pct": "84.0464625948",
+     "tick_magnitude": "345600"
+    },
+    {
+     "t": "604800",
+     "fee_q64": "10065237787609899792",
+     "pct": "54.5637633795",
+     "tick_magnitude": "1209600"
+    },
+    {
+     "t": "2592000",
+     "fee_q64": "1379731172434914028",
+     "pct": "7.4795376730",
+     "tick_magnitude": "5184000"
+    }
+   ],
+   "default_one_day_max_to_0": [
+    {
+     "t": "0",
+     "fee_q64": "18446744073709551615",
+     "pct": "100.0000000000"
+    },
+    {
+     "t": "1",
+     "fee_q64": "18446596500421042511",
+     "pct": "99.9992000036",
+     "tick_magnitude": "16"
+    },
+    {
+     "t": "60",
+     "fee_q64": "18437873327830881974",
+     "pct": "99.9519115902",
+     "tick_magnitude": "962"
+    },
+    {
+     "t": "3600",
+     "fee_q64": "17921603711721989946",
+     "pct": "97.1532083934",
+     "tick_magnitude": "57762"
+    },
+    {
+     "t": "43200",
+     "fee_q64": "13043821263248043520",
+     "pct": "70.7106967556",
+     "tick_magnitude": "693147"
+    },
+    {
+     "t": "86400",
+     "fee_q64": "9223372287116814725",
+     "pct": "50.0000013567",
+     "tick_magnitude": "1386295"
+    },
+    {
+     "t": "172800",
+     "fee_q64": "4611686268689430216",
+     "pct": "25.0000013567",
+     "tick_magnitude": "2772590"
+    },
+    {
+     "t": "604800",
+     "fee_q64": "144115215448268606",
+     "pct": "0.7812501484",
+     "tick_magnitude": "9704065"
+    },
+    {
+     "t": "2592000",
+     "fee_q64": "17179874578",
+     "pct": "9.31E-8",
+     "tick_magnitude": "41588851"
+    },
+    {
+     "t": "5529597",
+     "fee_q64": "1",
+     "pct": "0E-10",
+     "tick_magnitude": "88722835"
+    },
+    {
+     "t": "5529598",
+     "fee_q64": "0",
+     "pct": "0E-10"
+    }
+   ],
+   "min_rate_max_to_0": [
+    {
+     "t": "0",
+     "fee_q64": "18446744073709551615",
+     "pct": "100.0000000000"
+    },
+    {
+     "t": "4294967295",
+     "fee_q64": "18446744073709551615",
+     "pct": "100.0000000000",
+     "tick_magnitude": "0"
+    },
+    {
+     "t": "4294967296",
+     "fee_q64": "18446734850344432283",
+     "pct": "99.9999500000",
+     "tick_magnitude": "1"
+    },
+    {
+     "t": "381061679028371454",
+     "fee_q64": "1",
+     "pct": "0E-10",
+     "tick_magnitude": "88722835"
+    },
+    {
+     "t": "381061679028371455",
+     "fee_q64": "1",
+     "pct": "0E-10",
+     "tick_magnitude": "88722835"
+    },
+    {
+     "t": "381061679028371456",
+     "fee_q64": "0",
+     "pct": "0E-10"
+    },
+    {
+     "t": "18446744073709551615",
+     "fee_q64": "0",
+     "pct": "0E-10"
+    }
+   ]
+  },
+  "tick_steps": [
+   {
+    "decayRateX32": "1073741824",
+    "note": "1/4 tick/s: the fee steps every 4 s",
+    "rows": [
+     {
+      "t": "1",
+      "fee_q64": "9223372036854775808",
+      "pct": "50.0000000000",
+      "tick_magnitude": "0"
+     },
+     {
+      "t": "3",
+      "fee_q64": "9223372036854775808",
+      "pct": "50.0000000000",
+      "tick_magnitude": "0"
+     },
+     {
+      "t": "4",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "5",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "7",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "8",
+      "fee_q64": "9223362868832139196",
+      "pct": "49.9999503000",
+      "tick_magnitude": "2"
+     },
+     {
+      "t": "9",
+      "fee_q64": "9223362868832139196",
+      "pct": "49.9999503000",
+      "tick_magnitude": "2"
+     }
+    ]
+   },
+   {
+    "decayRateX32": "429496729",
+    "note": "floor(0.1 * 2**32), slightly below one tick per 10 s: first step at 11 s",
+    "rows": [
+     {
+      "t": "9",
+      "fee_q64": "9223372036854775808",
+      "pct": "50.0000000000",
+      "tick_magnitude": "0"
+     },
+     {
+      "t": "10",
+      "fee_q64": "9223372036854775808",
+      "pct": "50.0000000000",
+      "tick_magnitude": "0"
+     },
+     {
+      "t": "11",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "20",
+      "fee_q64": "9223367452842311500",
+      "pct": "49.9999751500",
+      "tick_magnitude": "1"
+     },
+     {
+      "t": "21",
+      "fee_q64": "9223362868832139196",
+      "pct": "49.9999503000",
+      "tick_magnitude": "2"
+     },
+     {
+      "t": "30",
+      "fee_q64": "9223362868832139196",
+      "pct": "49.9999503000",
+      "tick_magnitude": "2"
+     },
+     {
+      "t": "31",
+      "fee_q64": "9223358284824258897",
+      "pct": "49.9999254501",
+      "tick_magnitude": "3"
+     }
+    ]
+   },
+   {
+    "decayRateX32": "68913100933",
+    "note": "default: 16 whole ticks per second, 1,386,295 after one day",
+    "rows": [
+     {
+      "t": "1",
+      "fee_q64": "9223298692930386783",
+      "pct": "49.9996024018",
+      "tick_magnitude": "16"
+     },
+     {
+      "t": "2",
+      "fee_q64": "9223225349592746513",
+      "pct": "49.9992048068",
+      "tick_magnitude": "32"
+     },
+     {
+      "t": "86400",
+      "fee_q64": "4639356258918185573",
+      "pct": "25.1500006743",
+      "tick_magnitude": "1386295"
+     }
+    ]
+   },
+   {
+    "decayRateX32": "68913100933",
+    "note": "a one-unit excess is gone after the first whole tick",
+    "rows": [
+     {
+      "t": "0",
+      "fee_q64": "55340232221128655",
+      "pct": "0.3000000000"
+     },
+     {
+      "t": "1",
+      "fee_q64": "55340232221128654",
+      "pct": "0.3000000000",
+      "tick_magnitude": "16"
+     }
+    ]
+   }
+  ],
+  "oracle_error_bounds": {
+   "note": "Integer result minus the real-number F + (I - F) * 1.000001**(-(decayRateX32 / 2**32) * t / 2) at 150 digits, default 50% -> 0.3%, every second of the first hour then every 10 minutes to 30 days. The error is dominated by the whole-tick floor of m (one tick = 5e-7 of the excess), not by the helper (which is within a few units of 2**-128 of the real sqrt ratio) or the final floor.",
+   "max_abs_q64": "4574692217333.041",
+   "at_t": "244",
+   "max_abs_fraction_of_excess": "4.98983E-7",
+   "one_tick_of_excess_fraction": "5.00000E-7"
+  }
+ },
+ "creator_fee_range": {
+  "type": "uint64, Q0.64 (2**64 = 100%)",
+  "min_q64": "0",
+  "max_q64": "18446744073709551615",
+  "max_fraction": "1 - 2**-64: just under 100%, not 100%",
+  "constant": "MAX_CREATOR_FEE = type(uint64).max (src/extensions/ZeroSeedLaunch.sol); no ceiling comparison in _validate",
+  "schedule_rules": [
+   "finalFee <= initialFee"
+  ],
+  "error": "InvalidFeeSchedule() 0xf75a271a",
+  "checked_in": [
+   "create",
+   "previewInstallation",
+   "forwarded create payload"
+  ],
+  "unencodable": {
+   "value": "18446744073709551616",
+   "meaning": "exactly 100% = 2**64",
+   "verdict": "ABI decoding failure in create(parameters,logoUrl), previewInstallation and forwarded create for either fee word; no truncation",
+   "dirty_high_bits": {
+    "value": "36893488147419103231",
+    "note": "2**64 + (2**64 - 1)",
+    "verdict": "same ABI decoding failure"
+   }
+  },
+  "vectors": [
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "68913100933",
+    "verdict": "accept",
+    "note": "max -> 0.3% at the default one-day half-life"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551615",
+    "decayRateX32": "1",
+    "verdict": "accept",
+    "note": "flat at the maximum, slowest rate"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551615",
+    "decayRateX32": "18446744073709551615",
+    "verdict": "accept",
+    "note": "flat at the maximum, fastest rate"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "0",
+    "decayRateX32": "18446744073709551615",
+    "verdict": "accept",
+    "note": "max -> 0 at the fastest rate: saturated to 0 from t = 1"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "0",
+    "decayRateX32": "1",
+    "verdict": "accept",
+    "note": "max -> 0 at the slowest rate: one raw unit at t = MAX_DECAY_PRODUCT (minimum tick residual), 0 from t = MAX_DECAY_PRODUCT + 1"
+   },
+   {
+    "initialFee": "0",
+    "finalFee": "0",
+    "decayRateX32": "68913100933",
+    "verdict": "accept",
+    "note": "zero schedule"
+   },
+   {
+    "initialFee": "922337203685477580",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "0",
+    "verdict": "accept",
+    "note": "zero rate: flat at initialFee forever"
+   },
+   {
+    "initialFee": "18446744073709551614",
+    "finalFee": "18446744073709551615",
+    "decayRateX32": "68913100933",
+    "verdict": "InvalidFeeSchedule",
+    "note": "final above initial at the top of the range"
+   },
+   {
+    "initialFee": "0",
+    "finalFee": "1",
+    "decayRateX32": "68913100933",
+    "verdict": "InvalidFeeSchedule"
+   },
+   {
+    "initialFee": "922337203685477580",
+    "finalFee": "922337203685477581",
+    "decayRateX32": "0",
+    "verdict": "InvalidFeeSchedule",
+    "note": "shape is checked even at a zero rate"
+   },
+   {
+    "initialFee": "18446744073709551616",
+    "finalFee": "18446744073709551615",
+    "decayRateX32": "68913100933",
+    "verdict": "abi_decoding_failure",
+    "note": "2**64 in initialFee"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "18446744073709551616",
+    "decayRateX32": "68913100933",
+    "verdict": "abi_decoding_failure",
+    "note": "2**64 in finalFee"
+   },
+   {
+    "initialFee": "18446744073709551615",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "18446744073709551616",
+    "verdict": "abi_decoding_failure",
+    "note": "2**64 in decayRateX32"
+   }
+  ],
+  "reference_schedules": {
+   "fixture": {
+    "initialFee": "922337203685477580",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "68913100933",
+    "note": "5% -> 0.3% at the default one-day half-life: this fixture's local reference parameters"
+   },
+   "consumer_default": {
+    "initialFee": "9223372036854775808",
+    "finalFee": "55340232221128654",
+    "decayRateX32": "68913100933",
+    "half_life_s": "86400.0000010436",
+    "fee_after_one_day_q64": "4639356258918185573",
+    "fee_after_one_day_pct": "25.1500006743",
+    "note": "50% -> 0.3% with a one-day half-life of the excess: the consumer-side default; a creation parameter choice, not a contract constant. About 25.15% after one day, 12.73% after two, 0.69% after seven; the floor is approached, not scheduled."
+   }
+  },
+  "decay_rate_rules": [
+   "any uint64 decayRateX32 is accepted, including 0 (flat at initialFee) and 2**64 - 1 (finalFee from the first second)"
+  ]
+ },
+ "max_rate": {
+  "note": "Launches created through ZeroSeedLaunchPeriphery.create at initialFee = 2**64 - 1 (no storage injection), finalFee = 0.3%, default one-day half-life rate 68913100933, traded at tradingStart. Exact input: net = floor(gross / 2**64), fee = gross - net = ceil(gross * (2**64 - 1) / 2**64). Exact output: paid = calc * 2**64, fee = paid - calc. Settled by the local test lockers against locally compiled Core; not live evidence.",
+  "first_buy_note": "The first whole-quote-unit buy is identical for the max -> 0.3% / default rate, max -> max / rate 1 and max -> 0 / rate 2**64 - 1 schedules (the rate at tradingStart is the initial rate in every case).",
+  "trades": [
+   {
+    "rate": "max",
+    "order": "t0",
+    "dec": "18/18",
+    "gross": "982941",
+    "fee": "982941",
+    "net": "0",
+    "decimals": "18/18",
+    "step": "oneUnit"
+   },
+   {
+    "rate": "max",
+    "order": "t0",
+    "dec": "18/18",
+    "quoteIn": "1000000000000000000",
+    "gross": "982091443427432213915088",
+    "fee": "982091443427432213861849",
+    "net": "53239",
+    "decimals": "18/18",
+    "step": "buyExactIn"
+   },
+   {
+    "rate": "max",
+    "order": "t0",
+    "dec": "18/18",
+    "tokenOut": "53239",
+    "calcQuote": "1",
+    "fee": "18446744073709551615",
+    "paid": "18446744073709551616",
+    "decimals": "18/18",
+    "step": "buyExactOut"
+   },
+   {
+    "rate": "max",
+    "order": "t0",
+    "dec": "18/18",
+    "tokenIn": "106478",
+    "grossQuote": "0",
+    "fee": "0",
+    "quoteOut": "0",
+    "roundTripLoss": "19446744073709551617",
+    "decimals": "18/18",
+    "step": "sellAll"
+   },
+   {
+    "rate": "max",
+    "order": "t0",
+    "dec": "18/6",
+    "gross": "984538387033333867",
+    "fee": "984538387033333867",
+    "net": "0",
+    "decimals": "18/6",
+    "step": "oneUnit"
+   },
+   {
+    "rate": "max",
+    "order": "t0",
+    "dec": "18/6",
+    "quoteIn": "1000000",
+    "gross": "983667635470798139337767",
+    "fee": "983667635470798139284443",
+    "net": "53324",
+    "decimals": "18/6",
+    "step": "buyExactIn"
+   },
+   {
+    "rate": "max",
+    "order": "t0",
+    "dec": "18/6",
+    "tokenOut": "53324",
+    "calcQuote": "1",
+    "fee": "18446744073709551615",
+    "paid": "18446744073709551616",
+    "decimals": "18/6",
+    "step": "buyExactOut"
+   },
+   {
+    "rate": "max",
+    "order": "t0",
+    "dec": "18/6",
+    "tokenIn": "106648",
+    "grossQuote": "0",
+    "fee": "0",
+    "quoteOut": "0",
+    "roundTripLoss": "18446744073710551617",
+    "decimals": "18/6",
+    "step": "sellAll"
+   },
+   {
+    "rate": "max",
+    "order": "t1",
+    "dec": "18/18",
+    "gross": "729761",
+    "fee": "729761",
+    "net": "0",
+    "decimals": "18/18",
+    "step": "oneUnit"
+   },
+   {
+    "rate": "max",
+    "order": "t1",
+    "dec": "18/18",
+    "quoteIn": "1000000000000000000",
+    "gross": "982091443427432212980275",
+    "fee": "982091443427432212927036",
+    "net": "53239",
+    "decimals": "18/18",
+    "step": "buyExactIn"
+   },
+   {
+    "rate": "max",
+    "order": "t1",
+    "dec": "18/18",
+    "tokenOut": "53239",
+    "calcQuote": "1",
+    "fee": "18446744073709551615",
+    "paid": "18446744073709551616",
+    "decimals": "18/18",
+    "step": "buyExactOut"
+   },
+   {
+    "rate": "max",
+    "order": "t1",
+    "dec": "18/18",
+    "tokenIn": "106478",
+    "grossQuote": "0",
+    "fee": "0",
+    "quoteOut": "0",
+    "roundTripLoss": "19446744073709551617",
+    "decimals": "18/18",
+    "step": "sellAll"
+   },
+   {
+    "rate": "max",
+    "order": "t1",
+    "dec": "18/6",
+    "gross": "467398106332855075",
+    "fee": "467398106332855075",
+    "net": "0",
+    "decimals": "18/6",
+    "step": "oneUnit"
+   },
+   {
+    "rate": "max",
+    "order": "t1",
+    "dec": "18/6",
+    "quoteIn": "1000000",
+    "gross": "983666653587480924554914",
+    "fee": "983666653587480924501590",
+    "net": "53324",
+    "decimals": "18/6",
+    "step": "buyExactIn"
+   },
+   {
+    "rate": "max",
+    "order": "t1",
+    "dec": "18/6",
+    "tokenOut": "53324",
+    "calcQuote": "1",
+    "fee": "18446744073709551615",
+    "paid": "18446744073709551616",
+    "decimals": "18/6",
+    "step": "buyExactOut"
+   },
+   {
+    "rate": "max",
+    "order": "t1",
+    "dec": "18/6",
+    "tokenIn": "106648",
+    "grossQuote": "0",
+    "fee": "0",
+    "quoteOut": "0",
+    "roundTripLoss": "18446744073710551617",
+    "decimals": "18/6",
+    "step": "sellAll"
+   }
+  ],
+  "trades_note": "Actual maximum-rate fills on the final geometry; oneUnit buys net zero, exact output grosses up the input; see trade rows for exact amounts",
+  "exact_output_bounds": {
+   "note": "Bisection over the requested launch-token output on the pinned fixture: the last request that executes, the first that fails the signed int128 conversion of the fee-inclusive input (calc * 2**64 >= 2**127), and the first that fails the uint128 gross-up helper (calc >= 2**64). The last executable request has calc = 2**63 - 1 exactly. Every failed probe rolls back pool state, fee ledger, position liquidity and Core balances.",
+   "signed_bound_calc": "9223372036854775807",
+   "helper_bound_calc": "18446744073709551615",
+   "errors": {
+    "signed": "SafeCastLib.Overflow() 0x35278d12",
+    "helper": "AmountBeforeFeeOverflow() 0x0d88f526"
+   },
+   "vectors": [
+    {
+     "rate": "max",
+     "order": "t0",
+     "lastValidTokenOut": "8992894608587101713726987",
+     "calc": "9223372036854775807",
+     "paid": "170141183460469231713240559642174554112",
+     "firstSignedOverflowTokenOut": "8992894608587101713726988",
+     "lastSignedOverflowTokenOut": "17841529728048229186238638",
+     "firstHelperOverflowTokenOut": "17841529728048229186238639",
+     "decimals": "18/18"
+    },
+    {
+     "rate": "max",
+     "order": "t1",
+     "lastValidTokenOut": "8992894608587101713646726",
+     "calc": "9223372036854775807",
+     "paid": "170141183460469231713240559642174554112",
+     "firstSignedOverflowTokenOut": "8992894608587101713646727",
+     "lastSignedOverflowTokenOut": "17841529728048229186058949",
+     "firstHelperOverflowTokenOut": "17841529728048229186058950",
+     "decimals": "18/18"
+    }
+   ]
+  }
+ },
+ "forward_schema": {
+  "swap": {
+   "payload": "abi.encode(PoolKey, SwapParameters)",
+   "length": 128,
+   "returns": "abi.encode(PoolBalanceUpdate, PoolState)",
+   "first_word": "PoolKey.token0 < 2**160"
+  },
+  "create": {
+   "tag": "0x224a5a98239f599168b798c4205db155bfff4332b4931a7fb5bc60c2e2eeee30",
+   "tag_source": "keccak256(\"IZeroSeedLaunch#CREATE\")",
+   "payload": "abi.encode(ZERO_SEED_LAUNCH_CREATE, LaunchParameters, string logoUrl)",
+   "returns": "abi.encode(Installation)",
+   "controller": "Locker.addr() of the forwarding locker",
+   "lock_debt_after": "zero"
+  },
+  "claim_fees": {
+   "tag": "0xe52d8a05fd0f2d32b280675736d8117fee83069a0eac7ab9279aa52ff05a614c",
+   "tag_source": "keccak256(\"IZeroSeedLaunch#CLAIM_FEES\")",
+   "payload": "abi.encode(tag, PoolKey)",
+   "returns": "abi.encode(uint128 amount0, uint128 amount1)",
+   "authorization": "launch.controller == Locker.addr()",
+   "lock_debt_after": "credit of (amount0, amount1) for the locker to withdraw"
+  },
+  "unknown": "any first word >= 2**160 that is not a tag, or fewer than 32 bytes, reverts UnknownForwardAction(); a first word < 2**160 is decoded as a swap"
+ },
+ "abi": {
+  "ZeroSeedLaunch": {
+   "selectors": {
+    "afterCollectFees(bytes32,(address,address,bytes32),bytes32,uint128,uint128)": "0x751fd5df",
+    "afterInitializePool(address,(address,address,bytes32),int32,uint96)": "0x948374ff",
+    "afterSwap(bytes32,(address,address,bytes32),bytes32,bytes32,bytes32)": "0xa4e8f288",
+    "afterUpdatePosition(bytes32,(address,address,bytes32),bytes32,int128,bytes32,bytes32)": "0x25fa4e69",
+    "beforeCollectFees(bytes32,(address,address,bytes32),bytes32)": "0xdf65d8d1",
+    "beforeInitializePool(address,(address,address,bytes32),int32)": "0x1fbbb462",
+    "beforeSwap(bytes32,(address,address,bytes32),bytes32)": "0xca11dba7",
+    "beforeUpdatePosition(bytes32,(address,address,bytes32),bytes32,int128)": "0x0035c723",
+    "creatorFees((address,address,bytes32))": "0xb4ce9a2e",
+    "feeAt(bytes32,uint256)": "0xe81084ec",
+    "forwarded_2374103877(bytes32)": "0x00000001",
+    "getLaunch(bytes32)": "0x7d1d589c",
+    "previewInstallation(address,(bytes32,bytes32,uint128,address,int32,int32,uint64,uint64,uint64,uint64,bytes32))": "0xd215dcb2"
+   },
+   "errors": {
+    "BaseForwardeeAccountantOnly()": "0x588e1740",
+    "BoundsOrder()": "0x68651c5c",
+    "BoundsTickSpacing()": "0x89fd41b1",
+    "CallPointNotImplemented()": "0xc6f26286",
+    "ControllerOnly()": "0xac8ff76a",
+    "CoreOnly()": "0x62279cff",
+    "InitializeThroughCreateOnly()": "0x028eb443",
+    "InvalidFeeSchedule()": "0xf75a271a",
+    "InvalidMetadata()": "0xbcecb64a",
+    "InvalidSupply()": "0x15ae6727",
+    "InvalidTick(int32)": "0x073ee172",
+    "InvalidTicks()": "0x1434ed7f",
+    "InvalidTradingStart()": "0xe0839259",
+    "LaunchTokenExists(address)": "0xf68475cd",
+    "LiquidityAboveTickCap(uint128,uint128)": "0x20ea795f",
+    "MinMaxBounds()": "0xabfa4a31",
+    "PositionsThroughCreateOnly()": "0x74a99003",
+    "StableswapMustBeFullRange()": "0x72b1019d",
+    "SwapsThroughForwardOnly()": "0xf17f54b3",
+    "TradingNotStarted()": "0xacf75be8",
+    "UnknownForwardAction()": "0xe5c78d9a",
+    "UnknownLaunch()": "0xf6806bf8",
+    "UnsupportedQuoteToken()": "0x658d8331",
+    "ZeroLiquidity()": "0x10074548"
+   },
+   "events": {
+    "CreatorFeesClaimed(bytes32,address,uint128,uint128)": "0xf0ffdfa84530baef2e9f8bbb160545a59bfef8da319fa27aa69e4f3c8f05a41d",
+    "LaunchCreated(bytes32,address,address,(address,address,bytes32),bytes32,uint128,(bytes32,bytes32,uint128,address,int32,int32,uint64,uint64,uint64,uint64,bytes32),string)": "0x0a54c7540832cb23832d30bbf27c5597cfb779d070a1c253a7aee90571c2da4c",
+    "LaunchSwapped(bytes32,address,int128,int128,uint64,uint128,bool)": "0x3e58795f52a8e88efdec2da89ea3798175f8764145ccd7bf5e40633a7d571f6d"
+   }
+  },
+  "ZeroSeedLaunchPeriphery": {
+   "selectors": {
+    "LAUNCH()": "0x096e3c3e",
+    "claimFees((address,address,bytes32),address)": "0x6906b4c0",
+    "create((bytes32,bytes32,uint128,address,int32,int32,uint64,uint64,uint64,uint64,bytes32),string)": "0x9a09bd5d",
+    "launchOwner(bytes32)": "0x60ac0b66",
+    "locked_6416899205(uint256)": "0x00000000",
+    "previewInstallation(address,(bytes32,bytes32,uint128,address,int32,int32,uint64,uint64,uint64,uint64,bytes32))": "0xd215dcb2",
+    "transferLaunch(bytes32,address)": "0x8b1cb36f"
+   },
+   "errors": {
+    "BaseLockerAccountantOnly()": "0x3ed2a9c0",
+    "ExpectedRevertWithinLock()": "0x4c816e2b",
+    "InvalidOwner()": "0x49e27cff",
+    "InvalidRecipient()": "0x9c8d2cd2",
+    "OwnerOnly()": "0x596dcdb8"
+   },
+   "events": {
+    "LaunchFeesClaimed(bytes32,address,address,uint128,uint128)": "0x908c6b2c19765fe47aef218b4f71ea1a10a9e156d9d5c3500c3a298e01428805",
+    "LaunchOwnerChanged(bytes32,address,address)": "0x478004cf03e8c3b648608ce0259ce479c813aa671a383230ee7763fe5da22391"
+   }
+  },
+  "LaunchToken": {
+   "selectors": {
+    "DOMAIN_SEPARATOR()": "0x3644e515",
+    "allowance(address,address)": "0xdd62ed3e",
+    "approve(address,uint256)": "0x095ea7b3",
+    "balanceOf(address)": "0x70a08231",
+    "decimals()": "0x313ce567",
+    "mint(address,uint128,uint128)": "0x97622870",
+    "name()": "0x06fdde03",
+    "nonces(address)": "0x7ecebe00",
+    "permit(address,address,uint256,uint256,uint8,bytes32,bytes32)": "0xd505accf",
+    "symbol()": "0x95d89b41",
+    "totalSupply()": "0x18160ddd",
+    "transfer(address,uint256)": "0xa9059cbb",
+    "transferFrom(address,address,uint256)": "0x23b872dd"
+   },
+   "errors": {
+    "AllowanceOverflow()": "0xf9067066",
+    "AllowanceUnderflow()": "0x8301ab38",
+    "InsufficientAllowance()": "0x13be252b",
+    "InsufficientBalance()": "0xf4d678b8",
+    "InvalidPermit()": "0xddafbaef",
+    "MintClosed()": "0x589ed34b",
+    "Permit2AllowanceIsFixedAtInfinity()": "0x3f68539a",
+    "PermitExpired()": "0x1a15a3cc",
+    "TotalSupplyOverflow()": "0xe5cfe957"
+   },
+   "events": {
+    "Approval(address,address,uint256)": "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925",
+    "Transfer(address,address,uint256)": "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+   }
+  }
+ },
+ "pins": {
+  "runtime_templates": {
+   "ZeroSeedLaunch": {
+    "bytes": 18366,
+    "keccak256": "0x707be0d4e2c25c21d6d9aafec5bb58e634118c1edade48d0dc1fd5be5de2624c"
+   },
+   "ZeroSeedLaunchPeriphery": {
+    "bytes": 6123,
+    "keccak256": "0xe6c0d086bff1c96e4f0a2e8068022795a0c74f96d15d15cd041cbea2d2e9b529"
+   },
+   "LaunchToken": {
+    "bytes": 3012,
+    "keccak256": "0xec01758e39962fca797fc966e3e541ac87c2c72814b9e1ab86d6193597b182b6"
+   }
+  },
+  "creationCode": {
+   "ZeroSeedLaunch": {
+    "bytes": 18884,
+    "keccak256": "0x6ec3a947c32774eab196724fd1a98c4eb927af430dec7ed1b111be414d85dc20"
+   },
+   "ZeroSeedLaunchPeriphery": {
+    "bytes": 6343,
+    "keccak256": "0x4698c93153732a8f4371252ca5af048a7fe5a181dbd6e26ee4e76f2c942abaf2"
+   },
+   "LaunchToken": {
+    "bytes": 3172,
+    "keccak256": "0xb92240f5b935a76e949aab04e7e9e4a0a28adc3ff1a89a349c67dcaab13ea432"
+   }
+  }
+ },
+ "supply": {
+  "min": "1",
+  "max": "1000000000000000000000000000000",
+  "type": "uint128",
+  "error": "InvalidSupply()"
+ },
+ "spacing": {
+  "rule": "s = ceil((upperTick-askTick)/256); ask = ceil(askTick/s)*s; upper = floor(upperTick/s)*s",
+  "max": 693148,
+  "skipAhead": 1,
+  "reference": "zero-seed-launch-installation.json"
+ },
+ "logo": {
+  "location": "second argument of create and final field of LaunchCreated",
+  "default": "",
+  "stored": false,
+  "in_preview_or_token_or_pool_identity": false
+ }
+}

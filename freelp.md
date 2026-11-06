@@ -81,7 +81,7 @@ Regenerate artwork fixtures explicitly:
 UPDATE_SNAPSHOTS=true FOUNDRY_PROFILE=snapshots forge test --offline --match-contract FreeLPMetadataTest
 ```
 
-Normal tests compare the fixtures read-only. Fixtures cover WETH/USDC, native/WETH stableswap, extreme ticks/decimals/IDs, and long Unicode/escaped names. Consumers should render the embedded image as an image and support escaped XML text; validators that reject every XML entity will reject legitimate token names.
+Normal tests compare the fixtures read-only. Fixtures cover a plain 18-decimal token/USDC pair, native ETH/plain-token stableswap, extreme ticks/decimals/IDs, and long Unicode/escaped names. Consumers should render the embedded image as an image and support escaped XML text; validators that reject every XML entity will reject legitimate token names.
 
 ## Gas measurements
 

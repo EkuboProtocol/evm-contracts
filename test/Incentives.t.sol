@@ -95,9 +95,8 @@ contract IncentivesTest is Test {
         emit IIncentives.Refunded(DropKey({owner: owner, token: address(t), root: root}), (funded - amount));
         i.refund(DropKey({owner: owner, token: address(t), root: root}));
         uint256 afterRefund = t.balanceOf(owner);
-        if (owner != address(i)) {} else {
-            assertEq(afterRefund - beforeRefund, 0);
-        }
+        assertEq(afterRefund - beforeRefund, owner == address(i) ? 0 : funded - amount);
+        assertEq(fetcher.getRemaining(DropKey({owner: owner, token: address(t), root: root})), 0);
     }
 
     /// forge-config: default.isolate = true

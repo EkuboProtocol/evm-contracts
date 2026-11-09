@@ -101,7 +101,7 @@ contract DeployAll is Script {
 
         address coreAddress;
         (coreAddress,) = deployIfNeeded(
-            type(Core).creationCode, DEPLOYMENT_SALT, 0x57D58BEc8A78655298a83527381eC3b0C7289c84, "Core"
+            type(Core).creationCode, DEPLOYMENT_SALT, 0x6f4c72c2a4c828D6a335F057B8a6c2dD00342b5f, "Core"
         );
         Core core = Core(payable(coreAddress));
 
@@ -109,7 +109,7 @@ contract DeployAll is Script {
             abi.encodePacked(type(MEVCapture).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
             mevCaptureCallPoints(),
-            0x5563C9b974E73A5d50B7B1867a6a0058bFdbfcbe,
+            0x55390878DdbEb38545A8b897640DcF8BC73Aa7ce,
             "MEVCapture"
         );
 
@@ -117,7 +117,7 @@ contract DeployAll is Script {
             abi.encodePacked(type(Oracle).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
             oracleCallPoints(),
-            0x51609C57B76A9ba70e636B7a483A1565671c1360,
+            0x51fFFD9036e3c6d40331ABa743ddaF9f682426cF,
             "Oracle"
         );
         Oracle oracle = Oracle(oracleAddress);
@@ -126,7 +126,7 @@ contract DeployAll is Script {
             abi.encodePacked(type(TWAMM).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
             twammCallPoints(),
-            0xD432183D53C259382c1457dA627f811d0B55c30a,
+            0xD47AB3Bce08FEb63C5581967134E1284057e2196,
             "TWAMM"
         );
         TWAMM twamm = TWAMM(twammAddress);
@@ -140,32 +140,32 @@ contract DeployAll is Script {
         deployIfNeeded(
             abi.encodePacked(type(TokenWrapperFactory).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            0x82010b9203135AbE207B5AefEC5D1E0Fb44F03B4,
+            0x23aE2F2630d926046E7a7f2e7360084Af8E43260,
             "TokenWrapperFactory"
         );
 
         deployIfNeeded(
             abi.encodePacked(type(CoreDataFetcher).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            0x8d6c0C22BfEcAd297cE39d9Ac5994F268F1CBAC5,
+            0xac239C7647f18C28234404aC207E54882F3E50cf,
             "CoreDataFetcher"
         );
         deployIfNeeded(
             abi.encodePacked(type(PoolKeyIndex).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            0x2d0d0B7668296AE221A991B1F0Ed3df25800D044,
+            0x57cD136cA2810A72ec0f39F97FEf4e11a3aB7A21,
             "PoolKeyIndex"
         );
         deployIfNeeded(
             abi.encodePacked(type(QuoteDataFetcher).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            0x90f029559f8A6470B204Ce1AF30cD95C733106F8,
+            0x1f36a06b23aD7fa8142716108f4E7D074F800038,
             "QuoteDataFetcher"
         );
         deployIfNeeded(
             abi.encodePacked(type(TWAMMDataFetcher).creationCode, abi.encode(core, twamm)),
             DEPLOYMENT_SALT,
-            0xe13b54d503944Bd13BC39bD55c38115880b94496,
+            0x1fa314aec6E3f54dEBF34C83186FC165B5BbCa19,
             "TWAMMDataFetcher"
         );
         deployIfNeeded(
@@ -177,7 +177,7 @@ contract DeployAll is Script {
         deployIfNeeded(
             abi.encodePacked(type(PriceFetcher).creationCode, abi.encode(oracle)),
             DEPLOYMENT_SALT,
-            0xeb4293935e85ee3590F406434425B769cc27E88A,
+            0xe0d60bBF41978680951dA3354B0F83dDa919B2C6,
             "PriceFetcher"
         );
         deployIfNeeded(
@@ -190,26 +190,26 @@ contract DeployAll is Script {
             abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, true)),
             DEPLOYMENT_SALT,
             boostedFeesCallPoints(true),
-            0xD4bAb223D4B8109809aFD7DfEdD2bD2C241b4360,
+            0xd49E31643052997B4B32488A21Acb7F59bf285e2,
             "BoostedFees(concentrated)"
         );
         deployExtension(
             abi.encodePacked(type(BoostedFees).creationCode, abi.encode(core, false)),
             DEPLOYMENT_SALT,
             boostedFeesCallPoints(false),
-            0x94E5f2357509336AFf54759daeeda004dcFfEc6f,
+            0x94c05da79fa415212a1CE447F5d25abe265C426A,
             "BoostedFees(stableswap)"
         );
         deployIfNeeded(
             abi.encodePacked(type(ManualPoolBooster).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            0xA455eD21A771B43F957fa46e0B300fB3b49B97F3,
+            0xfF8c0CF038b52fEEB7a93e643a79c11b16CF8999,
             "ManualPoolBooster"
         );
         deployIfNeeded(
             abi.encodePacked(type(BoostedFeesDataFetcher).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
-            0x0197B85C279Cb740b3AF5626815294E7816b61Bd,
+            0xBB7242EeF923a7809c069aB7e9dC4196C8D6E281,
             "BoostedFeesDataFetcher"
         );
 

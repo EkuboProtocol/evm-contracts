@@ -104,7 +104,10 @@ function withDefaultSqrtRatioLimit(SwapParameters params) pure returns (SwapPara
     assembly ("memory-safe") {
         let replace := iszero(shr(160, params))
         let orMask :=
-            shl(160, mul(replace, or(mul(increasing, MAX_SQRT_RATIO_RAW), mul(iszero(increasing), MIN_SQRT_RATIO_RAW))))
+            shl(
+                160,
+                mul(replace, xor(MIN_SQRT_RATIO_RAW, mul(increasing, xor(MIN_SQRT_RATIO_RAW, MAX_SQRT_RATIO_RAW))))
+            )
         updated := or(orMask, params)
     }
 }

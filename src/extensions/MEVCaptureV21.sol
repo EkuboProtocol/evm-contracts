@@ -449,7 +449,7 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
     }
 
     function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory result) {
-        (PoolKey memory poolKey, SwapParameters params) = abi.decode(data, (PoolKey, SwapParameters));
+        (PoolKey memory poolKey, SwapParameters params) = _decodeSwap(data);
         params = params.withDefaultSqrtRatioLimit();
 
         PoolId poolId = poolKey.toPoolId();
@@ -473,6 +473,25 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
 
         if (MEVCaptureV21PoolState.unwrap(next) != MEVCaptureV21PoolState.unwrap(state)) _setPoolState(poolId, next);
 
-        result = abi.encode(balanceUpdate, stateAfter);
+        assembly ("memory-safe") {
+            result := mload(0x40)
+            mstore(result, 0x40)
+            mstore(add(result, 0x20), balanceUpdate)
+            mstore(add(result, 0x40), stateAfter)
+            mstore(0x40, add(result, 0x60))
+        }
+    }
+
+    /// @notice Decodes the fixed-size forwarded swap payload without copying its pool key.
+    /// @dev Preserves the length and canonical address checks performed by `abi.decode`.
+    function _decodeSwap(bytes memory data) private pure returns (PoolKey memory poolKey, SwapParameters params) {
+        assembly ("memory-safe") {
+            if lt(mload(data), 0x80) { revert(0, 0) }
+
+            poolKey := add(data, 0x20)
+            if or(shr(160, mload(poolKey)), shr(160, mload(add(poolKey, 0x20)))) { revert(0, 0) }
+
+            params := mload(add(poolKey, 0x60))
+        }
     }
 }

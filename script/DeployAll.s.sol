@@ -109,7 +109,7 @@ contract DeployAll is Script {
             abi.encodePacked(type(MEVCapture).creationCode, abi.encode(core)),
             DEPLOYMENT_SALT,
             mevCaptureCallPoints(),
-            0x55390878DdbEb38545A8b897640DcF8BC73Aa7ce,
+            0x55Fd29e3cEF2D43A595d4D2e14FB5e5bF8af7210,
             "MEVCapture"
         );
 

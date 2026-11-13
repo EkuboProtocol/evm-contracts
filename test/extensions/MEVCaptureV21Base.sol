@@ -18,6 +18,7 @@ import {createConcentratedPoolConfig} from "../../src/types/poolConfig.sol";
 import {MEVCaptureV21, mevCaptureV21CallPoints} from "../../src/extensions/MEVCaptureV21.sol";
 import {IMEVCaptureV21} from "../../src/interfaces/extensions/IMEVCaptureV21.sol";
 import {V21Ref, V21Actor} from "./MEVCaptureV21Helpers.sol";
+import {ARB_SYS, expectedPrioritySurcharge} from "./MEVCaptureNitroHelpers.sol";
 
 /// @notice Shared setup: a v2.1 pool plus a twin pool without extension that mirrors every position. Every swap made
 ///   through `_swapChecked` is replayed on the twin by the independent reference state machine and must match exactly:
@@ -55,9 +56,52 @@ abstract contract MEVCaptureV21Base is FullTest {
     /// @notice Whether the last checked swap was the first of its timestamp
     bool internal lastWasFirst;
 
+    /// @notice What a suite deploys and the gas price its transactions pay
+    struct Variant {
+        /// @notice Deploy `MEVCaptureNitro` instead of `MEVCaptureV21`
+        bool nitro;
+        /// @notice Code installed at the ArbSys address, the clock of `MEVCaptureNitro`
+        bytes arbSysCode;
+        uint64 priorityFree;
+        uint64 prioritySlope;
+        uint64 priorityCap;
+        uint256 baseFee;
+        uint256 gasPrice;
+    }
+
+    /// @notice The gas price and base fee the test has set. Kept in storage because the optimizer may treat
+    ///   `tx.gasprice` and `block.basefee` as constant within a test function.
+    uint256 internal txGasPrice;
+    uint256 internal blockBaseFee;
+
+    /// @notice `MEVCaptureV21` by default. A suite that overrides this runs every inherited test against
+    ///   `MEVCaptureNitro`; the reference model is told the priority surcharge of the transaction, so every checked
+    ///   swap is still replayed exactly.
+    function _variant() internal view virtual returns (Variant memory v) {}
+
+    /// @notice Sets the gas price and base fee that the extension sees, and tells the reference model the priority
+    ///   surcharge that follows from them
+    function _setGas(uint256 baseFee, uint256 gasPrice) internal {
+        vm.fee(baseFee);
+        vm.txGasPrice(gasPrice);
+        blockBaseFee = baseFee;
+        txGasPrice = gasPrice;
+        cfg.prio = _expectedPrio();
+    }
+
+    /// @notice The priority surcharge the deployed variant must add to every away segment of a swap in the current
+    ///   transaction environment
+    function _expectedPrio() internal view returns (uint256) {
+        Variant memory v = _variant();
+        if (!v.nitro) return 0;
+        return expectedPrioritySurcharge(txGasPrice, blockBaseFee, v.priorityFree, v.prioritySlope, v.priorityCap);
+    }
+
     function setUp() public virtual override {
         FullTest.setUp();
         cfg = V21Ref.defaults();
+        Variant memory variant = _variant();
+        if (variant.nitro) _setGas(variant.baseFee, variant.gasPrice);
         v21 = deployV21(cfg, 0);
         router = new Router(core, address(v21), address(0));
         actor = new V21Actor(core, address(this));
@@ -69,17 +113,40 @@ abstract contract MEVCaptureV21Base is FullTest {
 
     function deployV21(V21Ref.Cfg memory c, uint160 index) internal returns (MEVCaptureV21 ext) {
         address a = address((uint160(mevCaptureV21CallPoints().toUint8()) << 152) + 0x1000 + index);
-        deployCodeTo(
-            "MEVCaptureV21.sol:MEVCaptureV21",
-            abi.encode(core, c.tau, c.slopeK, c.segExp, c.jLin, c.maxFee, c.clamp, c.mGate),
-            a
-        );
+        Variant memory variant = _variant();
+        if (variant.nitro) {
+            if (ARB_SYS.code.length == 0) vm.etch(ARB_SYS, variant.arbSysCode);
+            deployCodeTo(
+                "MEVCaptureNitro.sol:MEVCaptureNitro",
+                abi.encode(
+                    core,
+                    c.tau,
+                    c.slopeK,
+                    c.segExp,
+                    c.jLin,
+                    c.maxFee,
+                    c.clamp,
+                    c.mGate,
+                    variant.priorityFree,
+                    variant.prioritySlope,
+                    variant.priorityCap
+                ),
+                a
+            );
+        } else {
+            deployCodeTo(
+                "MEVCaptureV21.sol:MEVCaptureV21",
+                abi.encode(core, c.tau, c.slopeK, c.segExp, c.jLin, c.maxFee, c.clamp, c.mGate),
+                a
+            );
+        }
         ext = MEVCaptureV21(a);
     }
 
     function useExtension(MEVCaptureV21 ext, V21Ref.Cfg memory c) internal {
         v21 = ext;
         cfg = c;
+        cfg.prio = _expectedPrio();
     }
 
     function createPools(uint64 fee, uint32 tickSpacing, int32 tick) internal {
@@ -139,7 +206,8 @@ abstract contract MEVCaptureV21Base is FullTest {
         return _state(pool).lRefBits;
     }
 
-    function _now() internal view returns (uint32) {
+    /// @notice The extension's clock
+    function _now() internal view virtual returns (uint32) {
         return uint32(vm.getBlockTimestamp());
     }
 

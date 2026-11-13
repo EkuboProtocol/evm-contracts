@@ -31,6 +31,9 @@ library V21Ref {
         uint256 maxFee;
         uint256 clamp;
         uint256 mGate;
+        /// @notice Rate (0.64) added to the surcharge of every away segment before the cap. Zero for v2.1; the
+        ///   priority surcharge of the transaction for the Nitro variant.
+        uint256 prio;
     }
 
     struct State {
@@ -44,7 +47,7 @@ library V21Ref {
     }
 
     function defaults() internal pure returns (Cfg memory) {
-        return Cfg({tau: 120, slopeK: 4, segExp: 0, jLin: 16, maxFee: 1 << 63, clamp: 2500, mGate: 3});
+        return Cfg({tau: 120, slopeK: 4, segExp: 0, jLin: 16, maxFee: 1 << 63, clamp: 2500, mGate: 3, prio: 0});
     }
 
     function bitlen(uint256 x) internal pure returns (uint256 n) {
@@ -160,7 +163,7 @@ library V21Ref {
         uint256 d = twice < 0 ? uint256(-twice) : uint256(twice);
         uint256 den = 4 * spacing * 65536;
         uint256 num = c.slopeK * poolFee * d;
-        sur = (num + den - 1) / den;
+        sur = (num + den - 1) / den + c.prio;
         uint256 cap = c.maxFee - poolFee;
         if (sur > cap) sur = cap;
     }

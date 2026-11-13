@@ -119,6 +119,13 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
         return mevCaptureV21CallPoints();
     }
 
+    /// @notice The clock every time field of the pool state is measured on, and the unit of `HALF_LIFE`
+    /// @dev Must not decrease, and must return the same value for every call in one block. Differences are taken
+    ///   modulo 2^32.
+    function _currentTime() internal view virtual returns (uint32) {
+        return uint32(block.timestamp);
+    }
+
     function _getPoolState(PoolId poolId) internal view returns (MEVCaptureV21PoolState state) {
         assembly ("memory-safe") {
             state := sload(poolId)
@@ -181,7 +188,7 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
         if (poolFee == 0) revert NonzeroFeesOnly();
         if (poolFee >= MAX_FEE) revert PoolFeeNotBelowMaxFee();
 
-        uint32 currentTime = uint32(block.timestamp);
+        uint32 currentTime = _currentTime();
         unchecked {
             _setPoolState(
                 poolKey.toPoolId(),
@@ -213,7 +220,7 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
     {
         PoolId poolId = poolKey.toPoolId();
         MEVCaptureV21PoolState state = _getPoolState(poolId);
-        uint32 currentTime = uint32(block.timestamp);
+        uint32 currentTime = _currentTime();
         if (state.lastPosTime() != currentTime) {
             uint256 bits = bitLength(CORE.poolState(poolId).liquidity());
             _setPoolState(poolId, state.withSnapshot(currentTime, uint8(bits)));
@@ -347,9 +354,12 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
     /// @notice Surcharge rate of an away segment: ceil(SLOPE_K/2 * poolFee * |mid - anchor| / tickSpacing), capped so
     ///   that the total fee does not exceed MAX_FEE
     /// @param twiceMidOffsetX16 lo + hi - 2 * anchor, in Q16 ticks, i.e. twice the midpoint displacement
+    /// @dev An override must return a rate that is at most `MAX_FEE - poolFee`, does not decrease as
+    ///   `twiceMidOffsetX16` grows, and is the same for equal arguments throughout one swap
     function _surcharge(uint256 poolFee, uint256 twiceMidOffsetX16, uint256 spacing)
         internal
         view
+        virtual
         returns (uint256 sur)
     {
         unchecked {
@@ -585,7 +595,7 @@ contract MEVCaptureV21 is IMEVCaptureV21, BaseExtension, BaseForwardee, ExposedS
         MEVCaptureV21PoolState state = _getPoolState(poolId);
         MEVCaptureV21PoolState next = state;
         PoolState poolState = CORE.poolState(poolId);
-        uint32 currentTime = uint32(block.timestamp);
+        uint32 currentTime = _currentTime();
 
         if (state.lastUpdateTime() != currentTime) {
             bool passed;

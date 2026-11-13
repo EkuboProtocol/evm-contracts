@@ -18,7 +18,7 @@ import {PoolId} from "../../types/poolId.sol";
 interface IMEVCaptureV21 is IExposedStorage, IForwardee, IExtension {
     /// @notice The immutable configuration of the extension
     struct Config {
-        /// @notice Anchor decay half-life in seconds (tau)
+        /// @notice Anchor decay half-life (tau), in units of the extension's clock: seconds for MEV Capture v2.1
         uint32 halfLife;
         /// @notice Twice the surcharge slope k, so the slope is `slopeK / 2`
         uint8 slopeK;

@@ -126,7 +126,7 @@ contract MEVCaptureV21Test is MEVCaptureV21Base {
         V21Ref.Cfg memory c = V21Ref.defaults();
         uint256 n;
         for (uint256 i; i < 12; i++) {
-            V21Ref.Cfg memory b = V21Ref.Cfg(c.tau, c.slopeK, c.segExp, c.jLin, c.maxFee, c.clamp, c.mGate);
+            V21Ref.Cfg memory b = V21Ref.Cfg(c.tau, c.slopeK, c.segExp, c.jLin, c.maxFee, c.clamp, c.mGate, 0);
             if (i == 0) b.tau = 0;
             if (i == 1) b.tau = (1 << 20) + 1;
             if (i == 2) b.slopeK = 0;
@@ -530,7 +530,7 @@ contract MEVCaptureV21Test is MEVCaptureV21Base {
         // one uncharged bridge over 4S
         assertEq(lastCharged, 1);
         assertEq(lastBridges, 1);
-        assertEq(actor.refCall(0).sur, 7 * poolFee, "segment 4 rate");
+        assertEq(actor.refCall(0).sur, 7 * poolFee + cfg.prio, "segment 4 rate");
         uint256 accrued = ((after0 - before0) * uint256(uint128(L66 * 3))) >> 128;
         assertApproxEqAbs(accrued, lastFee0, 2, "fees per unit liquidity follow the schedule");
         (uint128 honest,) = _collect(pool, bytes24(uint192(1)), -40 * S, 40 * S);
@@ -821,7 +821,7 @@ contract MEVCaptureV21Test is MEVCaptureV21Base {
         V21Actor.RefCall memory first = actor.refCall(1);
         // segment 1 (decreasing): from the exact anchor down to grid point 0
         uint256 den = uint256(SP) << 18;
-        uint256 expected = (4 * poolFee * uint256(a) + den - 1) / den;
+        uint256 expected = (4 * poolFee * uint256(a) + den - 1) / den + cfg.prio;
         assertEq(first.kind, 0);
         assertEq(first.sur, expected, "sliver charged at the first away segment's rate, mid from exact anchor");
         assertEq(SqrtRatio.unwrap(first.limit), SqrtRatio.unwrap(tickToSqrtRatio(0)));

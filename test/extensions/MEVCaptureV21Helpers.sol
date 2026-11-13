@@ -186,8 +186,8 @@ library V21Ref {
         uint96 raw = SqrtRatio.unwrap(x) + 1;
         r = SqrtRatio.wrap(raw);
         if (!isValid(r)) {
-            uint96 region = raw & BIT_MASK;
-            r = SqrtRatio.wrap((region + TWO_POW_94) | TWO_POW_62);
+            // the step carried out of the largest mantissa into the region bits, which now name the next region
+            r = SqrtRatio.wrap((raw & BIT_MASK) | TWO_POW_62);
         }
     }
 

@@ -966,6 +966,7 @@ contract MEVCaptureV21RulesTest is MEVCaptureV21Base {
             );
             SqrtRatio highestBelow = SqrtRatio.wrap(((region - 1) << 94) | (uint96(TWO_POW_94) - 1));
             assertEq(SqrtRatio.unwrap(succSqrtRatio(highestBelow)), SqrtRatio.unwrap(lowest), "region jump up");
+            _checkAdjacent(highestBelow);
         }
         // 2^96, 2^128, 2^160 in fixed point lie on the region boundaries as valid values
         _checkAdjacent(tickToSqrtRatio(MIN_TICK + 1));

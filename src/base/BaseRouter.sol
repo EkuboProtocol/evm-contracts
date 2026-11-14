@@ -94,13 +94,12 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
         if (callType == CALL_TYPE_SINGLE_SWAP) {
             // swap
             (
-                ,
                 address swapper,
                 PoolKey memory poolKey,
                 SwapParameters params,
                 int256 calculatedAmountThreshold,
                 address recipient
-            ) = abi.decode(data, (uint256, address, PoolKey, SwapParameters, int256, address));
+            ) = _decodeSingleSwap(data);
 
             unchecked {
                 uint256 value = FixedPointMathLib.ternary(
@@ -269,6 +268,75 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
         }
     }
 
+    /// @notice Decodes the fixed-size single-swap lock payload without copying its pool key.
+    /// @dev Preserves the length and canonical address checks performed by
+    ///   `abi.decode(data, (uint256, address, PoolKey, SwapParameters, int256, address))`. The returned pool key points
+    ///   into `data`, so `data` must not be modified while the pool key is in use.
+    function _decodeSingleSwap(bytes memory data)
+        private
+        pure
+        returns (
+            address swapper,
+            PoolKey memory poolKey,
+            SwapParameters params,
+            int256 calculatedAmountThreshold,
+            address recipient
+        )
+    {
+        assembly ("memory-safe") {
+            if lt(mload(data), 0x100) { revert(0, 0) }
+
+            swapper := mload(add(data, 0x40))
+            poolKey := add(data, 0x60)
+            params := mload(add(data, 0xc0))
+            calculatedAmountThreshold := mload(add(data, 0xe0))
+            recipient := mload(add(data, 0x100))
+
+            if shr(160, or(or(swapper, recipient), or(mload(poolKey), mload(add(poolKey, 0x20))))) {
+                revert(0, 0)
+            }
+        }
+    }
+
+    /// @dev Equivalent to decoding
+    ///   `lock(abi.encode(CALL_TYPE_SINGLE_SWAP, msg.sender, poolKey, params, calculatedAmountThreshold, recipient))`
+    ///   as a `PoolBalanceUpdate`, but writes the call data once, directly into the buffer that is sent to the
+    ///   accountant, and reads the result word without copying the return data into a new allocation.
+    function _lockSingleSwap(
+        PoolKey memory poolKey,
+        SwapParameters params,
+        int256 calculatedAmountThreshold,
+        address recipient
+    ) private returns (PoolBalanceUpdate balanceUpdate) {
+        address target = address(ACCOUNTANT);
+
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+
+            // Selector of lock(), followed by the call type and the swapper
+            mstore(free, shl(224, 0xf83d08ba))
+            mstore(add(free, 4), CALL_TYPE_SINGLE_SWAP)
+            mstore(add(free, 36), caller())
+
+            // The three words of the pool key, then the remaining arguments
+            mcopy(add(free, 68), poolKey, 96)
+            mstore(add(free, 164), params)
+            mstore(add(free, 196), calculatedAmountThreshold)
+            mstore(add(free, 228), recipient)
+
+            // If the call failed, pass through the revert
+            if iszero(call(gas(), target, 0, free, 260, free, 32)) {
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
+            }
+
+            // A result shorter than one word reverts with no data, as decoding it does
+            if lt(returndatasize(), 32) { revert(0, 0) }
+
+            balanceUpdate := mload(free)
+        }
+    }
+
     /// @notice Executes a single-hop swap with a specified recipient
     /// @param poolKey Pool key identifying the pool to swap against
     /// @param params The swap parameters to execute
@@ -295,10 +363,7 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
     {
         if (calculatedAmountThreshold == type(int256).min) revert UseSwapAllowPartialFill();
 
-        (balanceUpdate) = abi.decode(
-            lock(abi.encode(CALL_TYPE_SINGLE_SWAP, msg.sender, poolKey, params, calculatedAmountThreshold, recipient)),
-            (PoolBalanceUpdate)
-        );
+        balanceUpdate = _lockSingleSwap(poolKey, params, calculatedAmountThreshold, recipient);
     }
 
     /// @notice Executes a single-hop swap with a specified recipient
@@ -338,10 +403,7 @@ abstract contract BaseRouter is UsesCore, PayableMulticallable, BaseLocker {
         payable
         returns (PoolBalanceUpdate balanceUpdate)
     {
-        (balanceUpdate) = abi.decode(
-            lock(abi.encode(CALL_TYPE_SINGLE_SWAP, msg.sender, poolKey, params, type(int256).min, recipient)),
-            (PoolBalanceUpdate)
-        );
+        balanceUpdate = _lockSingleSwap(poolKey, params, type(int256).min, recipient);
     }
 
     /// @notice Executes a single-hop swap with a specified recipient and allows for partial fills, which renders the slippage check ineffective for exact output swaps

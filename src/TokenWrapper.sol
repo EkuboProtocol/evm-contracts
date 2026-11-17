@@ -11,6 +11,7 @@ import {toDate, toQuarter} from "./libraries/TimeDescriptor.sol";
 import {CoreLib} from "./libraries/CoreLib.sol";
 import {FlashAccountantLib} from "./libraries/FlashAccountantLib.sol";
 import {Locker} from "./types/locker.sol";
+import {TokenWrapperFactory} from "./TokenWrapperFactory.sol";
 
 /// @title Time-locked Token Wrapper
 /// @author Ekubo Protocol
@@ -23,11 +24,17 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     /// @notice Thrown when trying to unwrap the token before the token has unlocked
     error TooEarly();
 
+    /// @notice Forwarded actions must contain a delta, optionally followed by a migration destination
+    error InvalidForwardDataLength();
+
     /// @notice Thrown when attempting to transfer an amount greater than the balance
     error InsufficientBalance();
 
     /// @notice Thrown when calling transferFrom with an insufficient allowance
     error InsufficientAllowance();
+
+    /// @notice The immutable backing singleton (the deployer)
+    TokenWrapperFactory public immutable FACTORY;
 
     /// @notice The underlying token that is wrapped by this contract
     IERC20 public immutable UNDERLYING_TOKEN;
@@ -40,6 +47,7 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     /// @param _underlyingToken The token to be wrapped
     /// @param _unlockTime The timestamp after which tokens can be unwrapped
     constructor(ICore core, IERC20 _underlyingToken, uint256 _unlockTime) UsesCore(core) BaseForwardee(core) {
+        FACTORY = TokenWrapperFactory(msg.sender);
         UNDERLYING_TOKEN = _underlyingToken;
         UNLOCK_TIME = _unlockTime;
     }
@@ -66,10 +74,10 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
     /// @dev Total supply is tracked in Core's saved balances
     function totalSupply() external view override returns (uint256) {
         (uint128 supply,) = CORE.savedBalances({
-            owner: address(this),
+            owner: address(FACTORY),
             token0: address(UNDERLYING_TOKEN),
             token1: address(type(uint160).max),
-            salt: bytes32(0)
+            salt: bytes32(uint256(uint160(address(this))))
         });
 
         return supply;
@@ -154,30 +162,18 @@ contract TokenWrapper is UsesCore, IERC20, BaseForwardee {
         return true;
     }
 
-    /// @notice Handles wrap/unwrap operations forwarded from Core
-    /// @dev Encode (int256 delta) in the forwarded data, where a positive amount means wrapping and a negative amount means unwrapping
-    /// For wrap: the specified amount of this wrapper token will be credited to the locker and the same amount of underlying will be debited
-    /// For unwrap: the specified amount of the underlying will be credited to the locker and the same amount of this wrapper token will be debited, iff block.timestamp > unlockTime and at least that much token has been wrapped
-    /// @param data Encoded int256 delta (positive for wrap, negative for unwrap)
-    /// @return Empty bytes (no return data needed)
-    function handleForwardData(Locker, bytes memory data) internal override returns (bytes memory) {
-        (int256 amount) = abi.decode(data, (int256));
-
-        // unwrap
-        if (amount < 0) {
-            if (block.timestamp < UNLOCK_TIME) revert TooEarly();
+    /// @notice Handles wrap, unwrap and later-unlock migration through Core.forward
+    /// @dev Encode int256 delta for wrap/unwrap, or (negative delta, destination wrapper) for migration.
+    /// The locker settles source wrapper debt and receives destination credit in the same lock.
+    /// Factory-originated calls only credit migration output; backing was already moved by the singleton.
+    function handleForwardData(Locker original, bytes memory data) internal override returns (bytes memory) {
+        if (data.length != 32 && data.length != 64) revert InvalidForwardDataLength();
+        int256 amount = abi.decode(data, (int256));
+        int128 debt = SafeCastLib.toInt128(-amount);
+        if (original.addr() != address(FACTORY)) {
+            CORE.forward(address(FACTORY), data);
         }
-
-        CORE.updateSavedBalances({
-            token0: address(UNDERLYING_TOKEN),
-            token1: address(type(uint160).max),
-            salt: bytes32(0),
-            delta0: amount,
-            delta1: 0
-        });
-
-        CORE.updateDebt(SafeCastLib.toInt128(-amount));
-
+        CORE.updateDebt(debt);
         return bytes("");
     }
 }

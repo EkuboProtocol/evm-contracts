@@ -64,7 +64,7 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 - **`RevenueBuybacks.sol`**: Uses DCA orders to push revenue into buybacks of a specific token
 - **`PositionsOwner.sol`**: Permissionlessly transfers collected revenue from a Positions contract to the Revenue Buybacks contract
 - **`TokenWrapper.sol`**: Vested token implementation that tightly integrates with Ekubo Protocol for cheaper swaps
-- **`TokenWrapperFactory.sol`**: Factory for deploying the TokenWrapper contract
+- **`TokenWrapperFactory.sol`**: Singleton for deploying wrappers and moving backing to later maturities; see [wrapper migration](TOKEN_WRAPPER_MIGRATION.md)
 
 ## License
 

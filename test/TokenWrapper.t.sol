@@ -34,7 +34,24 @@ contract TokenWrapperPeriphery is BaseLocker {
         lock(abi.encode(wrapper, msg.sender, recipient, -int256(uint256(amount))));
     }
 
+    function migrate(TokenWrapper source, TokenWrapper destination, address recipient, uint128 amount) external {
+        lock(abi.encode(source, destination, msg.sender, recipient, amount));
+    }
+
     function handleLockData(uint256, bytes memory data) internal override returns (bytes memory) {
+        if (data.length == 160) {
+            (
+                TokenWrapper source,
+                TokenWrapper destination,
+                address migrationPayer,
+                address migrationRecipient,
+                uint128 migrationAmount
+            ) = abi.decode(data, (TokenWrapper, TokenWrapper, address, address, uint128));
+            ACCOUNTANT.forward(address(source), abi.encode(-int256(uint256(migrationAmount)), destination));
+            ACCOUNTANT.withdraw(address(destination), migrationRecipient, migrationAmount);
+            ACCOUNTANT.payFrom(migrationPayer, address(source), migrationAmount);
+            return bytes("");
+        }
         (TokenWrapper wrapper, address payer, address recipient, int256 amount) =
             abi.decode(data, (TokenWrapper, address, address, int256));
 
@@ -166,6 +183,77 @@ contract TokenWrapperTest is FullTest {
             assertEq(underlying.balanceOf(recipient), oldBalance + unwrapAmount, "Didn't transfer underlying");
             assertEq(wrapper.totalSupply(), wrapAmount - unwrapAmount);
         }
+    }
+
+    function testMigrate(uint96 rawAmount, uint96 rawPartial, uint64 rawTime) public {
+        uint128 amount = uint128(bound(rawAmount, 1, type(uint96).max));
+        uint128 migrateAmount = uint128(bound(rawPartial, 1, amount));
+        uint256 unlock = uint256(rawTime) + 100;
+        TokenWrapper source = factory.deployWrapper(IERC20(address(underlying)), unlock);
+        TokenWrapper destination = factory.deployWrapper(IERC20(address(underlying)), unlock + 100);
+        underlying.approve(address(periphery), amount);
+        periphery.wrap(source, amount);
+        source.approve(address(periphery), amount);
+        vm.warp(unlock - 1);
+        periphery.migrate(source, destination, address(0x1234), migrateAmount);
+        assertEq(source.totalSupply(), amount - migrateAmount);
+        assertEq(source.balanceOf(address(this)), amount - migrateAmount);
+        assertEq(destination.totalSupply(), migrateAmount);
+        assertEq(destination.balanceOf(address(0x1234)), migrateAmount);
+        assertEq(underlying.balanceOf(address(core)), amount);
+        vm.prank(address(0x1234));
+        destination.approve(address(periphery), migrateAmount);
+        vm.warp(unlock);
+        vm.prank(address(0x1234));
+        vm.expectRevert(TokenWrapper.TooEarly.selector);
+        periphery.unwrap(destination, migrateAmount);
+        vm.warp(unlock + 100);
+        vm.prank(address(0x1234));
+        periphery.unwrap(destination, address(this), migrateAmount);
+        periphery.unwrap(source, amount - migrateAmount);
+        assertEq(underlying.balanceOf(address(core)), 0);
+    }
+
+    function testMigrationRejectsInvalidDestinations() public {
+        TokenWrapper source = factory.deployWrapper(IERC20(address(underlying)), 100);
+        TokenWrapper earlier = factory.deployWrapper(IERC20(address(underlying)), 99);
+        TokenWrapper different = factory.deployWrapper(IERC20(address(token0)), 200);
+        TokenWrapperFactory otherFactory = new TokenWrapperFactory(core);
+        TokenWrapper foreign = otherFactory.deployWrapper(IERC20(address(underlying)), 200);
+        TokenWrapper[5] memory invalid = [source, earlier, different, foreign, TokenWrapper(address(0xdead))];
+        for (uint256 i; i < invalid.length; i++) {
+            vm.expectRevert(TokenWrapperFactory.InvalidMigration.selector);
+            periphery.migrate(source, invalid[i], address(this), 1);
+        }
+        assertEq(source.totalSupply(), 0);
+    }
+
+    function testMigrationUnpaidInputRollsBack() public {
+        TokenWrapper source = factory.deployWrapper(IERC20(address(underlying)), 100);
+        TokenWrapper destination = factory.deployWrapper(IERC20(address(underlying)), 200);
+        underlying.approve(address(periphery), 10);
+        periphery.wrap(source, 10);
+        vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
+        periphery.migrate(source, destination, address(this), 10);
+        assertEq(source.totalSupply(), 10);
+        assertEq(source.balanceOf(address(this)), 10);
+        assertEq(destination.totalSupply(), 0);
+        assertEq(destination.balanceOf(address(this)), 0);
+        assertEq(underlying.balanceOf(address(core)), 10);
+    }
+
+    /// forge-config: default.isolate = true
+    function testMigrateGas() public {
+        TokenWrapper source = factory.deployWrapper(IERC20(address(underlying)), 100);
+        TokenWrapper destination = factory.deployWrapper(IERC20(address(underlying)), 200);
+        underlying.approve(address(periphery), 10);
+        periphery.wrap(source, 10);
+        source.approve(address(periphery), 10);
+        coolAllContracts();
+        vm.cool(address(source));
+        vm.cool(address(destination));
+        periphery.migrate(source, destination, address(this), 5);
+        vm.snapshotGasLastCall("migrate");
     }
 
     /// forge-config: default.isolate = true

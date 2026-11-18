@@ -121,6 +121,24 @@ contract TokenWrapperInvariantHandler is StdAssertions {
         }
     }
 
+    function migrate(uint256 holder, uint256 recipient, uint96 rawAmount) external {
+        holder %= 3;
+        recipient %= 3;
+        if (claims[0][holder] == 0) return;
+        uint128 amount = uint128(1 + uint256(rawAmount) % claims[0][holder]);
+        bool insufficientAllowance = approvals[0][holder][3] < amount;
+        vm.prank(holders[holder]);
+        if (insufficientAllowance) vm.expectRevert(SafeTransferLib.TransferFromFailed.selector);
+        periphery.migrate(wrappers[0], wrappers[1], holders[recipient], amount);
+        if (!insufficientAllowance) {
+            _spend(0, holder, 3, amount);
+            claims[0][holder] -= amount;
+            claims[1][recipient] += amount;
+            redemptions[0] += amount;
+            deposits[1] += amount;
+        }
+    }
+
     function advanceTime(uint256 delta) external {
         vm.warp(vm.getBlockTimestamp() + delta % 11);
     }
@@ -167,13 +185,14 @@ contract TokenWrapperInvariantTest is Test {
         vm.warp(1);
         handler = new TokenWrapperInvariantHandler(vm);
         targetContract(address(handler));
-        bytes4[] memory selectors = new bytes4[](6);
+        bytes4[] memory selectors = new bytes4[](7);
         selectors[0] = handler.wrap.selector;
         selectors[1] = handler.transfer.selector;
         selectors[2] = handler.approve.selector;
         selectors[3] = handler.transferFrom.selector;
         selectors[4] = handler.unwrap.selector;
         selectors[5] = handler.advanceTime.selector;
+        selectors[6] = handler.migrate.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
@@ -182,6 +201,21 @@ contract TokenWrapperInvariantTest is Test {
     /// forge-config: ci.invariant.runs = 64
     /// forge-config: ci.invariant.depth = 64
     function invariant_claimsAndBackingMatchCashFlows() public view {
+        handler.checkAccounting();
+    }
+
+    function test_migrationCashFlowLedger() public {
+        handler.wrap(0, 0, 0, 100);
+        handler.approve(0, 0, 3, 0, true);
+        handler.migrate(0, 1, 39);
+        handler.checkAccounting();
+        handler.advanceTime(10);
+        handler.approve(1, 1, 3, 0, true);
+        handler.unwrap(1, 1, 2, 40); // The original maturity must not unlock migrated claims.
+        handler.checkAccounting();
+        handler.advanceTime(10);
+        handler.unwrap(1, 1, 2, 40);
+        handler.unwrap(0, 0, 0, 60);
         handler.checkAccounting();
     }
 

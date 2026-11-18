@@ -11,6 +11,7 @@ import {BoostedFees, boostedFeesCallPoints} from "../src/extensions/BoostedFees.
 import {MEVCapture, mevCaptureCallPoints} from "../src/extensions/MEVCapture.sol";
 import {Incentives} from "../src/Incentives.sol";
 import {TokenWrapperFactory} from "../src/TokenWrapperFactory.sol";
+import {legacyTokenWrapperFactoryInitCode} from "./libraries/LegacyTokenWrapperFactoryInitCode.sol";
 import {CoreDataFetcher} from "../src/lens/CoreDataFetcher.sol";
 import {IncentivesDataFetcher} from "../src/lens/IncentivesDataFetcher.sol";
 import {QuoteDataFetcher} from "../src/lens/QuoteDataFetcher.sol";
@@ -94,13 +95,24 @@ function deployExtension(
 contract DeployAll is Script {
     bytes32 constant DEPLOYMENT_SALT = 0x28f4114b40904ad1cfbb42175a55ad64187c1b299773bd6318baa292375cf0dd;
 
+    address constant CORE_ADDRESS = 0x00000000000014aA86C5d3c41765bb24e11bd701;
+    address constant LEGACY_WRAPPER_FACTORY = 0xAA166592922C4020cEfA23448054AD070211790a;
+    address constant MIGRATION_WRAPPER_FACTORY_CANDIDATE = 0x7105Fe519a896606FDf4f9fc7645FAF1E6e19C1A;
+
     function run() public {
+        // Check the new generation's identity without adding it to the deployment sequence.
+        address candidate = getCreate2Address(
+            DEPLOYMENT_SALT,
+            keccak256(abi.encodePacked(type(TokenWrapperFactory).creationCode, abi.encode(CORE_ADDRESS)))
+        );
+        if (candidate != MIGRATION_WRAPPER_FACTORY_CANDIDATE) {
+            revert UnexpectedAddress("MigrationTokenWrapperFactory", MIGRATION_WRAPPER_FACTORY_CANDIDATE, candidate);
+        }
+
         vm.startBroadcast();
 
         address coreAddress;
-        (coreAddress,) = deployIfNeeded(
-            type(Core).creationCode, DEPLOYMENT_SALT, 0x00000000000014aA86C5d3c41765bb24e11bd701, "Core"
-        );
+        (coreAddress,) = deployIfNeeded(type(Core).creationCode, DEPLOYMENT_SALT, CORE_ADDRESS, "Core");
         Core core = Core(payable(coreAddress));
 
         deployExtension(
@@ -136,10 +148,7 @@ contract DeployAll is Script {
         Incentives incentives = Incentives(incentivesAddress);
 
         deployIfNeeded(
-            abi.encodePacked(type(TokenWrapperFactory).creationCode, abi.encode(core)),
-            DEPLOYMENT_SALT,
-            0xAA166592922C4020cEfA23448054AD070211790a,
-            "TokenWrapperFactory"
+            legacyTokenWrapperFactoryInitCode(), DEPLOYMENT_SALT, LEGACY_WRAPPER_FACTORY, "TokenWrapperFactory"
         );
 
         deployIfNeeded(

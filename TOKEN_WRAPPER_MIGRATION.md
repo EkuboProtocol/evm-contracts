@@ -34,6 +34,8 @@ This changes the wrapper creation bytecode and backing owner/salt. It requires a
 
 ERC-20 metadata, transfer and allowance behavior, the constructor argument list, factory deployment event and ordinary 32-byte wrap/unwrap payload remain unchanged. Wrappers must now be deployed through this factory rather than standalone. `FACTORY()` and `isWrapper(address)` expose membership. `Migrated(source, destination, amount)` records the backing conversion; wallet transfers continue to use the existing Core transfer event semantics.
 
+`DeployAll` still uses the exact legacy factory init code from the checked-in Ethereum broadcast record. With the canonical Core constructor argument, existing deployment salt, and deterministic deployer, it derives `0xAA166592922C4020cEfA23448054AD070211790a`. Under those same inputs, the migration factory derives `0x7105Fe519a896606FDf4f9fc7645FAF1E6e19C1A`. `DeployAll` checks the latter address before starting its broadcast sequence; it does not deploy the migration factory. That address is a candidate, not a production address.
+
 Integrators must update CREATE2 predictions to the new bytecode, read the new backing owner/salt if bypassing `totalSupply()`, and distinguish factory generations. Routing support should add a directed, exact 1:1 edge only between registered wrappers of the same factory/underlying and increasing maturity. The UI must disclose the later unlock time before obtaining approval for a migration. This PR does not deploy contracts or enable these edges in production routing.
 
 ## Verification

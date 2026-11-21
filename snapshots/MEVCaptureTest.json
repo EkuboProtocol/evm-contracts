@@ -9,7 +9,7 @@
   "output_token0_no_movement": "115193",
   "output_token1_move_tick_spacings": "114807",
   "output_token1_no_movement": "114807",
-  "positions withdraw after fees accumulate": "153619",
+  "positions withdraw after fees accumulate": "153220",
   "second_swap_with_additional_fees_gas_price": "97064",
   "third_swap_accumulates_fees": "110106"
 }

@@ -127,6 +127,34 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             TWAMM_EXTENSION.executeVirtualOrdersAndGetCurrentOrderInfo(address(this), bytes32(id), orderKey);
     }
 
+    function _forwardSaleRate(uint256 id, OrderKey memory orderKey, int112 saleRateDelta)
+        private
+        returns (int256 amount)
+    {
+        ICore core = CORE;
+        address twamm = address(TWAMM_EXTENSION);
+        assembly ("memory-safe") {
+            let free := mload(0x40)
+
+            // forward(address) followed by ABI words: action, order ID, order key, signed delta.
+            mstore(free, shl(224, 0x101e8952))
+            mstore(add(free, 4), twamm)
+            mstore(add(free, 36), 0)
+            mstore(add(free, 68), id)
+            // The key's address words are canonical from the lock callback's ABI decoder.
+            mcopy(add(free, 100), orderKey, 96)
+            mstore(add(free, 196), signextend(13, saleRateDelta))
+
+            if iszero(call(gas(), core, 0, free, 228, free, 32)) {
+                returndatacopy(free, 0, returndatasize())
+                revert(free, returndatasize())
+            }
+            // A short result reverts just as abi.decode(result, (int256)) would.
+            if lt(returndatasize(), 32) { revert(0, 0) }
+            amount := mload(free)
+        }
+    }
+
     /// @notice Handles lock callback data for order operations
     /// @dev Internal function that processes different types of order operations
     /// @param data Encoded operation data
@@ -138,8 +166,7 @@ contract Orders is IOrders, UsesCore, PayableMulticallable, BaseLocker, BaseNonf
             (, address recipientOrPayer, uint256 id, OrderKey memory orderKey, int256 saleRateDelta) =
                 abi.decode(data, (uint256, address, uint256, OrderKey, int256));
 
-            int256 amount =
-                CORE.updateSaleRate(TWAMM_EXTENSION, bytes32(id), orderKey, SafeCastLib.toInt112(saleRateDelta));
+            int256 amount = _forwardSaleRate(id, orderKey, SafeCastLib.toInt112(saleRateDelta));
 
             if (amount != 0) {
                 address sellToken = orderKey.sellToken();

@@ -68,14 +68,14 @@ These are useful for integrating or extending the functionality of Ekubo Protoco
 
 ## Solidity compilation on `next`
 
-All profiles use **Foundry v1.8.7** and standalone **Solar v0.3.0**:
+All profiles use **Foundry v1.8.7** and standalone **Solar v0.3.1**:
 
 ```bash
 forge build --offline
 forge test --offline --gas-snapshot-check=true
 ```
 
-Install Solar v0.3.0 from the [official release](https://github.com/paradigmxyz/solar/releases/tag/v0.3.0)
+Install Solar v0.3.1 from the [official release](https://github.com/paradigmxyz/solar/releases/tag/v0.3.1)
 and put its binary **before Foundry's directory on `PATH`**. Foundry v1.8.7's
 bundled Solar reports v0.2.0 and cannot compile this project's assembly. The
 CI workflows pin and verify the standalone Linux binary and use Solar for
